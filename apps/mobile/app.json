@@ -1,0 +1,58 @@
+{
+    "expo": {
+        "name": "Zalo Faker",
+        "slug": "zalo-faker",
+        "version": "1.0.0",
+        "orientation": "portrait",
+        "icon": "./assets/icon.png",
+        "scheme": "zalo-faker",
+        "userInterfaceStyle": "automatic",
+        "splash": {
+            "image": "./assets/splash.png",
+            "resizeMode": "contain",
+            "backgroundColor": "#0068FF"
+        },
+        "assetBundlePatterns": [
+            "**/*"
+        ],
+        "ios": {
+            "supportsTablet": true,
+            "bundleIdentifier": "com.zalofaker.app",
+            "infoPlist": {
+                "NSCameraUsageDescription": "This app needs camera access for video calls and taking photos.",
+                "NSMicrophoneUsageDescription": "This app needs microphone access for voice and video calls.",
+                "NSPhotoLibraryUsageDescription": "This app needs photo library access to share photos."
+            }
+        },
+        "android": {
+            "package": "com.zalofaker.app",
+            "adaptiveIcon": {
+                "foregroundImage": "./assets/adaptive-icon.png",
+                "backgroundColor": "#0068FF"
+            },
+            "permissions": [
+                "CAMERA",
+                "RECORD_AUDIO",
+                "READ_EXTERNAL_STORAGE",
+                "WRITE_EXTERNAL_STORAGE"
+            ]
+        },
+        "web": {
+            "favicon": "./assets/favicon.png",
+            "bundler": "metro"
+        },
+        "plugins": [
+            "expo-router",
+            [
+                "expo-notifications",
+                {
+                    "icon": "./assets/notification-icon.png",
+                    "color": "#0068FF"
+                }
+            ]
+        ],
+        "experiments": {
+            "typedRoutes": true
+        }
+    }
+}

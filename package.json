@@ -1,0 +1,37 @@
+{
+  "name": "zalo-faker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A modern messaging application with chat, voice/video calls, and AI chatbot",
+  "scripts": {
+    "dev": "pnpm run --parallel dev",
+    "dev:web": "pnpm --filter @zalo-faker/web dev",
+    "dev:mobile": "pnpm --filter @zalo-faker/mobile start",
+    "dev:server": "pnpm --filter @zalo-faker/server dev",
+    "build": "pnpm run --parallel build",
+    "build:web": "pnpm --filter @zalo-faker/web build",
+    "build:server": "pnpm --filter @zalo-faker/server build",
+    "lint": "pnpm run --parallel lint",
+    "test": "pnpm run --parallel test",
+    "clean": "pnpm run --parallel clean && rimraf node_modules"
+  },
+  "keywords": [
+    "messaging",
+    "chat",
+    "video-call",
+    "react",
+    "react-native",
+    "nodejs"
+  ],
+  "author": "Zalo Faker Team",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0",
+    "pnpm": ">=8.0.0"
+  },
+  "packageManager": "pnpm@8.15.0",
+  "devDependencies": {
+    "rimraf": "^5.0.5",
+    "typescript": "^5.3.3"
+  }
+}
