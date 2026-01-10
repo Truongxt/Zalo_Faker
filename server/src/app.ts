@@ -1,15 +1,15 @@
+// IMPORTANT: Import env first to load dotenv
+import './config/env.js'
+
 import express from 'express'
 import { createServer } from 'http'
 import { Server } from 'socket.io'
 import cors from 'cors'
 import helmet from 'helmet'
 import morgan from 'morgan'
-import dotenv from 'dotenv'
-
-// Load environment variables
-dotenv.config()
 
 // Import configurations
+import { config, validateConfig } from './config/env.js'
 import { connectMongoDB } from './config/database.js'
 import { setupSocketHandlers } from './socket/index.js'
 
@@ -21,13 +21,16 @@ import groupRoutes from './modules/group/group.routes.js'
 import mediaRoutes from './modules/media/media.routes.js'
 import aiRoutes from './modules/ai/ai.routes.js'
 
+// Validate config on startup
+validateConfig()
+
 const app = express()
 const httpServer = createServer(app)
 
 // Socket.io setup
 const io = new Server(httpServer, {
     cors: {
-        origin: process.env.CLIENT_URL || 'http://localhost:3000',
+        origin: config.clientUrl,
         methods: ['GET', 'POST'],
         credentials: true
     }
@@ -36,7 +39,7 @@ const io = new Server(httpServer, {
 // Middleware
 app.use(helmet())
 app.use(cors({
-    origin: process.env.CLIENT_URL || 'http://localhost:3000',
+    origin: config.clientUrl,
     credentials: true
 }))
 app.use(morgan('dev'))
@@ -69,7 +72,7 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
     res.status(statusCode).json({
         success: false,
         message,
-        ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
+        ...(config.nodeEnv === 'development' && { stack: err.stack })
     })
 })
 
@@ -82,17 +85,15 @@ app.use((req, res) => {
 })
 
 // Start server
-const PORT = process.env.PORT || 4000
-
 async function startServer() {
     try {
         // Connect to MongoDB
         await connectMongoDB()
 
-        httpServer.listen(PORT, () => {
-            console.log(`🚀 Server running on http://localhost:${PORT}`)
+        httpServer.listen(config.port, () => {
+            console.log(`🚀 Server running on http://localhost:${config.port}`)
             console.log(`📡 Socket.io ready for connections`)
-            console.log(`🔧 Environment: ${process.env.NODE_ENV || 'development'}`)
+            console.log(`🔧 Environment: ${config.nodeEnv}`)
         })
     } catch (error) {
         console.error('Failed to start server:', error)

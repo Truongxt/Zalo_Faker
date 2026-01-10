@@ -1,7 +1,8 @@
+import { config } from './env.js'
 import mongoose from 'mongoose'
 
 export async function connectMongoDB() {
-    const uri = process.env.MONGODB_URI
+    const uri = config.mongodbUri
 
     if (!uri) {
         console.warn('⚠️ MONGODB_URI not set, skipping MongoDB connection')

@@ -1,5 +1,7 @@
+import { useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { useAuthStore } from '@/stores/authStore'
+import { supabase } from '@/lib/supabase'
 
 // Pages
 import Login from '@/pages/Login'
@@ -9,19 +11,24 @@ import ChatRoom from '@/pages/ChatRoom'
 import Profile from '@/pages/Profile'
 import Settings from '@/pages/Settings'
 
+// Loading component
+function LoadingScreen() {
+    return (
+        <div className="flex items-center justify-center h-screen bg-gray-50 dark:bg-dark-100">
+            <div className="flex flex-col items-center gap-4">
+                <div className="w-12 h-12 border-4 border-primary-500 border-t-transparent rounded-full animate-spin" />
+                <p className="text-gray-600 dark:text-gray-400">Đang tải...</p>
+            </div>
+        </div>
+    )
+}
+
 // Auth guard component
 function PrivateRoute({ children }: { children: React.ReactNode }) {
     const { user, isLoading } = useAuthStore()
 
     if (isLoading) {
-        return (
-            <div className="flex items-center justify-center h-screen bg-gray-50 dark:bg-dark-100">
-                <div className="flex flex-col items-center gap-4">
-                    <div className="w-12 h-12 border-4 border-primary-500 border-t-transparent rounded-full animate-spin" />
-                    <p className="text-gray-600 dark:text-gray-400">Đang tải...</p>
-                </div>
-            </div>
-        )
+        return <LoadingScreen />
     }
 
     if (!user) {
@@ -35,7 +42,7 @@ function PublicRoute({ children }: { children: React.ReactNode }) {
     const { user, isLoading } = useAuthStore()
 
     if (isLoading) {
-        return null
+        return <LoadingScreen />
     }
 
     if (user) {
@@ -46,6 +53,43 @@ function PublicRoute({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
+    const { setUser, setAccessToken, logout, isLoading, initialized } = useAuthStore()
+
+    useEffect(() => {
+        // Listen for auth state changes
+        const { data: { subscription } } = supabase.auth.onAuthStateChange(
+            async (event, session) => {
+                console.log('Auth event:', event)
+
+                if (event === 'SIGNED_IN' && session?.user) {
+                    setUser({
+                        id: session.user.id,
+                        email: session.user.email || null,
+                        phone: session.user.phone || null,
+                        fullName: session.user.user_metadata?.full_name || 'User',
+                        avatarUrl: session.user.user_metadata?.avatar_url || null,
+                        bio: null,
+                        status: 'online',
+                        lastSeen: null,
+                        createdAt: session.user.created_at
+                    })
+                    setAccessToken(session.access_token)
+                } else if (event === 'SIGNED_OUT') {
+                    logout()
+                }
+            }
+        )
+
+        return () => {
+            subscription.unsubscribe()
+        }
+    }, [setUser, setAccessToken, logout])
+
+    // Show loading only if not initialized yet (first load before rehydration)
+    if (isLoading && !initialized) {
+        return <LoadingScreen />
+    }
+
     return (
         <BrowserRouter>
             <Routes>
