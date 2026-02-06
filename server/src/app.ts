@@ -1,4 +1,7 @@
-// IMPORTANT: Import env first to load dotenv
+// ==================== MAIN APP ====================
+// Entry point của server
+
+// Load environment variables FIRST
 import './config/env.js'
 
 import express from 'express'
@@ -8,26 +11,24 @@ import cors from 'cors'
 import helmet from 'helmet'
 import morgan from 'morgan'
 
-// Import configurations
-import { config, validateConfig } from './config/env.js'
+// Config
+import { config } from './config/env.js'
 import { connectMongoDB } from './config/database.js'
-import { setupSocketHandlers } from './socket/index.js'
 
-// Import routes
-import authRoutes from './modules/auth/auth.routes.js'
-import userRoutes from './modules/user/user.routes.js'
-import conversationRoutes from './modules/chat/conversation.routes.js'
-import groupRoutes from './modules/group/group.routes.js'
-import mediaRoutes from './modules/media/media.routes.js'
-import aiRoutes from './modules/ai/ai.routes.js'
+// Routes (MVC pattern)
+import routes from './routes/index.js'
 
-// Validate config on startup
-validateConfig()
+// Middlewares
+import { errorMiddleware } from './middlewares/index.js'
 
+// Socket handlers
+import { setupSocket } from './socket/index.js'
+
+// Create Express app
 const app = express()
 const httpServer = createServer(app)
 
-// Socket.io setup
+// Socket.io
 const io = new Server(httpServer, {
     cors: {
         origin: config.clientUrl,
@@ -36,7 +37,7 @@ const io = new Server(httpServer, {
     }
 })
 
-// Middleware
+// ==================== MIDDLEWARES ====================
 app.use(helmet())
 app.use(cors({
     origin: config.clientUrl,
@@ -46,57 +47,50 @@ app.use(morgan('dev'))
 app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
 
+// ==================== ROUTES ====================
+
 // Health check
 app.get('/health', (req, res) => {
-    res.json({ status: 'ok', timestamp: new Date().toISOString() })
+    res.json({
+        success: true,
+        message: 'Server is running',
+        timestamp: new Date().toISOString()
+    })
 })
 
 // API routes
-app.use('/api/auth', authRoutes)
-app.use('/api/users', userRoutes)
-app.use('/api/conversations', conversationRoutes)
-app.use('/api/groups', groupRoutes)
-app.use('/api/media', mediaRoutes)
-app.use('/api/ai', aiRoutes)
+app.use('/api', routes)
 
-// Socket.io handlers
-setupSocketHandlers(io)
+// ==================== SOCKET.IO ====================
+setupSocket(io)
 
-// Error handling middleware
-app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-    console.error('Error:', err)
-
-    const statusCode = err.statusCode || 500
-    const message = err.message || 'Internal Server Error'
-
-    res.status(statusCode).json({
-        success: false,
-        message,
-        ...(config.nodeEnv === 'development' && { stack: err.stack })
-    })
-})
+// ==================== ERROR HANDLING ====================
+app.use(errorMiddleware)
 
 // 404 handler
 app.use((req, res) => {
     res.status(404).json({
         success: false,
-        message: 'Route not found'
+        message: 'Route không tồn tại'
     })
 })
 
-// Start server
+// ==================== START SERVER ====================
 async function startServer() {
     try {
-        // Connect to MongoDB
+        // Connect MongoDB
         await connectMongoDB()
 
+        // Start listening
         httpServer.listen(config.port, () => {
+            console.log('='.repeat(50))
             console.log(`🚀 Server running on http://localhost:${config.port}`)
-            console.log(`📡 Socket.io ready for connections`)
+            console.log(`📡 Socket.io ready`)
             console.log(`🔧 Environment: ${config.nodeEnv}`)
+            console.log('='.repeat(50))
         })
     } catch (error) {
-        console.error('Failed to start server:', error)
+        console.error('❌ Failed to start server:', error)
         process.exit(1)
     }
 }
