@@ -1,0 +1,119 @@
+const { dynamodb } = require("../utils/aws-helper");
+const { v4: uuidv4 } = require("uuid");
+
+const tableName = "Message";
+
+const MessageModel = {
+  createMessage: async messageData => {
+    const messageId = uuidv4();
+    const params = {
+      TableName: tableName,
+      Item: {
+        _id: messageId,
+        conversationId: messageData.conversationId,
+        senderId: messageData.senderId,
+        type: messageData.type, // 'text' | 'image' | 'video' | 'file'
+        content: messageData.content,
+        replyTo: messageData.replyTo || null,
+        reactions: messageData.reactions || [], // Array of Reaction
+        readBy: messageData.readBy || [], // Array of ReadReceipt
+        isDeleted: messageData.isDeleted || false,
+        createdAt: new Date().toISOString()
+      }
+    };
+    try {
+      await dynamodb.put(params).promise();
+      return { _id: messageId, ...messageData };
+    } catch (error) {
+      console.error("Error creating message:", error);
+      throw error;
+    }
+  },
+
+  getMessages: async () => {
+    const params = { TableName: tableName };
+    try {
+      const messages = await dynamodb.scan(params).promise();
+      return messages.Items;
+    } catch (error) {
+      console.error("Error getting messages:", error);
+      throw error;
+    }
+  },
+
+  updateMessage: async (messageId, messageData) => {
+    const updateFields = [];
+    const ExpressionAttributeNames = {};
+    const ExpressionAttributeValues = {};
+    const allowedFields = ["conversationId", "senderId", "type", "content", "replyTo", "reactions", "readBy", "isDeleted"];
+    allowedFields.forEach(field => {
+      if (messageData[field] !== undefined) {
+        updateFields.push(`#${field} = :${field}`);
+        ExpressionAttributeNames[`#${field}`] = field;
+        ExpressionAttributeValues[`:${field}`] = messageData[field];
+      }
+    });
+    const params = {
+      TableName: tableName,
+      Key: { _id: messageId },
+      UpdateExpression: `set ${updateFields.join(", ")}`,
+      ExpressionAttributeNames,
+      ExpressionAttributeValues,
+      ReturnValues: "ALL_NEW"
+    };
+    try {
+      const updatedMessage = await dynamodb.update(params).promise();
+      return updatedMessage.Attributes;
+    } catch (error) {
+      console.error("Error updating message:", error);
+      throw error;
+    }
+  },
+
+  deleteMessage: async messageId => {
+    const params = {
+      TableName: tableName,
+      Key: { _id: messageId }
+    };
+    try {
+      await dynamodb.delete(params).promise();
+      return { _id: messageId };
+    } catch (error) {
+      console.error("Error deleting message:", error);
+      throw error;
+    }
+  },
+
+  getOneMessage: async messageId => {
+    const params = {
+      TableName: tableName,
+      KeyConditionExpression: "_id = :id",
+      ExpressionAttributeValues: { ":id": messageId }
+    };
+    try {
+      const data = await dynamodb.query(params).promise();
+      return data.Items[0];
+    } catch (error) {
+      console.error("Error getting one message:", error);
+      throw error;
+    }
+  },
+
+  // Methods for reactions and read receipts
+  addReaction: async (messageId, userId, emoji) => {
+    // Add a reaction to the message
+    // ...existing code...
+  },
+
+  removeReaction: async (messageId, userId, emoji) => {
+    // Remove a reaction from the message
+    // ...existing code...
+  },
+
+  markAsRead: async (messageId, userId) => {
+    // Mark message as read by user
+    // ...existing code...
+  }
+};
+
+module.exports = MessageModel;

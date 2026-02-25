@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quản lý Môn học</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f5f5f5; padding: 20px; }
+    h1 { text-align: center; color: #333; margin-bottom: 30px; }
+    
+    .container { max-width: 1200px; margin: 0 auto; }
+
+    /* Form thêm subject */
+    .form-container {
+      background: white; border-radius: 8px; padding: 20px; margin-bottom: 30px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .form-container h2 { margin-bottom: 15px; color: #444; }
+    .form-group { margin-bottom: 12px; }
+    .form-group label { display: block; margin-bottom: 5px; font-weight: bold; color: #555; }
+    .form-group input, .form-group select {
+      width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;
+    }
+    .btn { padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; }
+    .btn-primary { background-color: #0068ff; color: white; }
+    .btn-danger { background-color: #e74c3c; color: white; }
+    .btn-warning { background-color: #f39c12; color: white; }
+    .btn:hover { opacity: 0.9; }
+
+    /* Bảng hiển thị subjects */
+    table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    th, td { padding: 12px 15px; text-align: left; border-bottom: 1px solid #eee; }
+    th { background-color: #0068ff; color: white; }
+    tr:hover { background-color: #f9f9f9; }
+    img { width: 60px; height: 60px; object-fit: cover; border-radius: 4px; }
+    .actions { display: flex; gap: 5px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>📚 Quản lý Môn học - Zalo Faker</h1>
+
+    <!-- Form thêm mới -->
+    <div class="form-container">
+      <h2>Thêm môn học mới</h2>
+      <form id="createForm" enctype="multipart/form-data">
+        <div class="form-group">
+          <label>Tên môn học</label>
+          <input type="text" name="name" required placeholder="Nhập tên môn học...">
+        </div>
+        <div class="form-group">
+          <label>Loại</label>
+          <input type="text" name="type" required placeholder="Lý thuyết / Thực hành...">
+        </div>
+        <div class="form-group">
+          <label>Học kỳ</label>
+          <input type="text" name="semester" required placeholder="HK1, HK2...">
+        </div>
+        <div class="form-group">
+          <label>Khoa</label>
+          <input type="text" name="faculty" required placeholder="Công nghệ thông tin...">
+        </div>
+        <div class="form-group">
+          <label>Hình ảnh</label>
+          <input type="file" name="image" accept="image/*">
+        </div>
+        <button type="submit" class="btn btn-primary">Thêm môn học</button>
+      </form>
+    </div>
+
+    <!-- Bảng danh sách -->
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Hình ảnh</th>
+          <th>Tên môn học</th>
+          <th>Loại</th>
+          <th>Học kỳ</th>
+          <th>Khoa</th>
+          <th>Hành động</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% if (subjects && subjects.length > 0) { %>
+          <% subjects.forEach((subject, index) => { %>
+            <tr>
+              <td><%= index + 1 %></td>
+              <td>
+                <% if (subject.image) { %>
+                  <img src="<%= subject.image %>" alt="<%= subject.name %>">
+                <% } else { %>
+                  <span>Không có ảnh</span>
+                <% } %>
+              </td>
+              <td><%= subject.name %></td>
+              <td><%= subject.type %></td>
+              <td><%= subject.semester %></td>
+              <td><%= subject.faculty %></td>
+              <td class="actions">
+                <button class="btn btn-danger btn-delete" data-id="<%= subject.id %>" data-name="<%= subject.name %>">Xoá</button>
+              </td>
+            </tr>
+          <% }) %>
+        <% } else { %>
+          <tr>
+            <td colspan="7" style="text-align: center; padding: 20px;">Chưa có môn học nào</td>
+          </tr>
+        <% } %>
+      </tbody>
+    </table>
+  </div>
+
+  <script>
+    // Xử lý form thêm mới
+    document.getElementById("createForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const formData = new FormData(e.target);
+      try {
+        const res = await fetch("/subjects", { method: "POST", body: formData });
+        const data = await res.json();
+        if (data.success) {
+          alert("Thêm môn học thành công!");
+          window.location.reload();
+        } else {
+          alert("Lỗi: " + data.message);
+        }
+      } catch (err) {
+        alert("Lỗi kết nối server!");
+        console.error(err);
+      }
+    });
+
+    // Xử lý xoá
+    document.querySelectorAll(".btn-delete").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const id = btn.dataset.id;
+        const name = btn.dataset.name;
+        if (!confirm(`Bạn có chắc muốn xoá môn "${name}"?`)) return;
+        try {
+          const res = await fetch(`/subjects/${id}`, {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name }),
+          });
+          const data = await res.json();
+          if (data.success) {
+            alert("Xoá thành công!");
+            window.location.reload();
+          } else {
+            alert("Lỗi: " + data.message);
+          }
+        } catch (err) {
+          alert("Lỗi kết nối server!");
+          console.error(err);
+        }
+      });
+    });
+  </script>
+</body>
+</html>
