@@ -12,13 +12,17 @@
   "license": "ISC",
   "dependencies": {
     "aws-sdk": "^2.1693.0",
+    "bcryptjs": "^3.0.3",
     "body-parser": "^2.2.2",
+    "cors": "^2.8.6",
     "dotenv": "^17.3.1",
     "ejs": "^4.0.1",
     "express": "^5.2.1",
     "express-session": "^1.19.0",
+    "jsonwebtoken": "^9.0.3",
     "multer": "^2.0.2",
     "nodemon": "^3.1.14",
+    "ulid": "^3.0.2",
     "uuid": "^13.0.0"
   }
 }
