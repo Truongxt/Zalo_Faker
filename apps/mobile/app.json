@@ -13,7 +13,7 @@
       "backgroundColor": "#0068FF"
     },
     "web": {
-      "output": "static",
+      "output": "single",
       "favicon": "./src/assets/favicon.png"
     },
     "plugins": [

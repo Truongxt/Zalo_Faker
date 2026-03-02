@@ -1,12 +1,12 @@
 import { View, Text, ScrollView, TouchableOpacity, Alert } from "react-native";
 import { useRouter } from "expo-router";
 import { useAuthStore } from "@/stores/authStore";
-import { authService } from "@/services/auth";
+import { userService } from "@/services";
 import { Avatar } from "@/components/ui/Avatar";
 
 export default function ProfileScreen() {
   const router = useRouter();
-  const { user, logout } = useAuthStore();
+  const { user, logout, refreshToken } = useAuthStore();
 
   const handleLogout = () => {
     Alert.alert("Đăng xuất", "Bạn có chắc muốn đăng xuất?", [
@@ -15,9 +15,16 @@ export default function ProfileScreen() {
         text: "Đăng xuất",
         style: "destructive",
         onPress: async () => {
-          await authService.logout();
-          logout();
-          router.replace("/(auth)/login");
+          try {
+            if (refreshToken) {
+              await userService.logout(refreshToken);
+            }
+          } catch {
+            // ignore logout errors
+          } finally {
+            logout();
+            router.replace("/(auth)/login");
+          }
         },
       },
     ]);
