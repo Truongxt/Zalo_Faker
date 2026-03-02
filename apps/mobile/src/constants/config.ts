@@ -1,10 +1,8 @@
-const devApiUrl = "http://192.168.1.100:4000"; // Fallback nếu không có .env
-
 export const API_URL =
-  process.env.EXPO_PUBLIC_API_URL || devApiUrl;
+  process.env.EXPO_PUBLIC_API_URL || "http://192.168.0.108:3000";
 
 export const SOCKET_URL =
-  process.env.EXPO_PUBLIC_API_URL || devApiUrl;
+  process.env.EXPO_PUBLIC_API_URL || "http://192.168.0.108:3000";
 
 export const APP_CONFIG = {
   name: "Zalo Faker",

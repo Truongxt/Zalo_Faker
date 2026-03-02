@@ -31,6 +31,15 @@ const UserModel = {
   getOne: async params => {
     const data = await dynamodb.query(params).promise();
     return data.Items[0];
+  },
+
+  getByEmail: async email => {
+    const data = await dynamodb.scan({
+      TableName: tableName,
+      FilterExpression: "email = :email",
+      ExpressionAttributeValues: { ":email": email },
+    }).promise();
+    return data.Items[0] || null;
   }
 };
 

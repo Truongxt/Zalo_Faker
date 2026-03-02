@@ -1,9 +1,11 @@
 const { getDefaultConfig } = require("expo/metro-config");
-const { withNativewind } = require("nativewind/metro");
+const { withNativeWind } = require("nativewind/metro");
 
 const config = getDefaultConfig(__dirname);
 
-module.exports = withNativewind(config, {
-  inlineVariables: false,
-  globalClassNamePolyfill: false,
+// Fix for import.meta error on web
+config.resolver.unstable_enablePackageExports = false;
+
+module.exports = withNativeWind(config, {
+  input: "./src/global.css",
 });

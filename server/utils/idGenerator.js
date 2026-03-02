@@ -1,8 +1,8 @@
 const { ulid } = require("ulid");
 
 const generateId = async (prefix = "") => {
-  const id = ulid(); // sortable theo thời gian
-  return prefix ? `${prefix}_${id}` : id;
+  // DynamoDB key type = N → return numeric timestamp-based ID
+  return Date.now();
 };
 
 exports.generateId = generateId;

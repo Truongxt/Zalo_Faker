@@ -12,13 +12,10 @@ import {
 } from "react-native";
 import { Link, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useAuthStore } from "@/stores/authStore";
-import { authService } from "@/services/auth";
 
 export default function RegisterScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { setUser, setAccessToken } = useAuthStore();
 
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
@@ -40,23 +37,23 @@ export default function RegisterScreen() {
       return;
     }
 
-    setIsLoading(true);
-    try {
-      const { user, accessToken } = await authService.register(
-        fullName,
-        email,
-        password,
-      );
-      setUser(user);
-      setAccessToken(accessToken);
-      router.replace("/(tabs)/chats");
-    } catch (error: any) {
-      Alert.alert("Lỗi", error.message || "Đăng ký thất bại");
-    } finally {
-      setIsLoading(false);
-    }
+    //   setIsLoading(true);
+    //   try {
+    //     // const { user, accessToken } = await authService.register(
+    //     //   fullName,
+    //     //   email,
+    //     //   password,
+    //     // );
+    //     setUser(user);
+    //     setAccessToken(accessToken);
+    //     router.replace("/(tabs)/chats");
+    //   } catch (error: any) {
+    //     Alert.alert("Lỗi", error.message || "Đăng ký thất bại");
+    //   } finally {
+    //     setIsLoading(false);
+    //   }
+    // };
   };
-
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === "ios" ? "padding" : "height"}

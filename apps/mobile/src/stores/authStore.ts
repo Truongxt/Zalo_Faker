@@ -1,101 +1,83 @@
 import { create } from "zustand";
-import { createJSONStorage, persist } from "zustand/middleware";
-import AsyncStorage from "@/lib/storage";
-import { supabase } from "@/lib/supabase";
+import { persist, createJSONStorage } from "zustand/middleware";
 import type { User } from "@/types";
+import storage from "@/lib/storage";
 
 interface AuthState {
   user: User | null;
   accessToken: string | null;
+  refreshToken: string | null;
   isLoading: boolean;
+  isAuthenticated: boolean;
   initialized: boolean;
-  error: string | null;
 
   // Actions
   setUser: (user: User | null) => void;
   setAccessToken: (token: string | null) => void;
-  setError: (error: string | null) => void;
+  setRefreshToken: (token: string | null) => void;
+  setLoading: (loading: boolean) => void;
+  login: (user: User, accessToken: string, refreshToken?: string) => void;
   logout: () => void;
-  updateProfile: (updates: Partial<User>) => void;
+  updateUser: (updates: Partial<User>) => void;
   initialize: () => Promise<void>;
 }
 
 export const useAuthStore = create<AuthState>()(
   persist(
-    (set, get) => ({
+    (set) => ({
       user: null,
       accessToken: null,
+      refreshToken: null,
       isLoading: true,
+      isAuthenticated: false,
       initialized: false,
-      error: null,
 
-      setUser: (user) => set({ user, isLoading: false }),
+      setUser: (user) => set({ user, isAuthenticated: !!user }),
 
       setAccessToken: (accessToken) => set({ accessToken }),
 
-      setError: (error) => set({ error, isLoading: false }),
+      setRefreshToken: (refreshToken) => set({ refreshToken }),
+
+      setLoading: (isLoading) => set({ isLoading }),
+
+      login: (user, accessToken, refreshToken) =>
+        set({
+          user,
+          accessToken,
+          refreshToken: refreshToken ?? null,
+          isAuthenticated: true,
+          isLoading: false,
+        }),
 
       logout: () =>
         set({
           user: null,
           accessToken: null,
+          refreshToken: null,
+          isAuthenticated: false,
           isLoading: false,
-          error: null,
         }),
 
-      updateProfile: (updates) =>
+      updateUser: (updates) =>
         set((state) => ({
           user: state.user ? { ...state.user, ...updates } : null,
         })),
 
       initialize: async () => {
-        if (get().initialized) return;
-
-        try {
-          const {
-            data: { session },
-          } = await supabase.auth.getSession();
-
-          if (session?.user) {
-            const user: User = {
-              id: session.user.id,
-              email: session.user.email || null,
-              phone: session.user.phone || null,
-              fullName:
-                session.user.user_metadata?.full_name || "User",
-              avatarUrl:
-                session.user.user_metadata?.avatar_url || null,
-              bio: null,
-              status: "online",
-              lastSeen: null,
-              createdAt: session.user.created_at,
-            };
-            set({
-              user,
-              accessToken: session.access_token,
-              isLoading: false,
-              initialized: true,
-            });
-          } else {
-            set({ isLoading: false, initialized: true });
-          }
-        } catch {
-          set({ isLoading: false, initialized: true });
-        }
+        set({ initialized: true, isLoading: false });
       },
     }),
     {
       name: "auth-storage",
-      storage: createJSONStorage(() => AsyncStorage),
+      storage: createJSONStorage(() => storage),
       partialize: (state) => ({
         user: state.user,
         accessToken: state.accessToken,
+        refreshToken: state.refreshToken,
+        isAuthenticated: state.isAuthenticated,
       }),
       onRehydrateStorage: () => (state) => {
-        if (state) {
-          state.isLoading = false;
-          state.initialized = true;
-        }
+        state?.setLoading(false);
       },
     }
   )
