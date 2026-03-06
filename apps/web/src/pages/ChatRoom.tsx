@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect, FormEvent } from 'react'
 import { useParams } from 'react-router-dom'
-import { useChatStore } from '@/stores/chatStore'
+import { useChatStore, type Message } from '@/stores/chatStore'
 import { useAuthStore } from '@/stores/authStore'
-import { chatService } from '@/services/chat'
+import { getUserById } from '@/data/mockData'
 import { formatDistanceToNow } from 'date-fns'
 import { vi } from 'date-fns/locale'
 import {
@@ -48,10 +48,13 @@ export default function ChatRoom() {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
     }, [messages])
 
-    // Load messages when conversation changes
+    // Set active conversation when navigating
     useEffect(() => {
         if (conversationId) {
-            chatService.loadMessages(conversationId)
+            const conv = useChatStore.getState().getConversationById(conversationId)
+            if (conv) {
+                useChatStore.getState().setActiveConversation(conv)
+            }
         }
     }, [conversationId])
 
@@ -64,25 +67,37 @@ export default function ChatRoom() {
         setReplyTo(null)
         setIsLoading(true)
 
-        try {
-            await chatService.sendMessage(conversationId, {
-                type: 'text',
-                content: { text: messageText },
-                replyTo: replyTo || undefined
-            })
-        } catch (error) {
-            console.error('Failed to send message:', error)
-            // Optionally restore message
-            setMessage(messageText)
-        } finally {
-            setIsLoading(false)
+        // Mock: create message locally (replace with chatService.sendMessage when backend is ready)
+        const newMsg: Message = {
+            id: `msg-${Date.now()}`,
+            conversationId,
+            senderId: user.id,
+            type: 'text',
+            content: { text: messageText },
+            replyTo: replyTo || undefined,
+            reactions: [],
+            readBy: [],
+            isDeleted: false,
+            createdAt: new Date().toISOString(),
         }
+        addMessage(conversationId, newMsg)
+
+        // Update conversation's lastMessage
+        useChatStore.getState().updateConversation(conversationId, {
+            lastMessage: {
+                content: messageText,
+                type: 'text',
+                senderId: user.id,
+                timestamp: newMsg.createdAt,
+            },
+            updatedAt: newMsg.createdAt,
+        })
+
+        setIsLoading(false)
     }
 
     const handleTyping = () => {
-        if (conversationId) {
-            chatService.sendTyping(conversationId)
-        }
+        // Mock: no-op (replace with chatService.sendTyping when backend is ready)
     }
 
     const getOtherParticipant = () => {
@@ -176,12 +191,17 @@ export default function ChatRoom() {
                         messages[index - 1].senderId !== msg.senderId
                     )
 
+                    // Lookup sender info for avatar
+                    const sender = getUserById(msg.senderId)
+
                     return (
                         <MessageBubble
                             key={msg.id}
                             message={msg}
                             isSent={isSent}
                             showAvatar={showAvatar}
+                            senderName={sender?.fullName}
+                            senderAvatar={sender?.avatarUrl ?? undefined}
                             onReply={() => setReplyTo(msg.id)}
                         />
                     )
@@ -194,22 +214,31 @@ export default function ChatRoom() {
             </div>
 
             {/* Reply preview */}
-            {replyTo && (
-                <div className="px-4 py-2 bg-gray-50 dark:bg-dark-300 border-t border-gray-200 dark:border-gray-800 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                        <Reply className="w-4 h-4 text-gray-500" />
-                        <span className="text-sm text-gray-600 dark:text-gray-400">
-                            Đang trả lời tin nhắn
-                        </span>
+            {replyTo && (() => {
+                const repliedMsg = messages.find(m => m.id === replyTo)
+                const repliedSender = repliedMsg ? getUserById(repliedMsg.senderId) : null
+                return (
+                    <div className="px-4 py-2 bg-gray-50 dark:bg-dark-300 border-t border-gray-200 dark:border-gray-800 flex items-center justify-between">
+                        <div className="flex items-center gap-2 min-w-0">
+                            <Reply className="w-4 h-4 text-primary-500 flex-shrink-0" />
+                            <div className="min-w-0">
+                                <p className="text-xs font-medium text-primary-500">
+                                    {repliedSender?.fullName || 'Người dùng'}
+                                </p>
+                                <p className="text-sm text-gray-600 dark:text-gray-400 truncate">
+                                    {repliedMsg?.content.text || 'Tin nhắn'}
+                                </p>
+                            </div>
+                        </div>
+                        <button
+                            onClick={() => setReplyTo(null)}
+                            className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded flex-shrink-0"
+                        >
+                            <X className="w-4 h-4 text-gray-500" />
+                        </button>
                     </div>
-                    <button
-                        onClick={() => setReplyTo(null)}
-                        className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded"
-                    >
-                        <X className="w-4 h-4 text-gray-500" />
-                    </button>
-                </div>
-            )}
+                )
+            })()}
 
             {/* Input */}
             <div className="p-4 border-t border-gray-200 dark:border-gray-800">
