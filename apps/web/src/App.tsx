@@ -1,9 +1,8 @@
-import { useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { useAuthStore } from '@/stores/authStore'
-import { supabase } from '@/lib/supabase'
 
 // Pages
+import Landing from '@/pages/Landing'
 import Login from '@/pages/Login'
 import Register from '@/pages/Register'
 import ChatLayout from '@/pages/ChatLayout'
@@ -53,37 +52,14 @@ function PublicRoute({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
-    const { setUser, setAccessToken, logout, isLoading, initialized } = useAuthStore()
+    const { isLoading, initialized } = useAuthStore()
 
-    useEffect(() => {
-        // Listen for auth state changes
-        const { data: { subscription } } = supabase.auth.onAuthStateChange(
-            async (event, session) => {
-                console.log('Auth event:', event)
-
-                if (event === 'SIGNED_IN' && session?.user) {
-                    setUser({
-                        id: session.user.id,
-                        email: session.user.email || null,
-                        phone: session.user.phone || null,
-                        fullName: session.user.user_metadata?.full_name || 'User',
-                        avatarUrl: session.user.user_metadata?.avatar_url || null,
-                        bio: null,
-                        status: 'online',
-                        lastSeen: null,
-                        createdAt: session.user.created_at
-                    })
-                    setAccessToken(session.access_token)
-                } else if (event === 'SIGNED_OUT') {
-                    logout()
-                }
-            }
-        )
-
-        return () => {
-            subscription.unsubscribe()
-        }
-    }, [setUser, setAccessToken, logout])
+    // NOTE: Supabase auth listener disabled for mock mode.
+    // Uncomment and restore when backend is ready:
+    // useEffect(() => {
+    //     const { data: { subscription } } = supabase.auth.onAuthStateChange(...)
+    //     return () => subscription.unsubscribe()
+    // }, [])
 
     // Show loading only if not initialized yet (first load before rehydration)
     if (isLoading && !initialized) {
@@ -143,8 +119,14 @@ export default function App() {
                     </PrivateRoute>
                 } />
 
-                {/* Default redirect */}
-                <Route path="/" element={<Navigate to="/chat" replace />} />
+                {/* Landing page (public) */}
+                <Route path="/" element={
+                    <PublicRoute>
+                        <Landing />
+                    </PublicRoute>
+                } />
+
+                {/* Catch-all */}
                 <Route path="*" element={<Navigate to="/chat" replace />} />
             </Routes>
         </BrowserRouter>
