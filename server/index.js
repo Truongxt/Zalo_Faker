@@ -4,6 +4,7 @@ const express = require("express");
 const cors = require("cors");
 
 const userRoutes = require("./routes/userRoutes");
+const groupRoutes = require("./routes/groupRoutes");
 
 const app = express();
 
@@ -13,6 +14,7 @@ app.use(express.json());
 
 // ===== Routes =====
 app.use("/api/users", userRoutes);
+app.use("/api/groups", groupRoutes);
 
 // ===== Health check =====
 app.get("/", (req, res) => {
