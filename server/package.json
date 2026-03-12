@@ -5,12 +5,16 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "nodemon index.js"
+    "start": "nodemon index.js",
+    "db:create-friends": "node scripts/create-friends-table.js",
+    "db:seed-users": "node scripts/seed-users.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.1007.0",
+    "@aws-sdk/lib-dynamodb": "^3.1007.0",
     "aws-sdk": "^2.1693.0",
     "bcryptjs": "^3.0.3",
     "body-parser": "^2.2.2",
@@ -25,5 +29,8 @@
     "socket.io": "^4.8.3",
     "ulid": "^3.0.2",
     "uuid": "^13.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.4.0"
   }
 }

@@ -100,10 +100,11 @@ export interface Contact {
   addedAt: string;
 }
 
-export interface FriendRequest {
+export interface Friends {
   id: string;
-  fromUser: User;
-  toUserId: string;
+  fromUserId: number;
+  toUserId: number;
+  fromUser?: User;
   message?: string;
   status: "pending" | "accepted" | "rejected";
   createdAt: string;

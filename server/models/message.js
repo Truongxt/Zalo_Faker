@@ -98,6 +98,23 @@ const MessageModel = {
       throw error;
     }
   },
+  getMessagesByConversationId: async (conversationId) => {
+    // conversationId không phải Partition Key → không dùng query() được
+    // Phải dùng scan() + FilterExpression (hoặc tạo GSI để tối ưu sau)
+    const params = {
+      TableName: tableName,
+      FilterExpression: "conversationId = :conversationId",
+      ExpressionAttributeValues: { ":conversationId": conversationId }
+    };
+    try {
+      const data = await dynamodb.scan(params).promise();
+      // Sắp xếp theo thời gian tạo (cũ → mới)
+      return data.Items.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+    } catch (error) {
+      console.error("Error getting messages by conversation id:", error);
+      throw error;
+    }
+  },
 
   // Methods for reactions and read receipts
   addReaction: async (messageId, userId, emoji) => {

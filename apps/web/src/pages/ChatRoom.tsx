@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, FormEvent } from 'react'
 import { useParams } from 'react-router-dom'
 import { useChatStore, type Message } from '@/stores/chatStore'
 import { useAuthStore } from '@/stores/authStore'
-import { getUserById } from '@/data/mockData'
+// getUserById đã được thay bằng tra cứu participants
 import { formatDistanceToNow } from 'date-fns'
 import { vi } from 'date-fns/locale'
 import {
@@ -20,6 +20,8 @@ import {
 } from 'lucide-react'
 import MessageBubble from '@/components/chat/MessageBubble'
 import TypingIndicator from '@/components/chat/TypingIndicator'
+import { getMessages } from '@/services/api'
+
 
 export default function ChatRoom() {
     const { conversationId } = useParams<{ conversationId: string }>()
@@ -27,6 +29,7 @@ export default function ChatRoom() {
     const {
         activeConversation,
         getMessagesForConversation,
+        setMessages,
         typingUsers,
         addMessage,
         setActiveConversation
@@ -48,6 +51,15 @@ export default function ChatRoom() {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
     }, [messages])
 
+    useEffect(() => {
+        if (!conversationId) return
+        const msgs = getMessagesForConversation(conversationId)
+        if (msgs.length === 0) {
+            getMessages(conversationId).then(data => {
+                setMessages(conversationId, data)
+            })
+        }
+    }, [conversationId])
     // Set active conversation when navigating
     useEffect(() => {
         if (conversationId) {
@@ -145,7 +157,7 @@ export default function ChatRoom() {
                         ) : (
                             <div className="w-10 h-10 rounded-full bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center">
                                 <span className="text-primary-600 dark:text-primary-400 font-medium">
-                                    {conversationName.charAt(0).toUpperCase()}
+                                    {conversationName?.charAt(0).toUpperCase()}
                                 </span>
                             </div>
                         )}
@@ -192,7 +204,7 @@ export default function ChatRoom() {
                     )
 
                     // Lookup sender info for avatar
-                    const sender = getUserById(msg.senderId)
+                    const sender = activeConversation?.participants.find(p => p.userId === msg.senderId)
 
                     return (
                         <MessageBubble
@@ -216,7 +228,7 @@ export default function ChatRoom() {
             {/* Reply preview */}
             {replyTo && (() => {
                 const repliedMsg = messages.find(m => m.id === replyTo)
-                const repliedSender = repliedMsg ? getUserById(repliedMsg.senderId) : null
+                const repliedSender = repliedMsg ? activeConversation?.participants.find(p => p.userId === repliedMsg.senderId) : null
                 return (
                     <div className="px-4 py-2 bg-gray-50 dark:bg-dark-300 border-t border-gray-200 dark:border-gray-800 flex items-center justify-between">
                         <div className="flex items-center gap-2 min-w-0">

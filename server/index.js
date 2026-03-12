@@ -8,8 +8,6 @@ const socketConfig = require("./config/socket");
 
 
 const userRoutes = require("./routes/userRoutes");
-const groupRoutes = require("./routes/groupRoutes");
-
 const friendRoutes = require("./routes/friendRoutes");
 const app = express();
 
@@ -17,9 +15,14 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+
 // ===== Routes =====
+const conversationRoutes = require("./routes/conversationRoutes");
+const messageRoutes = require("./routes/messageRoutes");
+
 app.use("/api/users", userRoutes);
-app.use("/api/groups", groupRoutes);
+app.use("/api/conversations", conversationRoutes);
+app.use("/api/messages", messageRoutes);
 app.use("/api/friends", friendRoutes);
 // ===== Health check =====
 app.get("/", (req, res) => {

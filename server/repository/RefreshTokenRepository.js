@@ -1,4 +1,4 @@
-const {dynamoDB} = require("../utils/aws-helper");
+const {dynamodb} = require("../utils/aws-helper");
 
 const tableName = "RefreshToken";
 
@@ -10,7 +10,7 @@ const refreshTokenRepository = {
       Item: token
     };
 
-    await dynamoDB.put(params).promise();
+    await dynamodb.put(params).promise();
     return token;
   },
 
@@ -22,7 +22,7 @@ const refreshTokenRepository = {
       }
     };
 
-    const result = await dynamoDB.get(params).promise();
+    const result = await dynamodb .get(params).promise();
     return result.Item;
   },
 
@@ -34,7 +34,7 @@ const refreshTokenRepository = {
       }
     };
 
-    await dynamoDB.delete(params).promise();
+    await dynamodb.delete(params).promise();
   }
 
 };
