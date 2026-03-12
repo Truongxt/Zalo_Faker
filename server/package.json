@@ -5,7 +5,9 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "nodemon index.js"
+    "start": "nodemon index.js",
+    "db:create-friends": "node scripts/create-friends-table.js",
+    "db:seed-users": "node scripts/seed-users.js"
   },
   "keywords": [],
   "author": "",
@@ -24,6 +26,7 @@
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.0.2",
     "nodemon": "^3.1.14",
+    "socket.io": "^4.8.3",
     "ulid": "^3.0.2",
     "uuid": "^13.0.0"
   },

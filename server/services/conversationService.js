@@ -1,5 +1,5 @@
 const conversationModel = require("../models/conversation")
-
+const participantModel = require("../models/participant")
 
 const createConversation = async (conversation) => {
     return await conversationModel.createConversation(conversation)

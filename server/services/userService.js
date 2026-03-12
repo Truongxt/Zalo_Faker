@@ -1,12 +1,13 @@
-const UserModel = require("../models/user");
+
 const { generateId } = require("../utils/idGenerator");
 const bcrypt = require("bcryptjs");
 const {
   signAccessToken,
   signRefreshToken
 } = require("../utils/jwt");
-const RefreshTokenModel = require("../models/refreshTokenModel");
 
+const userRepository = require("../repository/userRepository");
+const refreshTokenRepository = require("../repository/RefreshTokenRepository");
 const tableName = "User";
 
 const UserService = {
@@ -18,7 +19,7 @@ const UserService = {
     if (!email || !password || !userName||!gender||!phone||!status||!avartarUrl||!birthday) {
       throw new Error("Email, password, and userName are required");
     }
-    const existingUser = await UserModel.getByEmail(email);
+    const existingUser = await userRepository.getByEmail(email);
     if (existingUser) {
       throw new Error("Email already exists");
     }
@@ -38,11 +39,11 @@ const UserService = {
       userName: userData.userName
     };
 
-    return await UserModel.create(user);
+    return await userRepository.register(user);
   },
 
   getUsers: async () => {
-    return await UserModel.getAll();
+    return await userRepository.getAll();
   },
 updateUser: async (userId, userData) => {
 
@@ -90,16 +91,14 @@ updateUser: async (userId, userData) => {
       ReturnValues: "ALL_NEW"
     };
 
-    return await UserModel.update(params);
+    return await userRepository.update(params);
   },
 
-  deleteUser: async userId => {
-    return await UserModel.delete(userId);
-  },
+ 
 
  login: async (email, password) => {
 
-  const users = await UserModel.getAll();
+  const users = await userRepository.getAll();
   const user = users.find(u => u.email === email);
   if (!user) throw new Error("User not found");
 
@@ -115,7 +114,7 @@ updateUser: async (userId, userData) => {
   const refreshToken = signRefreshToken(payload);
 
   // 👉 lưu refresh token DB
-  await RefreshTokenModel.create({
+  await refreshTokenRepository.create({
     refreshToken,
     userId: user.userId,
     createdAt: new Date().toISOString()
@@ -130,9 +129,16 @@ updateUser: async (userId, userData) => {
   };
 },
 logout: async refreshToken => {
-  await RefreshTokenModel.delete(refreshToken);
+  await refreshTokenRepository.delete(refreshToken);
   return { message: "Logged out" };
+},
+getByPhone: async phone => {
+  return await userRepository.getByPhone(phone);
+},
+getById: async userId => {
+  return await userRepository.getById(userId);
 }
+
 };
 
 module.exports = UserService;

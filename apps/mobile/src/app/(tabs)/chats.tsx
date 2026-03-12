@@ -38,20 +38,6 @@ export default function ChatsScreen() {
 
   return (
     <View className="flex-1 bg-white">
-      {/* Search bar */}
-      <View className="px-4 py-2 bg-white border-b border-gray-100">
-        <View className="flex-row items-center bg-gray-100 rounded-lg px-3 h-10">
-          <Text className="mr-2">🔍</Text>
-          <TextInput
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            placeholder="Tìm kiếm"
-            className="flex-1 text-gray-900"
-            placeholderTextColor="#9CA3AF"
-          />
-        </View>
-      </View>
-
       {/* Conversations list */}
       <FlatList
         data={filteredConversations}
@@ -76,17 +62,6 @@ export default function ChatsScreen() {
           </View>
         }
       />
-
-      {/* FAB - New conversation */}
-      <TouchableOpacity
-        onPress={() => {
-          /* TODO: New conversation */
-        }}
-        className="absolute bottom-6 right-6 w-14 h-14 rounded-full bg-[#0068FF] items-center justify-center shadow-lg"
-        activeOpacity={0.8}
-      >
-        <Text className="text-white text-2xl">✏️</Text>
-      </TouchableOpacity>
     </View>
   );
 }
