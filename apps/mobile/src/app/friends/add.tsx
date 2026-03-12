@@ -68,13 +68,15 @@ export default function AddFriend() {
                   <QRCode value={`userId:${user.id}`} size={200} />
                 </View>
                 <View className="absolute bottom-16 bg-black rounded-full w-12 h-12 items-center justify-center">
-                  <Text className="text-white font-bold text-xs">Zalo</Text>
+                  <Text className="text-white font-bold text-xs">
+                    Dâij ka nhan
+                  </Text>
                 </View>
               </View>
             </View>
 
             <Text className="text-white text-sm mt-4 text-center">
-              Quét mã để thêm bạn Zalo với tôi
+              Quét mã để thêm bạn HIhihaha với tôi
             </Text>
           </View>
         </View>
