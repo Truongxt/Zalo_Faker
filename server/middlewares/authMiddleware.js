@@ -1,4 +1,4 @@
-const { verifyToken } = require("../utils/jwt.js");
+const { verifyAccessToken } = require("../utils/jwt.js");
 
 const authMiddleware = (req, res, next) => {
   try {
@@ -14,7 +14,7 @@ const authMiddleware = (req, res, next) => {
       return res.status(401).json({ message: "Invalid token format" });
     }
 
-    const decoded = verifyToken(token);
+    const decoded = verifyAccessToken(token);
 
     
     req.user = decoded;

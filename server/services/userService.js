@@ -131,7 +131,14 @@ updateUser: async (userId, userData) => {
 logout: async refreshToken => {
   await refreshTokenRepository.delete(refreshToken);
   return { message: "Logged out" };
+},
+getByPhone: async phone => {
+  return await userRepository.getByPhone(phone);
+},
+getById: async userId => {
+  return await userRepository.getById(userId);
 }
+
 };
 
 module.exports = UserService;

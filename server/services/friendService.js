@@ -1,27 +1,43 @@
 const friendRepository = require("../repository/friendsRepository")
 
+const createError = (message, statusCode) => {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
+};
+
 const FriendService = {
 
   // gửi lời mời kết bạn
-  async sendFriendRequest(userId, friendId) {
+  async sendFriendRequest(fromUserId, toUserId, message) {
 
-    if (userId === friendId) {
-      throw new Error("You cannot add yourself as a friend");
+    fromUserId = Number(fromUserId);
+    toUserId = Number(toUserId);
+
+    if (fromUserId === toUserId) {
+      throw createError("You cannot add yourself as a friend", 400);
     }
 
-    const existing = await friendRepository.getFriend(userId, friendId);
+    const existing = await friendRepository.getExitingFriend(fromUserId, toUserId);
 
     if (existing) {
-      throw new Error("Friend request already exists");
+      if (existing.status === "accepted") {
+        throw createError("You are already friends", 409);
+      }
+
+      throw createError("Friend request already exists", 409);
     }
 
-    return await friendRepository.createFriendRequest(userId, friendId);
+    return await friendRepository.createFriendRequest(fromUserId, toUserId, message);
   },    
 
   // chấp nhận lời mời
-  async acceptFriendRequest(userId, friendId) {
+  async acceptFriendRequest(fromUserId, toUserId) {
 
-    const request = await friendRepository.getFriend(userId, friendId);
+    fromUserId = Number(fromUserId);
+    toUserId = Number(toUserId);
+
+    const request = await friendRepository.getFriend(fromUserId, toUserId);
 
     if (!request) {
       throw new Error("Friend request not found");
@@ -31,20 +47,20 @@ const FriendService = {
       throw new Error("Request already processed");
     }
 
-    return await friendRepository.acceptRequest(userId, friendId);
+    return await friendRepository.acceptRequest(fromUserId, toUserId);
   },
 
   // lấy danh sách bạn
   async getFriends(userId) {
-    return await friendRepository.getFriends(userId);
+    return await friendRepository.getFriends(Number(userId));
   },
 
   // lấy danh sách request đang chờ
   async getPendingRequests(userId) {
-
-    const friends = await friendRepository.getFriends(userId);
-
-    return friends.filter(f => f.status === "pending");
+    return await friendRepository.getPendingRequests(Number(userId));
+  },
+  async getExitingFriend(fromUserId, toUserId) {
+    return await friendRepository.getExitingFriend(Number(fromUserId), Number(toUserId));
   }
 
 }
