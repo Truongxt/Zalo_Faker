@@ -5,7 +5,9 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "nodemon index.js"
+    "start": "nodemon index.js",
+    "db:create-friends": "node scripts/create-friends-table.js",
+    "db:seed-users": "node scripts/seed-users.js"
   },
   "keywords": [],
   "author": "",

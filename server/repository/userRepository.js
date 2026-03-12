@@ -1,7 +1,7 @@
 const { get } = require("../models/refreshTokenModel");
 const {dynamodb} = require("../utils/aws-helper");
 const User=require("../models/userModel");
-const tableName="Users";
+const tableName="User";
 const userRepository={
     async register(user){
         await dynamodb.put({
@@ -38,7 +38,7 @@ const userRepository={
      async getById(userId) {
     const result = await dynamodb.get({
       TableName: tableName,
-      Key: { userId }
+      Key: { userId: Number(userId) }
     }).promise();
 
     return result.Item;
@@ -46,7 +46,7 @@ const userRepository={
     async updateUser(userId, userData) {
         const user=await dynamodb.get({
             TableName:tableName,
-            Key:{userId}
+            Key:{userId: Number(userId)}
         }).promise();
 
         if(!user.Item){

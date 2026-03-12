@@ -1,14 +1,19 @@
 import { View, Text } from "react-native";
 
 interface AvatarProps {
-  name: string;
+  name?: string;
   uri?: string | null;
   size?: number;
   isGroup?: boolean;
 }
 
-export function Avatar({ name, uri, size = 40, isGroup = false }: AvatarProps) {
-  const initials = name
+export function Avatar({
+  name = "User",
+  uri,
+  size = 40,
+  isGroup = false,
+}: AvatarProps) {
+  const initials = (name ?? "User")
     .split(" ")
     .map((n) => n[0])
     .join("")
@@ -25,8 +30,9 @@ export function Avatar({ name, uri, size = 40, isGroup = false }: AvatarProps) {
   ];
 
   const colorIndex =
-    name.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0) %
-    bgColors.length;
+    (name ?? "User")
+      .split("")
+      .reduce((acc, char) => acc + char.charCodeAt(0), 0) % bgColors.length;
 
   // TODO: Add Image support when uri is available
   return (

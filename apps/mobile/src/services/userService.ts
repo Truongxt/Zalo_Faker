@@ -83,6 +83,15 @@ class UserService {
     const response = await apiClient.delete<{ userId: string }>(`/api/users/${userId}`);
     return response.data;
   }
+
+  async getUserByPhone(phone: string): Promise<User> {
+    const response = await apiClient.get<ServerUser>(`/api/users/phone/${phone}`);
+    return mapServerUser(response.data);
+  }
+  async getUserById(id: string): Promise<User> {
+    const response = await apiClient.get<ServerUser>(`/api/users/id/${id}`);
+    return mapServerUser(response.data);
+  }
 }
 
 export const userService = new UserService();
