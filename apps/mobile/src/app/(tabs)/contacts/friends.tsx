@@ -65,7 +65,10 @@ export default function ContactsScreen() {
 
       {/* Quick actions */}
       <View className="border-b border-gray-100">
-        <TouchableOpacity className="flex-row items-center px-4 py-3 gap-3">
+        <TouchableOpacity
+          className="flex-row items-center px-4 py-3 gap-3"
+          onPress={() => router.push("/friends/add")}
+        >
           <View className="w-10 h-10 rounded-full bg-green-100 items-center justify-center">
             <Text>➕</Text>
           </View>

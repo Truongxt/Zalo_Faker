@@ -65,7 +65,7 @@ export default function AddFriend() {
             <View className="bg-white rounded-2xl p-4 w-64 h-64 items-center justify-center">
               <View className="items-center">
                 <View className="w-48 h-48 bg-gray-200 items-center justify-center rounded-lg">
-                  <QRCode value={`${user.id}`} size={200} />
+                  <QRCode value={`userId:${user.id}`} size={200} />
                 </View>
                 <View className="absolute bottom-16 bg-black rounded-full w-12 h-12 items-center justify-center">
                   <Text className="text-white font-bold text-xs">Zalo</Text>
