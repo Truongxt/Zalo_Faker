@@ -24,7 +24,8 @@
           "photosPermission": "Cho phép Zalo Faker truy cập ảnh của bạn",
           "cameraPermission": "Cho phép Zalo Faker sử dụng camera"
         }
-      ]
+      ],
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true

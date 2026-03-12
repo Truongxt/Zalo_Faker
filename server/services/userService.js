@@ -137,6 +137,21 @@ getByPhone: async phone => {
 },
 getById: async userId => {
   return await userRepository.getById(userId);
+},
+
+refreshToken: async (refreshToken) => {
+  // 1. Kiểm tra refresh token có trong DB không
+  const stored = await refreshTokenRepository.findByToken(refreshToken);
+  if (!stored) throw new Error("Invalid refresh token");
+
+  // 2. Verify refresh token còn hạn không
+  const decoded = require("../utils/jwt").verifyRefreshToken(refreshToken);
+
+  // 3. Tạo access token mới
+  const payload = { userId: decoded.userId, email: decoded.email };
+  const newAccessToken = signAccessToken(payload);
+
+  return { accessToken: newAccessToken };
 }
 
 };

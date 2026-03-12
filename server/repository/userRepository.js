@@ -38,7 +38,7 @@ const userRepository={
      async getById(userId) {
     const result = await dynamodb.get({
       TableName: tableName,
-      Key: { userId: Number(userId) }
+      Key: { userId: String(userId) }
     }).promise();
 
     return result.Item;
@@ -46,7 +46,7 @@ const userRepository={
     async updateUser(userId, userData) {
         const user=await dynamodb.get({
             TableName:tableName,
-            Key:{userId: Number(userId)}
+            Key:{userId: String(userId)}
         }).promise();
 
         if(!user.Item){

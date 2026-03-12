@@ -74,6 +74,7 @@ const userController = {
         return res.status(404).json({ message: "User not found" });
       }
       res.json(user);
+      console.log(" find user phone ", user);
     } catch (err) {
       res.status(500).json({ message: err.message });
     }
@@ -88,7 +89,21 @@ getUserById: async (req, res) => {
       res.json(user);
     } catch (err) {
       res.status(500).json({ message: err.message });
-    }}
+    }},
+
+  // ===== REFRESH TOKEN =====
+  refreshToken: async (req, res) => {
+    try {
+      const { refreshToken } = req.body;
+      if (!refreshToken) {
+        return res.status(400).json({ message: "Refresh token is required" });
+      }
+      const result = await userService.refreshToken(refreshToken);
+      res.json(result);
+    } catch (err) {
+      res.status(401).json({ message: err.message });
+    }
+  }
 
 }
 module.exports = userController;

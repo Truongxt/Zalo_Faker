@@ -1,8 +1,16 @@
+import { Platform } from "react-native";
+
+const DEFAULT_API_URL = Platform.select({
+  android: "http://10.0.2.2:3000",
+  web: "http://localhost:3000",
+  default: "http://localhost:3000",
+});
+
 export const API_URL =
-  process.env.EXPO_PUBLIC_API_URL || "http://192.168.0.108:3000";
+  process.env.EXPO_PUBLIC_API_URL || DEFAULT_API_URL;
 
 export const SOCKET_URL =
-  process.env.EXPO_PUBLIC_API_URL || "http://192.168.0.108:3000";
+  process.env.EXPO_PUBLIC_API_URL || DEFAULT_API_URL;
 
 export const APP_CONFIG = {
   name: "Zalo Faker",

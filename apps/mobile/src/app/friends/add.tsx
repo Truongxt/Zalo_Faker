@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import QRCode from "react-native-qrcode-svg";
 import {
   View,
   Text,
@@ -28,11 +29,14 @@ export default function AddFriend() {
 
     setTimeout(async () => {
       try {
+        console.log("timm kiem ", phoneNumber);
         const foundUser = await userService.getUserByPhone(phoneNumber);
+
         router.push(`/friends/UserSearchResult?userId=${foundUser.id}`);
         console.log("timm kiem ", foundUser);
       } catch (error) {
         GrayToast("Không tìm thấy người dùng");
+        console.error("Error fetching user by phone:", error);
       } finally {
         setLoading(false);
       }
@@ -61,7 +65,7 @@ export default function AddFriend() {
             <View className="bg-white rounded-2xl p-4 w-64 h-64 items-center justify-center">
               <View className="items-center">
                 <View className="w-48 h-48 bg-gray-200 items-center justify-center rounded-lg">
-                  <Ionicons name="qr-code" size={120} color="#666" />
+                  <QRCode value={`${user.id}`} size={200} />
                 </View>
                 <View className="absolute bottom-16 bg-black rounded-full w-12 h-12 items-center justify-center">
                   <Text className="text-white font-bold text-xs">Zalo</Text>
