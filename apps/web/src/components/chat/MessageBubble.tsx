@@ -7,6 +7,8 @@ interface MessageBubbleProps {
     message: Message
     isSent: boolean
     showAvatar?: boolean
+    senderName?: string
+    senderAvatar?: string
     onReply?: () => void
 }
 
@@ -14,6 +16,8 @@ export default function MessageBubble({
     message,
     isSent,
     showAvatar = false,
+    senderName,
+    senderAvatar,
     onReply
 }: MessageBubbleProps) {
     const renderContent = () => {
@@ -113,7 +117,19 @@ export default function MessageBubble({
             <div className={`flex items-end gap-2 max-w-[70%] ${isSent ? 'flex-row-reverse' : ''}`}>
                 {/* Avatar for received messages */}
                 {!isSent && showAvatar && (
-                    <div className="w-8 h-8 rounded-full bg-gray-200 dark:bg-gray-700 flex-shrink-0" />
+                    senderAvatar ? (
+                        <img
+                            src={senderAvatar}
+                            alt={senderName || ''}
+                            className="w-8 h-8 rounded-full object-cover flex-shrink-0"
+                        />
+                    ) : (
+                        <div className="w-8 h-8 rounded-full bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center flex-shrink-0">
+                            <span className="text-xs font-medium text-primary-600 dark:text-primary-400">
+                                {(senderName || '?').charAt(0).toUpperCase()}
+                            </span>
+                        </div>
+                    )
                 )}
                 {!isSent && !showAvatar && <div className="w-8" />}
 

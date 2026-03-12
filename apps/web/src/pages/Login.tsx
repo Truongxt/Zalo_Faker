@@ -1,12 +1,13 @@
 import { useState, FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '@/stores/authStore'
-import { authService } from '@/services/auth'
+import { useMockAuth } from '@/hooks/useMockAuth'
 import { Eye, EyeOff, MessageCircle, Loader2 } from 'lucide-react'
 
 export default function Login() {
     const navigate = useNavigate()
-    const { setUser, setAccessToken, setError } = useAuthStore()
+    const { setError } = useAuthStore()
+    const { mockLogin } = useMockAuth()
 
     const [email, setEmail] = useState('')
     const [password, setPassword] = useState('')
@@ -20,9 +21,10 @@ export default function Login() {
         setIsLoading(true)
 
         try {
-            const { user, accessToken } = await authService.login(email, password)
-            setUser(user)
-            setAccessToken(accessToken)
+            // Mock login — accept any credentials for UI development
+            // Replace with real authService.login() when backend is ready
+            await new Promise(resolve => setTimeout(resolve, 500)) // simulate delay
+            mockLogin()
             navigate('/chat')
         } catch (err: any) {
             const message = err.message || 'Đăng nhập thất bại. Vui lòng thử lại.'
@@ -35,7 +37,9 @@ export default function Login() {
 
     const handleGoogleLogin = async () => {
         try {
-            await authService.loginWithGoogle()
+            // Mock Google login
+            mockLogin()
+            navigate('/chat')
         } catch (err: any) {
             setLocalError(err.message || 'Đăng nhập Google thất bại')
         }
