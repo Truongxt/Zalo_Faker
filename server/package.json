@@ -11,6 +11,8 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.1007.0",
+    "@aws-sdk/lib-dynamodb": "^3.1007.0",
     "aws-sdk": "^2.1693.0",
     "bcryptjs": "^3.0.3",
     "body-parser": "^2.2.2",
@@ -24,5 +26,8 @@
     "nodemon": "^3.1.14",
     "ulid": "^3.0.2",
     "uuid": "^13.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.4.0"
   }
 }
