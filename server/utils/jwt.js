@@ -7,7 +7,7 @@ const signAccessToken = payload =>
   jwt.sign(payload, ACCESS_SECRET, { expiresIn: "15m" });
 
 const signRefreshToken = payload =>
-  jwt.sign(payload, REFRESH_SECRET, { expiresIn: "7d" });
+  jwt.sign(payload, REFRESH_SECRET, { expiresIn: "30d" });
 
 const verifyAccessToken = token =>
   jwt.verify(token, ACCESS_SECRET);

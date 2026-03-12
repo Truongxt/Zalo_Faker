@@ -41,7 +41,7 @@ function buildSeedUsers(hashedPassword) {
 
   for (let i = 1; i <= 10; i += 1) {
     users.push({
-      userId: now + i,
+      userId: String(now + i),
       avartarUrl: "https://i.pravatar.cc/300?img=" + (i + 10),
       birthday: `199${i % 10}-0${(i % 9) + 1}-15`,
       createdAt: new Date().toISOString(),

@@ -13,6 +13,7 @@ import { Friends, User } from "@/types";
 import { friendsService, userService } from "@/services";
 import { useAuthStore } from "@/stores";
 import FriendsRequest from "@/components/ui/FriendsRequest";
+import { Friend } from "@/components/ui/Friend";
 
 export default function ContactsScreen() {
   const router = useRouter();
@@ -20,10 +21,10 @@ export default function ContactsScreen() {
   const [requestFriends, setRequestFriends] = useState<Friends[]>([]);
   const [loading, setLoading] = useState(false);
   const { user } = useAuthStore();
-
+  const [listFriends, setListFriends] = useState<Friends[]>([]);
   const getFriendsRequests = async () => {
     try {
-      const result = await friendsService.getPendingRequests(Number(user!.id));
+      const result = await friendsService.getPendingRequests(user!.id);
 
       const withUserInfo = await Promise.all(
         result.map(async (f: any) => {
@@ -41,25 +42,26 @@ export default function ContactsScreen() {
     }
   };
 
+  const getListFriends = async () => {
+    try {
+      const result = await friendsService.getFriend(user!.id);
+      console.log("list friends ", result);
+      setListFriends(result);
+    } catch (error) {
+      console.error("Lỗi khi lấy danh sách bạn bè:", error);
+    }
+  };
+
   useEffect(() => {
-    if (user?.id) getFriendsRequests();
+    if (user?.id) {
+      getFriendsRequests();
+      getListFriends();
+    }
   }, [user?.id]);
 
   return (
     <View className="flex-1 bg-white">
       {/* Search */}
-      <View className="px-4 py-2 border-b border-gray-100">
-        <View className="flex-row items-center bg-gray-100 rounded-lg px-3 h-10">
-          <Text className="mr-2">🔍</Text>
-          <TextInput
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            placeholder="Tìm bạn bè"
-            className="flex-1 text-gray-900"
-            placeholderTextColor="#9CA3AF"
-          />
-        </View>
-      </View>
 
       {/* Quick actions */}
       <View className="border-b border-gray-100">
@@ -74,7 +76,7 @@ export default function ContactsScreen() {
       <CenterLoading visible={loading} />
 
       {/* Contacts list */}
-      {requestFriends.length > 0 ? (
+      {requestFriends.length > 0 && (
         <FlatList
           data={requestFriends}
           keyExtractor={(item) => `${item.fromUserId}-${item.toUserId}`}
@@ -85,8 +87,8 @@ export default function ContactsScreen() {
                 try {
                   setLoading(true);
                   await friendsService.acceptFriendRequest(
-                    Number(req.fromUserId),
-                    Number(req.toUserId),
+                    req.fromUserId,
+                    req.toUserId,
                   );
                   await new Promise((r) => setTimeout(r, 1000));
                   setLoading(false);
@@ -115,11 +117,23 @@ export default function ContactsScreen() {
             />
           )}
         />
-      ) : (
-        <View className="flex-1 items-center justify-center">
-          <Text className="text-gray-500">Chưa có danh bạ</Text>
-        </View>
       )}
+      <View className="flex-1 items-center justify-center">
+        {listFriends.length === 0 ? (
+          <Text className="text-gray-500">Bạn chưa có bạn bè nào</Text>
+        ) : (
+          <FlatList
+            data={listFriends}
+            keyExtractor={(item) => item.id}
+            renderItem={({ item }) => (
+              <Friend
+                avatarUrl={item.fromUser?.avatarUrl}
+                name={item.fromUser?.fullName || "Unknown"}
+              />
+            )}
+          />
+        )}
+      </View>
     </View>
   );
 }

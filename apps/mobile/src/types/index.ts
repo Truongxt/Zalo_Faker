@@ -102,8 +102,8 @@ export interface Contact {
 
 export interface Friends {
   id: string;
-  fromUserId: number;
-  toUserId: number;
+  fromUserId: string;
+  toUserId: string;
   fromUser?: User;
   message?: string;
   status: "pending" | "accepted" | "rejected";

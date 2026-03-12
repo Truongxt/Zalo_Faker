@@ -86,6 +86,7 @@ class UserService {
 
   async getUserByPhone(phone: string): Promise<User> {
     const response = await apiClient.get<ServerUser>(`/api/users/phone/${phone}`);
+    console.log("response ", response.data);
     return mapServerUser(response.data);
   }
   async getUserById(id: string): Promise<User> {
