@@ -59,16 +59,18 @@ const FriendRepository= {
 
   // lấy request
   async getFriend(fromUserId, toUserId) {
-    const params = {
-      TableName: TABLE_NAME,
-      Key: {
-        fromUserId: Number(fromUserId),
-        toUserId: Number(toUserId),
-      },
-    };
+    const [direct, reverse] = await Promise.all([
+      dynamodb.get({
+        TableName: TABLE_NAME,
+        Key: { fromUserId: Number(fromUserId), toUserId: Number(toUserId) },
+      }).promise(),
+      dynamodb.get({
+        TableName: TABLE_NAME,
+        Key: { fromUserId: Number(toUserId), toUserId: Number(fromUserId) },
+      }).promise(),
+    ]);
 
-    const result = await dynamodb.get(params).promise();
-    return result.Item;
+    return direct.Item || reverse.Item || null;
   },
 
   // accept request
