@@ -107,71 +107,149 @@ const GroupController = {
       });
 
       res.json(updated);
+      
 
     } catch (error) {
       res.status(500).json({ message: error.message });
     }
   },
 
-  // =========================
-  // REMOVE MEMBER (CHỈ ADMIN)
-  // =========================
-  removeMember: async (req, res) => {
-    try {
-      const { id } = req.params;
-      const { userId, removeUserId } = req.body;
+// =========================
+// REMOVE MEMBER (CHỈ ADMIN)
+// =========================
+removeMember: async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { userId, removeUserId } = req.body;
 
-      const group = await ConversationModel.getOneConversation(id);
-      if (!group) return res.status(404).json({ message: "Group not found" });
-
-      const isAdmin = group.participants.find(
-        p => p.userId === userId && p.role === "admin"
-      );
-
-      if (!isAdmin)
-        return res.status(403).json({ message: "Only admin can remove member" });
-
-      const updatedParticipants = group.participants.filter(
-        p => p.userId !== removeUserId
-      );
-
-      const updated = await ConversationModel.updateConversation(id, {
-        participants: updatedParticipants
+    // kiểm tra body
+    if (!userId || !removeUserId) {
+      return res.status(400).json({
+        message: "userId and removeUserId are required"
       });
-
-      res.json(updated);
-
-    } catch (error) {
-      res.status(500).json({ message: error.message });
     }
-  },
 
-  // =========================
-  // LEAVE GROUP (mọi người được quyền)
-  // =========================
-  leaveGroup: async (req, res) => {
-    try {
-      const { id } = req.params;
-      const { userId } = req.body;
+    const group = await ConversationModel.getOneConversation(id);
 
-      const group = await ConversationModel.getOneConversation(id);
-      if (!group) return res.status(404).json({ message: "Group not found" });
-
-      const updatedParticipants = group.participants.filter(
-        p => p.userId !== userId
-      );
-
-      const updated = await ConversationModel.updateConversation(id, {
-        participants: updatedParticipants
+    if (!group) {
+      return res.status(404).json({
+        message: "Group not found"
       });
-
-      res.json(updated);
-
-    } catch (error) {
-      res.status(500).json({ message: error.message });
     }
+
+    // kiểm tra người thực hiện có trong nhóm
+    const currentUser = group.participants.find(p => p.userId === userId);
+    if (!currentUser) {
+      return res.status(403).json({
+        message: "You are not in this group"
+      });
+    }
+
+    // kiểm tra quyền admin
+    if (currentUser.role !== "admin") {
+      return res.status(403).json({
+        message: "Only admin can remove members"
+      });
+    }
+
+    // kiểm tra user cần xóa có trong nhóm không
+    const memberToRemove = group.participants.find(
+      p => p.userId === removeUserId
+    );
+
+    if (!memberToRemove) {
+      return res.status(404).json({
+        message: "User not found in group"
+      });
+    }
+
+    // không cho admin tự xóa mình
+    if (userId === removeUserId) {
+      return res.status(400).json({
+        message: "Admin cannot remove themselves"
+      });
+    }
+
+    const updatedParticipants = group.participants.filter(
+      p => p.userId !== removeUserId
+    );
+
+    const updated = await ConversationModel.updateConversation(id, {
+      participants: updatedParticipants
+    });
+
+    res.json({
+      message: "Member removed successfully",
+      group: updated
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      message: "Internal server error",
+      error: error.message
+    });
   }
+},
 
+  // =========================
+// LEAVE GROUP (mọi người được quyền)
+// =========================
+leaveGroup: async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { userId } = req.body;
+
+    // kiểm tra dữ liệu
+    if (!userId) {
+      return res.status(400).json({
+        message: "userId is required"
+      });
+    }
+
+    const group = await ConversationModel.getOneConversation(id);
+
+    if (!group) {
+      return res.status(404).json({
+        message: "Group not found"
+      });
+    }
+
+    // kiểm tra user có trong nhóm không
+    const member = group.participants.find(p => p.userId === userId);
+
+    if (!member) {
+      return res.status(403).json({
+        message: "You are not in this group"
+      });
+    }
+
+    // nếu chỉ còn 1 người trong nhóm
+    if (group.participants.length === 1) {
+      return res.status(400).json({
+        message: "Cannot leave group because you are the last member"
+      });
+    }
+
+    const updatedParticipants = group.participants.filter(
+      p => p.userId !== userId
+    );
+
+    const updated = await ConversationModel.updateConversation(id, {
+      participants: updatedParticipants
+    });
+
+    res.json({
+      message: "You left the group successfully",
+      group: updated
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      message: "Internal server error",
+      error: error.message
+    });
+  }
+}
 };
 
 module.exports = GroupController;
