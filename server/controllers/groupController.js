@@ -33,7 +33,7 @@ const GroupController = {
   },
 
   // =========================
-  // RENAME GROUP (mọi người được quyền)
+  // RENAME MEMBER (mọi người được quyền)
   // =========================
   renameGroup: async (req, res) => {
     try {
