@@ -20,6 +20,7 @@
     "date-fns": "^3.0.6",
     "expo": "~54.0.33",
     "expo-av": "~15.0.0",
+    "expo-barcode-scanner": "^13.0.1",
     "expo-camera": "~16.0.0",
     "expo-clipboard": "~7.0.0",
     "expo-constants": "~18.0.8",

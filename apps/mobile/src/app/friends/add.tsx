@@ -8,7 +8,7 @@ import {
   ScrollView,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { type Href, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuthStore } from "@/stores/authStore";
 import { userService } from "@/services";
@@ -21,7 +21,7 @@ export default function AddFriend() {
   const [phoneNumber, setPhoneNumber] = useState("");
   const [countryCode, setCountryCode] = useState("+84");
   const [loading, setLoading] = useState(false);
-  const param = useLocalSearchParams();
+
   const getUserByPhone = () => {
     if (loading) return;
 
@@ -65,7 +65,7 @@ export default function AddFriend() {
             <View className="bg-white rounded-2xl p-4 w-64 h-64 items-center justify-center">
               <View className="items-center">
                 <View className="w-48 h-48 bg-gray-200 items-center justify-center rounded-lg">
-                  <QRCode value={`userId:${user.id}`} size={200} />
+                  <QRCode value={`userId:${user?.id ?? ""}`} size={200} />
                 </View>
                 <View className="absolute bottom-16 bg-black rounded-full w-12 h-12 items-center justify-center">
                   <Text className="text-white font-bold text-xs">
@@ -117,9 +117,7 @@ export default function AddFriend() {
         <View className="px-4 mb-4">
           <TouchableOpacity
             className="flex-row items-center py-4 border-b border-gray-200"
-            onPress={() => {
-              /* Handle QR scan */
-            }}
+            onPress={() => router.push("/search/QRScanner" as Href)}
           >
             <View className="w-10 h-10 bg-blue-100 rounded-lg items-center justify-center mr-3">
               <Ionicons name="qr-code-outline" size={24} color="#0068FF" />
