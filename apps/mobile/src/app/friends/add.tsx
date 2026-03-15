@@ -32,7 +32,10 @@ export default function AddFriend() {
         console.log("timm kiem ", phoneNumber);
         const foundUser = await userService.getUserByPhone(phoneNumber);
 
-        router.push(`/friends/UserSearchResult?userId=${foundUser.id}`);
+        router.push({
+          pathname: "/friends/UserSearchResult",
+          params: { userId: String(foundUser.id) },
+        });
         console.log("timm kiem ", foundUser);
       } catch (error) {
         GrayToast("Không tìm thấy người dùng");

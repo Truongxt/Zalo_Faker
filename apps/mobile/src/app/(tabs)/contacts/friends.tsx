@@ -45,8 +45,23 @@ export default function ContactsScreen() {
   const getListFriends = async () => {
     try {
       const result = await friendsService.getFriend(user!.id);
-      console.log("list friends ", result);
-      setListFriends(result);
+
+      const withUserInfo = await Promise.all(
+        result.map(async (f: any) => {
+          const friendUserId =
+            String(f.fromUserId) === String(user!.id)
+              ? String(f.toUserId)
+              : String(f.fromUserId);
+
+          const friendUser = await userService.getUserById(friendUserId);
+          return {
+            ...f,
+            fromUser: friendUser,
+          } as Friends;
+        }),
+      );
+
+      setListFriends(withUserInfo);
     } catch (error) {
       console.error("Lỗi khi lấy danh sách bạn bè:", error);
     }
@@ -93,8 +108,7 @@ export default function ContactsScreen() {
                     req.fromUserId,
                     req.toUserId,
                   );
-                  await new Promise((r) => setTimeout(r, 1000));
-                  setLoading(false);
+
                   setRequestFriends((prev) =>
                     prev.filter(
                       (r) =>
@@ -102,10 +116,34 @@ export default function ContactsScreen() {
                         r.toUserId !== req.toUserId,
                     ),
                   );
+
+                  setListFriends((prev) => {
+                    const existed = prev.some(
+                      (f) =>
+                        (f.fromUserId === req.fromUserId &&
+                          f.toUserId === req.toUserId) ||
+                        (f.fromUserId === req.toUserId &&
+                          f.toUserId === req.fromUserId),
+                    );
+
+                    if (existed) return prev;
+
+                    return [
+                      {
+                        ...req,
+                        status: "accepted",
+                        fromUser: req.fromUser,
+                      },
+                      ...prev,
+                    ];
+                  });
+
                   GrayToast("Kết bạn thành công");
+                  await getListFriends();
                 } catch (e) {
-                  setLoading(false);
                   console.error("Lỗi chấp nhận:", e);
+                } finally {
+                  setLoading(false);
                 }
               }}
               onReject={(req) => {
@@ -121,18 +159,20 @@ export default function ContactsScreen() {
           )}
         />
       )}
-      <View className="flex-1 items-center justify-center">
+      <View className="flex-1  justify-center">
         {listFriends.length === 0 ? (
           <Text className="text-gray-500">Bạn chưa có bạn bè nào</Text>
         ) : (
           <FlatList
             data={listFriends}
-            keyExtractor={(item) => item.id}
+            keyExtractor={(item) => `${item.fromUserId}-${item.toUserId}`}
             renderItem={({ item }) => (
-              <Friend
-                avatarUrl={item.fromUser?.avatarUrl}
-                name={item.fromUser?.fullName || "Unknown"}
-              />
+              <TouchableOpacity>
+                <Friend
+                  avatarUrl={item.fromUser?.avatarUrl}
+                  name={item.fromUser?.fullName || "Unknown"}
+                />
+              </TouchableOpacity>
             )}
           />
         )}
