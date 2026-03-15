@@ -38,6 +38,7 @@ const ConversationModel = {
       throw error;
     }
   },
+ 
 
   updateConversation: async (conversationId, conversationData) => {
     const updateFields = [];
@@ -82,20 +83,31 @@ const ConversationModel = {
     }
   },
 
+//   getOneConversation: async conversationId => {
+//     const params = {
+//       TableName: tableName,
+//       KeyConditionExpression: "_id = :id",
+//       ExpressionAttributeValues: { ":id": conversationId }
+//     };
+//     try {
+//       const data = await dynamodb.query(params).promise();
+//       return data.Items[0];
+//     } catch (error) {
+//       console.error("Error getting one conversation:", error);
+//       throw error;
+//     }
+//   }
+// };
+ //Như viết lại cái get này nếu không phù hợp thì cmt lại nha
   getOneConversation: async conversationId => {
-    const params = {
-      TableName: tableName,
-      KeyConditionExpression: "_id = :id",
-      ExpressionAttributeValues: { ":id": conversationId }
-    };
-    try {
-      const data = await dynamodb.query(params).promise();
-      return data.Items[0];
-    } catch (error) {
-      console.error("Error getting one conversation:", error);
-      throw error;
-    }
-  }
+  const params = {
+    TableName: tableName,
+    Key: { _id: conversationId }
+  };
+
+  const data = await dynamodb.get(params).promise();
+  return data.Item;
+  },
 };
 
 module.exports = ConversationModel;
