@@ -5,7 +5,7 @@ export default function Index() {
   const { user } = useAuthStore();
 
   if (user) {
-    return <Redirect href="/(tabs)/chats" />;
+    return <Redirect href="/(tabs)/chat/chats" />;
   }
 
   return <Redirect href="/(auth)/login" />;

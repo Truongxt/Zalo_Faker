@@ -1,7 +1,5 @@
-import { View, Text } from "react-native";
-import { Message } from "@/types";
-import { formatDistanceToNow } from "date-fns";
-import { vi } from "date-fns/locale";
+import { Message as ChatMessage } from "@/components/chat/Message";
+import type { Message } from "@/types";
 
 interface MessageBubbleProps {
   message: Message;
@@ -9,9 +7,5 @@ interface MessageBubbleProps {
 }
 
 export function MessageBubble({ message, isSent }: MessageBubbleProps) {
-  return (
-    <View
-      className={`flex-row ${isSent ? "justify-end" : "justify-start"}`}
-    ></View>
-  );
+  return <ChatMessage message={message} isSent={isSent} />;
 }

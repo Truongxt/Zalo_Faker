@@ -60,11 +60,14 @@ export default function SendFriendRequest() {
     try {
       console.log("Gửi lời mời với message:", message);
       await friendsService.sendFriendRequests(
-        Number(user!.id),
-        Number(friend!.id),
+        String(user!.id),
+        String(friend!.id),
         message,
       );
-      router.push("/(tabs)/chats");
+      router.push({
+        pathname: "/(tabs)/chat/[conversationId]",
+        params: { conversationId: String(friend!.id) },
+      });
     } catch (error: any) {
       if (error?.response?.status === 409) {
         GrayToast("Bạn đã gửi lời mời kết bạn đến người này rồi");

@@ -31,7 +31,7 @@ const MENU_ITEMS: MenuItem[] = [
 
 function TabIcon({ name, focused }: { name: string; focused: boolean }) {
   const icons: Record<string, string> = {
-    chats: focused ? "chatbubble" : "chatbubble-outline",
+    chat: focused ? "chatbubble" : "chatbubble-outline",
     contacts: focused ? "people" : "people-outline",
     discover: focused ? "compass" : "compass-outline",
     profile: focused ? "person" : "person-outline",
@@ -70,11 +70,12 @@ export default function TabsLayout() {
         }}
       >
         <Tabs.Screen
-          name="chats"
+          name="chat"
           options={{
             title: "Tin nhắn",
+            href: "/(tabs)/chat/chats",
             tabBarIcon: ({ focused }) => (
-              <TabIcon name="chats" focused={focused} />
+              <TabIcon name="chat" focused={focused} />
             ),
           }}
         />

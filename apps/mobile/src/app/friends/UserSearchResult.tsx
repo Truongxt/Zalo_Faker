@@ -13,11 +13,14 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Avatar } from "@/components/ui";
 import type { User } from "@/types";
 import { userService } from "@/services/userService";
+import { friendsService } from "@/services";
+import { useAuthStore } from "@/stores/authStore";
 
 export default function UserSearchResult() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams();
+  const { user } = useAuthStore();
 
   // Mock user data - replace with actual user data from API
   const [friend, setFriend] = useState<User>();
@@ -29,11 +32,15 @@ export default function UserSearchResult() {
 
   useEffect(() => {
     const fetchUser = async () => {
+      const userId = params.userId as string | undefined;
+      if (!userId) {
+        setIsLoading(false);
+        return;
+      }
+
       try {
         setIsLoading(true);
-        const foundUser: User = await userService.getUserById(
-          params.userId as string,
-        );
+        const foundUser: User = await userService.getUserById(userId);
         setFriend(foundUser);
       } catch (error) {
         console.error("Error fetching user:", error);
@@ -47,13 +54,41 @@ export default function UserSearchResult() {
   const handleAddFriend = () => {
     // TODO: Implement add friend logic
     console.log("Add friend:", friend?.id);
-    router.push(`/friends/requests?userId=${friend?.id}`);
+    if (!friend?.id) return;
+    router.push({
+      pathname: "/friends/requests",
+      params: { userId: String(friend.id) },
+    });
   };
 
   const handleSendMessage = () => {
     // TODO: Navigate to chat with this user
-    router.push(`/chat/${friend?.id}`);
+    if (!friend?.id) return;
+    router.push({
+      pathname: "/(tabs)/chat/[conversationId]",
+      params: { conversationId: String(friend.id) },
+    });
   };
+  const checkFriend = async () => {
+    if (!user?.id || !friend?.id) return;
+
+    try {
+      const result = await friendsService.getExitingFriend(
+        String(user.id),
+        String(friend.id),
+      );
+      setIsFriend(!!result);
+    } catch (error) {
+      console.error("Error checking friend relationship:", error);
+      setIsFriend(false);
+    }
+  };
+
+  useEffect(() => {
+    if (friend?.id && user?.id) {
+      checkFriend();
+    }
+  }, [friend?.id, user?.id]);
 
   return (
     <View className="flex-1 bg-white">

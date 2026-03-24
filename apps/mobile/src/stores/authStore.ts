@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import type { User } from "@/types";
 import storage from "@/lib/storage";
-import * as SecureStore from "expo-secure-store";
+
 interface AuthState {
   user: User | null;
   accessToken: string | null;

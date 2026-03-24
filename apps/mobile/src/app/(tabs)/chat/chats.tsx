@@ -46,7 +46,12 @@ export default function ChatsScreen() {
           <ConversationItem
             conversation={item}
             currentUserId={user?.id || ""}
-            onPress={() => router.push(`/chat/${item.id}`)}
+            onPress={() =>
+              router.push({
+                pathname: "/(tabs)/chat/[conversationId]",
+                params: { conversationId: String(item.id) },
+              })
+            }
           />
         )}
         refreshControl={

@@ -21,5 +21,16 @@ import apiClient from "./apiClient";
         const response = await apiClient.get<{ data: Friends[] }>(`/api/friends/requests/pending/${userId}`);
         return response.data.data;
     }
+    async getExitingFriend(userId1: string, userId2: string): Promise<Friends | null> {
+        try {
+            const response = await apiClient.get<{ data: Friends }>(`/api/friends/check?userId1=${userId1}&userId2=${userId2}`);
+            return response.data.data;
+        } catch (error: any) {
+            if (error?.response?.status === 404) {
+                return null;
+            }
+            throw error;
+        }
+    }
 }
 export const friendsService = new FriendsService();
