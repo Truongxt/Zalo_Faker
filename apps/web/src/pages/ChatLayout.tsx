@@ -24,8 +24,7 @@ export default function ChatLayout() {
 
         // Kết nối socket khi vào chat
         if (user?.id) {
-            const socket = socketService.connect(user.id)
-            console.log('Socket connected?', socketService.isConnected())
+            socketService.connect(user.id)
         }
 
         // Disconnect khi rời trang
