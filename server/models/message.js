@@ -6,6 +6,7 @@ const tableName = "Message";
 const MessageModel = {
   createMessage: async messageData => {
     const messageId = uuidv4();
+    const createdAt = new Date().toISOString();
     const params = {
       TableName: tableName,
       Item: {
@@ -18,12 +19,12 @@ const MessageModel = {
         reactions: messageData.reactions || [], // Array of Reaction
         readBy: messageData.readBy || [], // Array of ReadReceipt
         isDeleted: messageData.isDeleted || false,
-        createdAt: new Date().toISOString()
+        createdAt
       }
     };
     try {
       await dynamodb.put(params).promise();
-      return { _id: messageId, ...messageData };
+      return { _id: messageId, ...messageData, createdAt };
     } catch (error) {
       console.error("Error creating message:", error);
       throw error;
