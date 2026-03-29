@@ -10,7 +10,7 @@ class SocketService {
         if (this.socket?.connected) return this.socket
 
         this.socket = io(SOCKET_URL, {
-            transports: ['websocket', 'polling'], 
+            transports: ['websocket', 'polling'],
             reconnectionAttempts: 5,
             reconnectionDelay: 1000,
         })
@@ -89,6 +89,13 @@ class SocketService {
 
     getSocket() {
         return this.socket
+    }
+
+    recallMessage(
+        data: { messageId: string; conversationId: string; senderId: string },
+        callback?: (res: { success: boolean; error?: string }) => void
+    ) {
+        this.socket?.emit('chat:recall', data, callback)
     }
 }
 
