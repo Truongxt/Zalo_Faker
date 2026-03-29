@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { Message } from '@/stores/chatStore'
 import { formatDistanceToNow } from 'date-fns'
 import { vi } from 'date-fns/locale'
-import { Check, CheckCheck, Reply, SmilePlus, Trash2, MoreHorizontal } from 'lucide-react'
+import { Check, CheckCheck, Reply, SmilePlus, Trash2 } from 'lucide-react'
 
 interface MessageBubbleProps {
     message: Message

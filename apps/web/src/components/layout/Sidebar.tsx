@@ -9,7 +9,6 @@ import {
     Plus,
     Users,
     MessageCircle,
-    Settings,
     User as UserIcon,
     Bot
 } from 'lucide-react'

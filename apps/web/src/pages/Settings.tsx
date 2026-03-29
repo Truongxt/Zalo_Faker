@@ -12,6 +12,7 @@ import {
     Shield,
     Trash2
 } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 
 export default function Settings() {
     const navigate = useNavigate()
@@ -23,7 +24,32 @@ export default function Settings() {
         document.documentElement.classList.toggle('dark')
     }
 
-    const settingsSections = [
+    type ToggleItem = {
+        icon: LucideIcon
+        label: string
+        description?: string
+        action: 'toggle'
+        value: boolean
+        onChange: () => void
+        danger?: boolean
+    }
+
+    type NavigateItem = {
+        icon: LucideIcon
+        label: string
+        description?: string
+        action: 'navigate'
+        danger?: boolean
+    }
+
+    type SettingItem = ToggleItem | NavigateItem
+
+    type SettingsSection = {
+        title: string
+        items: SettingItem[]
+    }
+
+    const settingsSections: SettingsSection[] = [
         {
             title: 'Thông báo',
             items: [
@@ -127,7 +153,9 @@ export default function Settings() {
                                     key={itemIndex}
                                     className={`w-full flex items-center justify-between px-4 py-4 hover:bg-gray-50 dark:hover:bg-dark-300 transition-colors ${item.danger ? 'text-red-600 dark:text-red-400' : 'text-gray-900 dark:text-white'
                                         }`}
-                                    onClick={item.action === 'toggle' ? item.onChange : undefined}
+                            onClick={() => {
+                                if (item.action === 'toggle') item.onChange()
+                            }}
                                 >
                                     <div className="flex items-center gap-4">
                                         <item.icon className={`w-5 h-5 ${item.danger ? '' : 'text-gray-400'
