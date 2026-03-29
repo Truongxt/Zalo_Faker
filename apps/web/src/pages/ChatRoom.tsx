@@ -223,6 +223,10 @@ export default function ChatRoom() {
         e.preventDefault()
         if (!message.trim() || !conversationId || !user) return
 
+        // Dừng trạng thái typing ngay khi đã gửi tin nhắn
+        clearTimeout(typingTimeoutRef.current)
+        socketService.stopTyping(conversationId, user.id)
+
         const messageText = message.trim()
         setMessage('')
         setReplyTo(null)
@@ -285,6 +289,16 @@ export default function ChatRoom() {
             socketService.stopTyping(conversationId, user.id)
         }, 2000)
     }
+
+    // Cleanup typing timer + emit stop typing khi đổi phòng/unmount
+    useEffect(() => {
+        return () => {
+            clearTimeout(typingTimeoutRef.current)
+            if (conversationId && user?.id) {
+                socketService.stopTyping(conversationId, user.id)
+            }
+        }
+    }, [conversationId, user?.id])
 
     const handleRecall = (messageId: string) => {
         if (!conversationId || !user) return
