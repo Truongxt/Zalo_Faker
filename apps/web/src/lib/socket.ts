@@ -97,6 +97,13 @@ class SocketService {
     ) {
         this.socket?.emit('chat:recall', data, callback)
     }
+
+    reactToMessage(
+        data: { messageId: string; conversationId: string; userId: string; emoji: string },
+        callback?: (res: { success: boolean; error?: string }) => void
+    ) {
+        this.socket?.emit('chat:reaction', data, callback)
+    }
 }
 
 export const socketService = new SocketService()

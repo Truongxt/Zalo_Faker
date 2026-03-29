@@ -166,10 +166,33 @@ export default function ChatRoom() {
             })
         }
 
+        // Lắng nghe reaction tin nhắn
+        const handleReaction = ({ messageId, userId, emoji }: { messageId: string; userId: string; emoji: string }) => {
+            const currentMessages = useChatStore.getState().messages[conversationId] || []
+            const msg = currentMessages.find(m => m.id === messageId)
+            if (!msg) return
+
+            const existing = msg.reactions.find(r => r.userId === userId)
+            let newReactions
+            if (existing && existing.emoji === emoji) {
+                // Toggle off
+                newReactions = msg.reactions.filter(r => r.userId !== userId)
+            } else {
+                newReactions = [
+                    ...msg.reactions.filter(r => r.userId !== userId),
+                    { userId, emoji }
+                ]
+            }
+            useChatStore.getState().updateMessage(conversationId, messageId, {
+                reactions: newReactions
+            })
+        }
+
         socketService.on('chat:message', handleNewMessage)
         socketService.on('chat:typing', handleTyping)
         socketService.on('chat:stop_typing', handleStopTyping)
         socketService.on('chat:recalled', handleRecalled)
+        socketService.on('chat:reaction', handleReaction)
 
         return () => {
             socketService.leaveRoom(conversationId)
@@ -177,6 +200,7 @@ export default function ChatRoom() {
             socketService.off('chat:typing', handleTyping)
             socketService.off('chat:stop_typing', handleStopTyping)
             socketService.off('chat:recalled', handleRecalled)
+            socketService.off('chat:reaction', handleReaction)
         }
     }, [conversationId])
 
@@ -255,9 +279,47 @@ export default function ChatRoom() {
             conversationId,
             senderId: user.id,
         }, (res) => {
-            if (!res.success) {
+            if (res.success) {
+                // Optimistic update — đánh dấu tin nhắn đã xóa ngay
+                useChatStore.getState().updateMessage(conversationId, messageId, {
+                    isDeleted: true,
+                })
+            } else {
                 console.error('Thu hồi thất bại:', res.error)
             }
+        })
+    }
+
+    // ✅ Reaction handler
+    const handleReact = (messageId: string, emoji: string) => {
+        if (!conversationId || !user) return
+        // Optimistic update — thêm reaction ngay
+        const currentMessages = useChatStore.getState().messages[conversationId] || []
+        const msg = currentMessages.find(m => m.id === messageId)
+        if (msg) {
+            const existingReaction = msg.reactions.find(r => r.userId === user.id)
+            let newReactions
+            if (existingReaction && existingReaction.emoji === emoji) {
+                // Toggle off — bỏ reaction
+                newReactions = msg.reactions.filter(r => r.userId !== user.id)
+            } else {
+                // Thêm/thay đổi reaction
+                newReactions = [
+                    ...msg.reactions.filter(r => r.userId !== user.id),
+                    { userId: user.id, emoji }
+                ]
+            }
+            useChatStore.getState().updateMessage(conversationId, messageId, {
+                reactions: newReactions
+            })
+        }
+
+        // Gửi qua socket
+        socketService.reactToMessage({
+            messageId,
+            conversationId,
+            userId: user.id,
+            emoji
         })
     }
 
@@ -365,8 +427,16 @@ export default function ChatRoom() {
                                 showAvatar={showAvatar}
                                 senderName={sender?.fullName}
                                 senderAvatar={sender?.avatarUrl ?? undefined}
+                                replyMessage={msg.replyTo ? messages.find(m => m.id === msg.replyTo) || null : null}
+                                replySenderName={msg.replyTo ? (() => {
+                                    const repliedMsg = messages.find(m => m.id === msg.replyTo)
+                                    if (!repliedMsg) return undefined
+                                    const repliedSender = activeConversation?.participants.find(p => p.userId === repliedMsg.senderId)
+                                    return repliedSender?.fullName
+                                })() : undefined}
                                 onReply={() => setReplyTo(msg.id)}
                                 onRecall={() => handleRecall(msg.id)}
+                                onReact={(emoji) => handleReact(msg.id, emoji)}
                             />
                         )
                     })
