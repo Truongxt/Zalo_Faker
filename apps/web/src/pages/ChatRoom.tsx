@@ -17,7 +17,7 @@ import {
 } from 'lucide-react'
 import MessageBubble from '@/components/chat/MessageBubble'
 import TypingIndicator from '@/components/chat/TypingIndicator'
-import { getMessages } from '@/services/api'
+import { getMessages, getConversation } from '@/services/api'
 import { socketService } from '@/lib/socket'
 
 export default function ChatRoom() {
@@ -66,15 +66,40 @@ export default function ChatRoom() {
         }
     }, [conversationId])
 
-    // Set active conversation
+    // Set active conversation — subscribe to conversations so it re-runs
+    // when the conversation list finishes loading from the API
+    const conversations = useChatStore(state => state.conversations)
+    const { setConversations } = useChatStore()
+
     useEffect(() => {
-        if (conversationId) {
+        if (!conversationId) return
+
+        const trySetActive = () => {
             const conv = useChatStore.getState().getConversationById(conversationId)
             if (conv) {
                 useChatStore.getState().setActiveConversation(conv)
+                return true
             }
+            return false
         }
-    }, [conversationId])
+
+        // Nếu đã có conversations trong store → set active ngay
+        if (trySetActive()) return
+
+        // Nếu chưa có (vd: user truy cập URL trực tiếp) → tự load từ API
+        if (conversations.length === 0) {
+            getConversation()
+                .then(convs => {
+                    setConversations(convs)
+                    // Sau khi load xong, tìm lại conversation
+                    const conv = convs.find((c: any) => c.id === conversationId)
+                    if (conv) {
+                        useChatStore.getState().setActiveConversation(conv)
+                    }
+                })
+                .catch(err => console.error('Error loading conversations:', err))
+        }
+    }, [conversationId, conversations])
 
     // ✅ Vào phòng socket + lắng nghe tin nhắn realtime
     useEffect(() => {
