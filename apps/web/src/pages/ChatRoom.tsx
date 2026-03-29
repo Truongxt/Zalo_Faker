@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, FormEvent } from 'react'
+import { useState, useRef, useEffect, useCallback, FormEvent, ChangeEvent } from 'react'
 import { useParams } from 'react-router-dom'
 import { useChatStore, type Message } from '@/stores/chatStore'
 import { useAuthStore } from '@/stores/authStore'
@@ -42,11 +42,25 @@ export default function ChatRoom() {
     const [isLoading, setIsLoading] = useState(false)
     const [replyTo, setReplyTo] = useState<string | null>(null)
     const [showEmojiPicker, setShowEmojiPicker] = useState(false)
+    const [isSendingMedia, setIsSendingMedia] = useState(false)
 
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const inputRef = useRef<HTMLInputElement>(null)
+    const imageInputRef = useRef<HTMLInputElement>(null)
+    const fileInputRef = useRef<HTMLInputElement>(null)
     const typingTimeoutRef = useRef<ReturnType<typeof setTimeout>>()
     const emojiPickerRef = useRef<HTMLDivElement>(null)
+
+    const readFileAsDataUrl = (file: File) =>
+        new Promise<string>((resolve, reject) => {
+            const reader = new FileReader()
+            reader.onload = () => {
+                if (typeof reader.result === 'string') resolve(reader.result)
+                else reject(new Error('Không thể đọc file'))
+            }
+            reader.onerror = () => reject(reader.error || new Error('Đọc file thất bại'))
+            reader.readAsDataURL(file)
+        })
 
     const typing = conversationId ? typingUsers[conversationId] || [] : []
 
@@ -323,6 +337,66 @@ export default function ChatRoom() {
         })
     }
 
+    const sendMediaMessage = async (file: File, type: 'image' | 'file') => {
+        if (!conversationId || !user) return
+
+        // Prevent payload too large for socket/db
+        const maxSizeBytes = 5 * 1024 * 1024
+        if (file.size > maxSizeBytes) {
+            alert('File quá lớn. Vui lòng chọn file <= 5MB.')
+            return
+        }
+
+        try {
+            setIsSendingMedia(true)
+            const dataUrl = await readFileAsDataUrl(file)
+
+            socketService.sendMessage({
+                conversationId,
+                senderId: user.id,
+                type,
+                content: {
+                    mediaUrl: dataUrl,
+                    fileName: file.name,
+                    fileSize: file.size,
+                },
+            }, (res) => {
+                if (!res.success) {
+                    console.error('Gửi media thất bại:', res.error)
+                }
+            })
+
+            updateConversation(conversationId, {
+                lastMessage: {
+                    content: type === 'image' ? '[Hình ảnh]' : `[File] ${file.name}`,
+                    type,
+                    senderId: user.id,
+                    timestamp: new Date().toISOString(),
+                },
+                updatedAt: new Date().toISOString(),
+            })
+        } catch (error) {
+            console.error('Không thể xử lý file:', error)
+            alert('Không thể gửi file này. Vui lòng thử lại.')
+        } finally {
+            setIsSendingMedia(false)
+        }
+    }
+
+    const handlePickImage = async (e: ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0]
+        if (!file) return
+        await sendMediaMessage(file, 'image')
+        e.target.value = ''
+    }
+
+    const handlePickFile = async (e: ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0]
+        if (!file) return
+        await sendMediaMessage(file, 'file')
+        e.target.value = ''
+    }
+
     const getOtherParticipant = () => {
         if (!activeConversation || activeConversation.type === 'group') return null
         return activeConversation.participants.find(p => p.userId !== user?.id)
@@ -481,17 +555,34 @@ export default function ChatRoom() {
                     <div className="flex items-center gap-1">
                         <button
                             type="button"
+                            onClick={() => imageInputRef.current?.click()}
+                            disabled={isSendingMedia}
                             className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-600 dark:text-gray-400"
                         >
                             <Image className="w-5 h-5" />
                         </button>
                         <button
                             type="button"
+                            onClick={() => fileInputRef.current?.click()}
+                            disabled={isSendingMedia}
                             className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-600 dark:text-gray-400"
                         >
                             <Paperclip className="w-5 h-5" />
                         </button>
                     </div>
+                    <input
+                        ref={imageInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={handlePickImage}
+                    />
+                    <input
+                        ref={fileInputRef}
+                        type="file"
+                        className="hidden"
+                        onChange={handlePickFile}
+                    />
 
                     <div className="flex-1 relative" ref={emojiPickerRef}>
                         <input
