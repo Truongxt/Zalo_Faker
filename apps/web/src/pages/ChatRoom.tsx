@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, FormEvent } from 'react'
+import { useState, useRef, useEffect, useCallback, FormEvent } from 'react'
 import { useParams } from 'react-router-dom'
 import { useChatStore, type Message } from '@/stores/chatStore'
 import { useAuthStore } from '@/stores/authStore'
@@ -19,6 +19,7 @@ import MessageBubble from '@/components/chat/MessageBubble'
 import TypingIndicator from '@/components/chat/TypingIndicator'
 import { getMessages, getConversation } from '@/services/api'
 import { socketService } from '@/lib/socket'
+import EmojiPicker, { EmojiClickData, Theme } from 'emoji-picker-react'
 
 export default function ChatRoom() {
     const { conversationId } = useParams<{ conversationId: string }>()
@@ -45,8 +46,28 @@ export default function ChatRoom() {
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const inputRef = useRef<HTMLInputElement>(null)
     const typingTimeoutRef = useRef<ReturnType<typeof setTimeout>>()
+    const emojiPickerRef = useRef<HTMLDivElement>(null)
 
     const typing = conversationId ? typingUsers[conversationId] || [] : []
+
+    // Click outside emoji picker → đóng
+    useEffect(() => {
+        const handleClickOutside = (e: MouseEvent) => {
+            if (emojiPickerRef.current && !emojiPickerRef.current.contains(e.target as Node)) {
+                setShowEmojiPicker(false)
+            }
+        }
+        if (showEmojiPicker) {
+            document.addEventListener('mousedown', handleClickOutside)
+        }
+        return () => document.removeEventListener('mousedown', handleClickOutside)
+    }, [showEmojiPicker])
+
+    // Xử lý chọn emoji
+    const onEmojiClick = useCallback((emojiData: EmojiClickData) => {
+        setMessage(prev => prev + emojiData.emoji)
+        inputRef.current?.focus()
+    }, [])
 
     // Scroll to bottom khi có tin nhắn mới
     useEffect(() => {
@@ -402,7 +423,7 @@ export default function ChatRoom() {
                         </button>
                     </div>
 
-                    <div className="flex-1 relative">
+                    <div className="flex-1 relative" ref={emojiPickerRef}>
                         <input
                             ref={inputRef}
                             type="text"
@@ -419,10 +440,29 @@ export default function ChatRoom() {
                         <button
                             type="button"
                             onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-                            className="absolute right-3 top-1/2 -translate-y-1/2 p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full text-gray-500"
+                            className={`absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-full transition-colors
+                                ${showEmojiPicker
+                                    ? 'bg-primary-100 text-primary-500'
+                                    : 'hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500'
+                                }`}
                         >
                             <SmileIcon className="w-5 h-5" />
                         </button>
+
+                        {/* Emoji Picker Popup */}
+                        {showEmojiPicker && (
+                            <div className="absolute bottom-full right-0 mb-2 z-50">
+                                <EmojiPicker
+                                    onEmojiClick={onEmojiClick}
+                                    theme={document.documentElement.classList.contains('dark') ? Theme.DARK : Theme.LIGHT}
+                                    width={350}
+                                    height={400}
+                                    searchPlaceHolder="Tìm emoji..."
+                                    previewConfig={{ showPreview: false }}
+                                    lazyLoadEmojis={true}
+                                />
+                            </div>
+                        )}
                     </div>
 
                     {message.trim() ? (
