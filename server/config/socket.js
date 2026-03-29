@@ -101,6 +101,36 @@ module.exports = (socketConfig) => {
         console.log(`User ${socket.userId} is offline`);
       }
     });
+    // ── Thu hồi tin nhắn ────────────────────────────────
+    socket.on("chat:recall", async (data, callback) => {
+      try {
+        const { messageId, conversationId, senderId } = data
+
+        // Chỉ người gửi mới được thu hồi
+        const message = await messageService.getMessage(messageId)
+        if (!message) {
+          return callback?.({ success: false, error: "Tin nhắn không tồn tại" })
+        }
+        if (message.senderId !== senderId) {
+          return callback?.({ success: false, error: "Bạn không có quyền thu hồi tin nhắn này" })
+        }
+
+        // Cập nhật isDeleted trong DB
+        await messageService.updateMessage(messageId, { isDeleted: true })
+
+        // Broadcast cho cả phòng
+        io.to(conversationId).emit("chat:recalled", {
+          messageId,
+          conversationId,
+        })
+
+        callback?.({ success: true })
+
+      } catch (err) {
+        console.error("chat:recall error:", err)
+        callback?.({ success: false, error: err.message })
+      }
+    });
   });
 
   return io;

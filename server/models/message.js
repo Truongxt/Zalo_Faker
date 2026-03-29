@@ -85,20 +85,35 @@ const MessageModel = {
     }
   },
 
+  // getOneMessage: async messageId => {
+  //   const params = {
+  //     TableName: tableName,
+  //     KeyConditionExpression: "_id = :id",
+  //     ExpressionAttributeValues: { ":id": messageId }
+  //   };
+  //   try {
+  //     const data = await dynamodb.query(params).promise();
+  //     return data.Items[0];
+  //   } catch (error) {
+  //     console.error("Error getting one message:", error);
+  //     throw error;
+  //   }
+  // },
+
   getOneMessage: async messageId => {
     const params = {
       TableName: tableName,
-      KeyConditionExpression: "_id = :id",
-      ExpressionAttributeValues: { ":id": messageId }
+      Key: { _id: messageId }
     };
     try {
-      const data = await dynamodb.query(params).promise();
-      return data.Items[0];
+      const data = await dynamodb.get(params).promise();
+      return data.Item;
     } catch (error) {
       console.error("Error getting one message:", error);
       throw error;
     }
   },
+
   getMessagesByConversationId: async (conversationId) => {
     // conversationId không phải Partition Key → không dùng query() được
     // Phải dùng scan() + FilterExpression (hoặc tạo GSI để tối ưu sau)
