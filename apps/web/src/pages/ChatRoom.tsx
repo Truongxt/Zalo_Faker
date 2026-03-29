@@ -113,15 +113,24 @@ export default function ChatRoom() {
             useChatStore.getState().removeTypingUser(conversationId, userId)
         }
 
+        // Lắng nghe thu hồi tin nhắn
+        const handleRecalled = ({ messageId }: { messageId: string }) => {
+            useChatStore.getState().updateMessage(conversationId, messageId, {
+                isDeleted: true,
+            })
+        }
+
         socketService.on('chat:message', handleNewMessage)
         socketService.on('chat:typing', handleTyping)
         socketService.on('chat:stop_typing', handleStopTyping)
+        socketService.on('chat:recalled', handleRecalled)
 
         return () => {
             socketService.leaveRoom(conversationId)
             socketService.off('chat:message', handleNewMessage)
             socketService.off('chat:typing', handleTyping)
             socketService.off('chat:stop_typing', handleStopTyping)
+            socketService.off('chat:recalled', handleRecalled)
         }
     }, [conversationId])
 
@@ -191,6 +200,19 @@ export default function ChatRoom() {
         typingTimeoutRef.current = setTimeout(() => {
             socketService.stopTyping(conversationId, user.id)
         }, 2000)
+    }
+
+    const handleRecall = (messageId: string) => {
+        if (!conversationId || !user) return
+        socketService.recallMessage({
+            messageId,
+            conversationId,
+            senderId: user.id,
+        }, (res) => {
+            if (!res.success) {
+                console.error('Thu hồi thất bại:', res.error)
+            }
+        })
     }
 
     const getOtherParticipant = () => {
@@ -298,6 +320,7 @@ export default function ChatRoom() {
                                 senderName={sender?.fullName}
                                 senderAvatar={sender?.avatarUrl ?? undefined}
                                 onReply={() => setReplyTo(msg.id)}
+                                onRecall={() => handleRecall(msg.id)}
                             />
                         )
                     })
