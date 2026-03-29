@@ -197,28 +197,28 @@ export default function ChatRoom() {
 
         // Lắng nghe thu hồi tin nhắn
         const handleRecalled = ({ messageId }: { messageId: string }) => {
+            const currentMessages = useChatStore.getState().messages[conversationId] || []
+            const msg = currentMessages.find(m => m.id === messageId)
+            if (msg?.isDeleted) return
+
             useChatStore.getState().updateMessage(conversationId, messageId, {
                 isDeleted: true,
             })
         }
 
-        // Lắng nghe reaction tin nhắn
+        // Lắng nghe reaction tin nhắn (idempotent — trùng event không toggle nhầm)
         const handleReaction = ({ messageId, userId, emoji }: { messageId: string; userId: string; emoji: string }) => {
             const currentMessages = useChatStore.getState().messages[conversationId] || []
             const msg = currentMessages.find(m => m.id === messageId)
             if (!msg) return
 
             const existing = msg.reactions.find(r => r.userId === userId)
-            let newReactions
-            if (existing && existing.emoji === emoji) {
-                // Toggle off
-                newReactions = msg.reactions.filter(r => r.userId !== userId)
-            } else {
-                newReactions = [
-                    ...msg.reactions.filter(r => r.userId !== userId),
-                    { userId, emoji }
-                ]
-            }
+            if (existing?.emoji === emoji) return
+
+            const newReactions = [
+                ...msg.reactions.filter(r => r.userId !== userId),
+                { userId, emoji }
+            ]
             useChatStore.getState().updateMessage(conversationId, messageId, {
                 reactions: newReactions
             })

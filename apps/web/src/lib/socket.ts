@@ -4,36 +4,52 @@ const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3000'
 
 class SocketService {
     private socket: Socket | null = null
+    /** userId hiện tại — dùng lại khi socket reconnect */
+    private currentUserId: string | null = null
+    /** Phòng đã join — reconnect sẽ join lại toàn bộ */
+    private joinedRooms = new Set<string>()
 
     connect(userId: string) {
-        // Nếu đã kết nối rồi thì thôi
-        if (this.socket?.connected) return this.socket
+        this.currentUserId = userId
 
-        this.socket = io(SOCKET_URL, {
-            transports: ['websocket', 'polling'],
-            reconnectionAttempts: 5,
-            reconnectionDelay: 1000,
-        })
+        const refreshPresenceAndRooms = () => {
+            if (!this.socket) return
+            console.log('✅ Socket connected:', this.socket.id)
+            if (this.currentUserId) {
+                this.socket.emit('user:join', this.currentUserId)
+            }
+            this.joinedRooms.forEach((conversationId) => {
+                this.socket?.emit('room:join', conversationId)
+            })
+        }
 
-        this.socket.on('connect', () => {
-            console.log('✅ Socket connected:', this.socket?.id)
-            // Thông báo user online
-            this.socket?.emit('user:join', userId)
-        })
+        if (!this.socket) {
+            this.socket = io(SOCKET_URL, {
+                transports: ['websocket', 'polling'],
+                reconnectionAttempts: 5,
+                reconnectionDelay: 1000,
+            })
 
-        this.socket.on('disconnect', (reason) => {
-            console.log('❌ Socket disconnected:', reason)
-        })
+            this.socket.on('connect', refreshPresenceAndRooms)
 
-        this.socket.on('connect_error', (error) => {
-            console.error('Socket connection error:', error.message)
-        })
+            this.socket.on('disconnect', (reason) => {
+                console.log('❌ Socket disconnected:', reason)
+            })
+
+            this.socket.on('connect_error', (error) => {
+                console.error('Socket connection error:', error.message)
+            })
+        } else if (this.socket.connected) {
+            refreshPresenceAndRooms()
+        }
 
         return this.socket
     }
 
     disconnect() {
         if (this.socket) {
+            this.joinedRooms.clear()
+            this.currentUserId = null
             this.socket.disconnect()
             this.socket = null
         }
@@ -41,11 +57,13 @@ class SocketService {
 
     // Vào phòng chat
     joinRoom(conversationId: string) {
+        this.joinedRooms.add(conversationId)
         this.socket?.emit('room:join', conversationId)
     }
 
     // Rời phòng chat
     leaveRoom(conversationId: string) {
+        this.joinedRooms.delete(conversationId)
         this.socket?.emit('room:leave', conversationId)
     }
 
