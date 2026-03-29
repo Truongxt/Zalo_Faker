@@ -1,7 +1,7 @@
 import { Message } from '@/stores/chatStore'
 import { formatDistanceToNow } from 'date-fns'
 import { vi } from 'date-fns/locale'
-import { Check, CheckCheck, MoreHorizontal, Reply, SmilePlus } from 'lucide-react'
+import { Check, CheckCheck, MoreHorizontal, Reply, SmilePlus, Trash2 } from 'lucide-react'
 
 interface MessageBubbleProps {
     message: Message
@@ -10,6 +10,7 @@ interface MessageBubbleProps {
     senderName?: string
     senderAvatar?: string
     onReply?: () => void
+    onRecall?: () => void
 }
 
 export default function MessageBubble({
@@ -18,7 +19,8 @@ export default function MessageBubble({
     showAvatar = false,
     senderName,
     senderAvatar,
-    onReply
+    onReply,
+    onRecall
 }: MessageBubbleProps) {
     const renderContent = () => {
         switch (message.type) {
@@ -171,12 +173,25 @@ export default function MessageBubble({
                     <button
                         onClick={onReply}
                         className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full"
+                        title="Trả lời"
                     >
                         <Reply className="w-4 h-4 text-gray-500" />
                     </button>
                     <button className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full">
                         <SmilePlus className="w-4 h-4 text-gray-500" />
                     </button>
+
+                    {/* Chỉ hiện với tin nhắn của mình và chưa bị thu hồi */}
+                    {isSent && !message.isDeleted && (
+                        <button
+                            onClick={onRecall}
+                            className="p-1.5 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-full"
+                            title="Thu hồi tin nhắn"
+                        >
+                            <Trash2 className="w-4 h-4 text-red-500" />
+                        </button>
+                    )}
+
                     <button className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full">
                         <MoreHorizontal className="w-4 h-4 text-gray-500" />
                     </button>
