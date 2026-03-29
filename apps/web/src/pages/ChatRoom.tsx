@@ -29,6 +29,7 @@ export default function ChatRoom() {
         setMessages,
         typingUsers,
         addMessage,
+        updateMessage,
         setActiveConversation,
         updateConversation,
     } = useChatStore()
@@ -63,6 +64,22 @@ export default function ChatRoom() {
         })
 
     const typing = conversationId ? typingUsers[conversationId] || [] : []
+
+    const markMessageAsRead = useCallback((messageId: string) => {
+        if (!conversationId || !user?.id) return
+
+        socketService.markAsRead(conversationId, messageId, user.id)
+
+        const msg = (useChatStore.getState().messages[conversationId] || []).find(m => m.id === messageId)
+        if (!msg) return
+
+        const alreadyRead = msg.readBy.some(r => r.userId === user.id)
+        if (!alreadyRead) {
+            updateMessage(conversationId, messageId, {
+                readBy: [...msg.readBy, { userId: user.id, readAt: new Date().toISOString() }],
+            })
+        }
+    }, [conversationId, user?.id, updateMessage])
 
     // Click outside emoji picker → đóng
     useEffect(() => {
@@ -140,6 +157,7 @@ export default function ChatRoom() {
     useEffect(() => {
         if (!conversationId) return
 
+        updateConversation(conversationId, { unreadCount: 0 })
         socketService.joinRoom(conversationId)
 
         const handleNewMessage = (msg: Message) => {
@@ -152,6 +170,9 @@ export default function ChatRoom() {
                 addMessage(conversationId, msg)
             }
 
+            // Đang mở đúng phòng thì đánh dấu đã đọc ngay
+            markMessageAsRead(msg.id)
+
             updateConversation(conversationId, {
                 lastMessage: {
                     content: msg.content.text || '[Media]',
@@ -159,6 +180,7 @@ export default function ChatRoom() {
                     senderId: msg.senderId,
                     timestamp: msg.createdAt,
                 },
+                unreadCount: 0,
                 updatedAt: msg.createdAt,
             })
         }
@@ -216,7 +238,21 @@ export default function ChatRoom() {
             socketService.off('chat:recalled', handleRecalled)
             socketService.off('chat:reaction', handleReaction)
         }
-    }, [conversationId])
+    }, [conversationId, user?.id, markMessageAsRead, addMessage, updateConversation])
+
+    // Sau khi messages được load vào phòng hiện tại, auto read message mới nhất chưa đọc
+    useEffect(() => {
+        if (!conversationId || !user?.id || messages.length === 0) return
+
+        const latestUnreadFromOthers = [...messages]
+            .reverse()
+            .find(m => m.senderId !== user.id && !m.readBy.some(r => r.userId === user.id))
+
+        if (latestUnreadFromOthers) {
+            markMessageAsRead(latestUnreadFromOthers.id)
+            updateConversation(conversationId, { unreadCount: 0 })
+        }
+    }, [messages, conversationId, user?.id, markMessageAsRead, updateConversation])
 
     // ✅ Gửi tin nhắn qua socket
     const handleSendMessage = async (e: FormEvent) => {
