@@ -6,6 +6,7 @@ const tableName = "Message";
 const MessageModel = {
   createMessage: async messageData => {
     const messageId = uuidv4();
+    const createdAt = new Date().toISOString();
     const params = {
       TableName: tableName,
       Item: {
@@ -18,12 +19,12 @@ const MessageModel = {
         reactions: messageData.reactions || [], // Array of Reaction
         readBy: messageData.readBy || [], // Array of ReadReceipt
         isDeleted: messageData.isDeleted || false,
-        createdAt: new Date().toISOString()
+        createdAt
       }
     };
     try {
       await dynamodb.put(params).promise();
-      return { _id: messageId, ...messageData };
+      return { _id: messageId, ...messageData, createdAt };
     } catch (error) {
       console.error("Error creating message:", error);
       throw error;
@@ -84,20 +85,35 @@ const MessageModel = {
     }
   },
 
+  // getOneMessage: async messageId => {
+  //   const params = {
+  //     TableName: tableName,
+  //     KeyConditionExpression: "_id = :id",
+  //     ExpressionAttributeValues: { ":id": messageId }
+  //   };
+  //   try {
+  //     const data = await dynamodb.query(params).promise();
+  //     return data.Items[0];
+  //   } catch (error) {
+  //     console.error("Error getting one message:", error);
+  //     throw error;
+  //   }
+  // },
+
   getOneMessage: async messageId => {
     const params = {
       TableName: tableName,
-      KeyConditionExpression: "_id = :id",
-      ExpressionAttributeValues: { ":id": messageId }
+      Key: { _id: messageId }
     };
     try {
-      const data = await dynamodb.query(params).promise();
-      return data.Items[0];
+      const data = await dynamodb.get(params).promise();
+      return data.Item;
     } catch (error) {
       console.error("Error getting one message:", error);
       throw error;
     }
   },
+
   getMessagesByConversationId: async (conversationId) => {
     // conversationId không phải Partition Key → không dùng query() được
     // Phải dùng scan() + FilterExpression (hoặc tạo GSI để tối ưu sau)
