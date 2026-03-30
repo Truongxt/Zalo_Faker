@@ -84,6 +84,38 @@ const FriendController = {
         message: error.message
       });
     }
+  },
+async getExitingFriend(req, res) {
+    try {
+      const { userId1, userId2 } = req.query;
+
+      if (!userId1 || !userId2) {
+        return res.status(400).json({
+          message: "userId1 and userId2 are required"
+        });
+      }
+
+      if (Number.isNaN(Number(userId1)) || Number.isNaN(Number(userId2))) {
+        return res.status(400).json({
+          message: "userId1 and userId2 must be valid numbers"
+        });
+      }
+
+      const friend = await friendService.getExitingFriend(userId1, userId2);
+
+      if (!friend) {
+        return res.status(404).json({
+          message: "No friend relationship found"
+        });
+      }
+      res.status(200).json({
+        data: friend
+      });
+    } catch (error) {
+      res.status(500).json({
+        message: error.message
+      });
+    }
   }
 
 }

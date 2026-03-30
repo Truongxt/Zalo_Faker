@@ -1,7 +1,8 @@
+import { useState, useRef, useEffect } from 'react'
 import { Message } from '@/stores/chatStore'
 import { formatDistanceToNow } from 'date-fns'
 import { vi } from 'date-fns/locale'
-import { Check, CheckCheck, MoreHorizontal, Reply, SmilePlus } from 'lucide-react'
+import { Check, CheckCheck, Reply, SmilePlus, Trash2 } from 'lucide-react'
 
 interface MessageBubbleProps {
     message: Message
@@ -9,8 +10,14 @@ interface MessageBubbleProps {
     showAvatar?: boolean
     senderName?: string
     senderAvatar?: string
+    replyMessage?: Message | null
+    replySenderName?: string
     onReply?: () => void
+    onRecall?: () => void
+    onReact?: (emoji: string) => void
 }
+
+const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '😡']
 
 export default function MessageBubble({
     message,
@@ -18,8 +25,33 @@ export default function MessageBubble({
     showAvatar = false,
     senderName,
     senderAvatar,
-    onReply
+    replyMessage,
+    replySenderName,
+    onReply,
+    onRecall,
+    onReact,
 }: MessageBubbleProps) {
+    const [showReactionPicker, setShowReactionPicker] = useState(false)
+    const [showConfirmRecall, setShowConfirmRecall] = useState(false)
+    const reactionRef = useRef<HTMLDivElement>(null)
+    const confirmRef = useRef<HTMLDivElement>(null)
+
+    // Click outside → đóng reaction picker
+    useEffect(() => {
+        const handleClickOutside = (e: MouseEvent) => {
+            if (reactionRef.current && !reactionRef.current.contains(e.target as Node)) {
+                setShowReactionPicker(false)
+            }
+            if (confirmRef.current && !confirmRef.current.contains(e.target as Node)) {
+                setShowConfirmRecall(false)
+            }
+        }
+        if (showReactionPicker || showConfirmRecall) {
+            document.addEventListener('mousedown', handleClickOutside)
+        }
+        return () => document.removeEventListener('mousedown', handleClickOutside)
+    }, [showReactionPicker, showConfirmRecall])
+
     const renderContent = () => {
         switch (message.type) {
             case 'image':
@@ -98,7 +130,7 @@ export default function MessageBubble({
                 )
 
             default:
-                return <p className="whitespace-pre-wrap">{message.content.text}</p>
+                return <p className="whitespace-pre-wrap break-words">{message.content.text}</p>
         }
     }
 
@@ -134,20 +166,34 @@ export default function MessageBubble({
                 {!isSent && !showAvatar && <div className="w-8" />}
 
                 <div className={`relative ${isSent ? 'items-end' : 'items-start'}`}>
+                    {/* Reply reference */}
+                    {replyMessage && (
+                        <div className={`mb-1 px-3 py-1.5 rounded-lg text-xs bg-black/5 dark:bg-white/5 border-l-2 border-primary-500 ${isSent ? 'ml-auto' : 'mr-auto'} max-w-full`}>
+                            <p className="font-medium text-primary-500 truncate">
+                                {replySenderName || 'Người dùng'}
+                            </p>
+                            <p className="text-gray-500 dark:text-gray-400 truncate">
+                                {replyMessage.isDeleted ? 'Tin nhắn đã bị xóa' : (replyMessage.content.text || '[Media]')}
+                            </p>
+                        </div>
+                    )}
+
                     {/* Message bubble */}
                     <div className={`message-bubble ${isSent ? 'message-sent' : 'message-received'}`}>
                         {renderContent()}
                     </div>
 
-                    {/* Reactions */}
+                    {/* Reactions display */}
                     {message.reactions.length > 0 && (
-                        <div className={`flex gap-0.5 mt-1 ${isSent ? 'justify-end' : 'justify-start'}`}>
-                            {[...new Set(message.reactions.map(r => r.emoji))].slice(0, 3).map((emoji, i) => (
-                                <span key={i} className="text-sm">{emoji}</span>
-                            ))}
-                            {message.reactions.length > 1 && (
-                                <span className="text-xs text-gray-500 ml-1">{message.reactions.length}</span>
-                            )}
+                        <div className={`flex gap-0.5 mt-0.5 ${isSent ? 'justify-end' : 'justify-start'}`}>
+                            <div className="flex items-center gap-0.5 bg-white dark:bg-dark-300 rounded-full px-1.5 py-0.5 shadow-sm border border-gray-100 dark:border-gray-700">
+                                {[...new Set(message.reactions.map(r => r.emoji))].slice(0, 3).map((emoji, i) => (
+                                    <span key={i} className="text-sm">{emoji}</span>
+                                ))}
+                                {message.reactions.length > 1 && (
+                                    <span className="text-xs text-gray-500 ml-0.5">{message.reactions.length}</span>
+                                )}
+                            </div>
                         </div>
                     )}
 
@@ -167,19 +213,86 @@ export default function MessageBubble({
                 </div>
 
                 {/* Actions (shown on hover) */}
-                <div className={`opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 ${isSent ? 'flex-row-reverse' : ''}`}>
+                <div className={`opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5 ${isSent ? 'flex-row-reverse' : ''}`}>
                     <button
                         onClick={onReply}
-                        className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full"
+                        className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition-colors"
+                        title="Trả lời"
                     >
                         <Reply className="w-4 h-4 text-gray-500" />
                     </button>
-                    <button className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full">
-                        <SmilePlus className="w-4 h-4 text-gray-500" />
-                    </button>
-                    <button className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full">
-                        <MoreHorizontal className="w-4 h-4 text-gray-500" />
-                    </button>
+
+                    {/* Reaction button with mini picker */}
+                    <div className="relative" ref={reactionRef}>
+                        <button
+                            onClick={() => setShowReactionPicker(!showReactionPicker)}
+                            className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition-colors"
+                            title="Thả cảm xúc"
+                        >
+                            <SmilePlus className="w-4 h-4 text-gray-500" />
+                        </button>
+
+                        {/* Quick reaction picker */}
+                        {showReactionPicker && (
+                            <div className={`absolute bottom-full mb-1 z-50 ${isSent ? 'right-0' : 'left-0'}`}>
+                                <div className="flex items-center gap-1 bg-white dark:bg-dark-300 rounded-full shadow-lg border border-gray-200 dark:border-gray-700 px-2 py-1.5 animate-scale-in">
+                                    {QUICK_REACTIONS.map((emoji) => (
+                                        <button
+                                            key={emoji}
+                                            onClick={() => {
+                                                onReact?.(emoji)
+                                                setShowReactionPicker(false)
+                                            }}
+                                            className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-600 transition-transform hover:scale-125 text-lg"
+                                        >
+                                            {emoji}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Recall button — chỉ hiện với tin nhắn của mình */}
+                    {isSent && !message.isDeleted && (
+                        <div className="relative" ref={confirmRef}>
+                            <button
+                                onClick={() => setShowConfirmRecall(true)}
+                                className="p-1.5 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-full transition-colors"
+                                title="Thu hồi tin nhắn"
+                            >
+                                <Trash2 className="w-4 h-4 text-red-500" />
+                            </button>
+
+                            {/* Confirm recall dialog */}
+                            {showConfirmRecall && (
+                                <div className={`absolute bottom-full mb-1 z-50 ${isSent ? 'right-0' : 'left-0'}`}>
+                                    <div className="bg-white dark:bg-dark-300 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-3 min-w-[200px] animate-scale-in">
+                                        <p className="text-sm text-gray-700 dark:text-gray-300 mb-3">
+                                            Thu hồi tin nhắn này?
+                                        </p>
+                                        <div className="flex gap-2 justify-end">
+                                            <button
+                                                onClick={() => setShowConfirmRecall(false)}
+                                                className="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                                            >
+                                                Hủy
+                                            </button>
+                                            <button
+                                                onClick={() => {
+                                                    onRecall?.()
+                                                    setShowConfirmRecall(false)
+                                                }}
+                                                className="px-3 py-1.5 text-sm text-white bg-red-500 hover:bg-red-600 rounded-lg transition-colors"
+                                            >
+                                                Thu hồi
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
                 </div>
             </div>
         </div>

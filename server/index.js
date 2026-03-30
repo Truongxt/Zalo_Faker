@@ -11,6 +11,7 @@ const userRoutes = require("./routes/userRoutes");
 
 
 const friendRoutes = require("./routes/friendRoutes");
+const aiRoutes = require("./routes/aiRoutes");
 const app = express();
 
 // ===== Middleware =====
@@ -27,6 +28,7 @@ app.use("/api/conversations", conversationRoutes);
 app.use("/api/messages", messageRoutes);
 
 app.use("/api/friends", friendRoutes);
+app.use("/api/groups", groupRoutes);
 // ===== Health check =====
 app.get("/", (req, res) => {
   res.send("API is running...");

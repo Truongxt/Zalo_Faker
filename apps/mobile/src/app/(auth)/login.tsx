@@ -42,7 +42,7 @@ export default function LoginScreen() {
         password,
       );
       login(user, accessToken, refreshToken);
-      router.replace("/(tabs)/chats");
+      router.replace("/(tabs)/chat/chats");
     } catch (error: any) {
       const message =
         error?.response?.data?.message ||

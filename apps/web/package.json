@@ -12,17 +12,17 @@
     },
     "dependencies": {
         "@supabase/supabase-js": "^2.39.0",
+        "clsx": "^2.1.0",
+        "date-fns": "^3.0.6",
+        "emoji-picker-react": "^4.18.0",
+        "lucide-react": "^0.303.0",
+        "peerjs": "^1.5.2",
         "react": "^18.2.0",
         "react-dom": "^18.2.0",
         "react-router-dom": "^6.21.0",
         "socket.io-client": "^4.7.2",
-        "peerjs": "^1.5.2",
-        "zustand": "^4.4.7",
-        "clsx": "^2.1.0",
         "tailwind-merge": "^2.2.0",
-        "lucide-react": "^0.303.0",
-        "date-fns": "^3.0.6"
-
+        "zustand": "^4.4.7"
     },
     "devDependencies": {
         "@types/react": "^18.2.45",

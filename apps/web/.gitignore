@@ -9,6 +9,13 @@ node_modules/
 dist/
 build/
 
+# TypeScript incremental build info
+*.tsbuildinfo
+
+# Generated Vite config outputs
+vite.config.js
+vite.config.d.ts
+
 # misc
 .DS_Store
 *.log
