@@ -7,6 +7,7 @@ export interface CallData {
     conversationId?: string;
     callerName?: string;
     callerAvatar?: string;
+    callType: 'audio' | 'video';
 }
 
 interface CallState {

@@ -39,7 +39,7 @@ export default function IncomingCallModal() {
                     {callData.callerName || 'Ai đó'}
                 </h3>
                 <p className="text-gray-500 dark:text-gray-400 mb-8 font-medium">
-                    Đang gọi video cho bạn...
+                    {callData.callType === 'video' ? 'Đang gọi video cho bạn...' : 'Đang gọi thoại cho bạn...'}
                 </p>
 
                 <div className="flex justify-center gap-8">

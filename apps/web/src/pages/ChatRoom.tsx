@@ -473,7 +473,25 @@ export default function ChatRoom() {
             toUserId: otherUser.userId,
             conversationId: conversationId,
             callerName: user.fullName || 'Người dùng',
-            callerAvatar: user.avatarUrl || undefined
+            callerAvatar: user.avatarUrl || undefined,
+            callType: 'video'
+        });
+    };
+
+    const handleStartVoiceCall = () => {
+        if (!conversationId || !user) return;
+        if (activeConversation?.type === 'group') {
+            alert('Tính năng gọi thoại nhóm đang được phát triển!');
+            return;
+        }
+        if (!otherUser) return;
+        useCallStore.getState().setOutgoingCall({
+            isCaller: true,
+            toUserId: otherUser.userId,
+            conversationId: conversationId,
+            callerName: user.fullName || 'Người dùng',
+            callerAvatar: user.avatarUrl || undefined,
+            callType: 'audio'
         });
     };
 
@@ -531,7 +549,10 @@ export default function ChatRoom() {
                 </div>
 
                 <div className="flex items-center gap-1">
-                    <button className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-600 dark:text-gray-400">
+                    <button 
+                        onClick={handleStartVoiceCall}
+                        className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-600 dark:text-gray-400"
+                    >
                         <Phone className="w-5 h-5" />
                     </button>
                     <button 
