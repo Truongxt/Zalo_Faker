@@ -28,11 +28,17 @@ const ConversationModel = {
     }
   },
 
-  getConversations: async () => {
+  getConversations: async (userId) => {
     const params = { TableName: tableName };
     try {
-      const conversations = await dynamodb.scan(params).promise();
-      return conversations.Items;
+      const conversationsResult = await dynamodb.scan(params).promise();
+      let conversations = conversationsResult.Items || [];
+      if (userId) {
+          conversations = conversations.filter(c => 
+              c.participants && c.participants.some(p => p.userId === String(userId))
+          );
+      }
+      return conversations;
     } catch (error) {
       console.error("Error getting conversations:", error);
       throw error;

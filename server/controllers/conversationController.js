@@ -20,7 +20,8 @@ const getConversation = async (req, res) => {
 
 const getConversations = async (req, res) => {
     try {
-        const conversations = await conversationService.getConversations()
+        const userId = req.user.userId;
+        const conversations = await conversationService.getConversations(userId)
         res.json(conversations)
     } catch (error) {
         res.status(500).json({ message: error.message })

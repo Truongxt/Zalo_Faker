@@ -131,6 +131,40 @@ module.exports = (socketConfig) => {
         callback?.({ success: false, error: err.message })
       }
     });
+
+    // ── 7. Video Call Signaling ──────────────────────────────
+    socket.on("video:call-user", (data) => {
+      // data: { fromUserId, toUserId, conversationId, peerId, callerName, callerAvatar }
+      const toSocketId = onlineUsers.get(String(data.toUserId));
+      if (toSocketId) {
+        io.to(toSocketId).emit("video:incoming-call", data);
+      } else {
+        socket.emit("video:user-offline", { toUserId: data.toUserId });
+      }
+    });
+
+    socket.on("video:answer-call", (data) => {
+      // data: { toUserId, peerId }
+      // Lưu ý: toUserId ở đây thực chất là người GỌI ĐI ban đầu
+      const toSocketId = onlineUsers.get(String(data.toUserId));
+      if (toSocketId) {
+        io.to(toSocketId).emit("video:call-answered", data);
+      }
+    });
+
+    socket.on("video:reject-call", (data) => {
+       const toSocketId = onlineUsers.get(String(data.toUserId));
+       if (toSocketId) {
+         io.to(toSocketId).emit("video:call-rejected", data);
+       }
+    });
+
+    socket.on("video:end-call", (data) => {
+       const toSocketId = onlineUsers.get(String(data.toUserId));
+       if (toSocketId) {
+         io.to(toSocketId).emit("video:call-ended", data);
+       }
+    });
   });
 
   return io;

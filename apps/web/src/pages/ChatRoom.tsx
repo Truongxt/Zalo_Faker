@@ -20,6 +20,7 @@ import TypingIndicator from '@/components/chat/TypingIndicator'
 import { getMessages, getConversation } from '@/services/api'
 import { socketService } from '@/lib/socket'
 import EmojiPicker, { EmojiClickData, Theme } from 'emoji-picker-react'
+import { useCallStore } from '@/stores/callStore'
 
 export default function ChatRoom() {
     const { conversationId } = useParams<{ conversationId: string }>()
@@ -460,6 +461,22 @@ export default function ChatRoom() {
         ? activeConversation.avatar
         : otherUser?.avatarUrl
 
+    const handleStartVideoCall = () => {
+        if (!conversationId || !user) return;
+        if (activeConversation?.type === 'group') {
+            alert('Tính năng gọi video nhóm đang được phát triển!');
+            return;
+        }
+        if (!otherUser) return;
+        useCallStore.getState().setOutgoingCall({
+            isCaller: true,
+            toUserId: otherUser.userId,
+            conversationId: conversationId,
+            callerName: user.fullName || 'Người dùng',
+            callerAvatar: user.avatarUrl || undefined
+        });
+    };
+
     if (!conversationId || !activeConversation) {
         return (
             <div className="flex-1 flex items-center justify-center bg-gray-50 dark:bg-dark-100">
@@ -517,7 +534,10 @@ export default function ChatRoom() {
                     <button className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-600 dark:text-gray-400">
                         <Phone className="w-5 h-5" />
                     </button>
-                    <button className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-600 dark:text-gray-400">
+                    <button 
+                        onClick={handleStartVideoCall}
+                        className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-600 dark:text-gray-400"
+                    >
                         <Video className="w-5 h-5" />
                     </button>
                     <button className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-600 dark:text-gray-400">
