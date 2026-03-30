@@ -7,12 +7,16 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "nodemon index.js",
     "db:create-friends": "node scripts/create-friends-table.js",
+    "db:create-participant": "node scripts/create-participant-table.js",
+    "db:create-reaction": "node scripts/create-reaction-table.js",
+    "db:create-chat-meta": "npm run db:create-participant ; npm run db:create-reaction",
     "db:seed-users": "node scripts/seed-users.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "@aws-sdk/client-dynamodb": "^3.1007.0",
     "@aws-sdk/lib-dynamodb": "^3.1007.0",
     "aws-sdk": "^2.1693.0",
