@@ -8,9 +8,11 @@ const socketConfig = require("./config/socket");
 
 
 const userRoutes = require("./routes/userRoutes");
+
+
 const friendRoutes = require("./routes/friendRoutes");
 const app = express();
-const groupRoutes = require("./routes/groupRoutes");
+
 // ===== Middleware =====
 app.use(cors());
 app.use(express.json());
@@ -23,8 +25,8 @@ const messageRoutes = require("./routes/messageRoutes");
 app.use("/api/users", userRoutes);
 app.use("/api/conversations", conversationRoutes);
 app.use("/api/messages", messageRoutes);
+
 app.use("/api/friends", friendRoutes);
-app.use("/api/groups", groupRoutes); 
 // ===== Health check =====
 app.get("/", (req, res) => {
   res.send("API is running...");
