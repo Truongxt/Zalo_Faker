@@ -9,8 +9,8 @@ const getConversation = async (id) => {
     return await conversationModel.getOneConversation(id)
 }
 
-const getConversations = async () => {
-    return await conversationModel.getConversations()
+const getConversations = async (userId) => {
+    return await conversationModel.getConversations(userId)
 }
 
 const updateConversation = async (id, conversation) => {

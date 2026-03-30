@@ -9,6 +9,8 @@ const socketConfig = require("./config/socket");
 
 const userRoutes = require("./routes/userRoutes");
 
+const groupRoutes = require("./routes/groupRoutes");
+
 
 const friendRoutes = require("./routes/friendRoutes");
 const aiRoutes = require("./routes/aiRoutes");
