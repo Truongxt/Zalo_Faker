@@ -132,6 +132,23 @@ const MessageModel = {
     }
   },
 
+  deleteMessagesByConversationId: async (conversationId) => {
+    const messages = await MessageModel.getMessagesByConversationId(conversationId);
+
+    if (!messages.length) {
+      return { deletedCount: 0 };
+    }
+
+    for (const message of messages) {
+      await dynamodb.delete({
+        TableName: tableName,
+        Key: { _id: message._id }
+      }).promise();
+    }
+
+    return { deletedCount: messages.length };
+  },
+
   // Methods for reactions and read receipts
   addReaction: async (messageId, userId, emoji) => {
     // Add a reaction to the message

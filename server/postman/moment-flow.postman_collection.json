@@ -1,0 +1,205 @@
+{
+  "info": {
+    "_postman_id": "4ba4c20a-8f31-46f9-ac8b-e9fdc5df076f",
+    "name": "Zalo Faker Moment Flow",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Collection test module khoanh khac."
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3000" },
+    { "key": "email", "value": "demo1@zalo-faker.com" },
+    { "key": "password", "value": "123456" },
+    { "key": "accessToken", "value": "" },
+    { "key": "momentId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "1. Login",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/users/login",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "users", "login"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const data = pm.response.json();",
+              "pm.collectionVariables.set('accessToken', data.accessToken);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Create Moment",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"content\": \"Khoanh khac test tu Postman\",\n  \"mediaUrls\": [\"https://example.com/moment.png\"]\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/moments",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "moments"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const data = pm.response.json();",
+              "pm.collectionVariables.set('momentId', data.momentId);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Get My Profile",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/moments/me",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "moments", "me"]
+        }
+      }
+    },
+    {
+      "name": "4. Get Friend Moments",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/moments/friends",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "moments", "friends"]
+        }
+      }
+    },
+    {
+      "name": "5. React To Moment",
+      "request": {
+        "method": "PUT",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"emoji\": \"like\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/moments/{{momentId}}/reaction",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "moments", "{{momentId}}", "reaction"]
+        }
+      }
+    },
+    {
+      "name": "6. Comment Moment",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"content\": \"Comment test\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/moments/{{momentId}}/comments",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "moments", "{{momentId}}", "comments"]
+        }
+      }
+    },
+    {
+      "name": "7. Get Moment Comments",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/moments/{{momentId}}/comments",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "moments", "{{momentId}}", "comments"]
+        }
+      }
+    },
+    {
+      "name": "8. Share Moment",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"caption\": \"Chia se lai khoanh khac nay\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/moments/{{momentId}}/share",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "moments", "{{momentId}}", "share"]
+        }
+      }
+    },
+    {
+      "name": "9. Get Reacted Moments",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/moments/reacted",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "moments", "reacted"]
+        }
+      }
+    },
+    {
+      "name": "10. Delete Moment",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/moments/{{momentId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "moments", "{{momentId}}"]
+        }
+      }
+    }
+  ]
+}

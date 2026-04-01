@@ -1,48 +1,35 @@
-import { Href, Tabs } from "expo-router";
-import { View, Text, TouchableOpacity, Pressable } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Colors } from "@/constants/colors";
-import { Header } from "@/components/ui";
-import { Ionicons } from "@expo/vector-icons";
 import { useState } from "react";
-import { useRouter } from "expo-router";
+import { Href, Tabs, useRouter } from "expo-router";
+import { Pressable, Text, TouchableOpacity, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Header } from "@/components/ui";
+import { Colors } from "@/constants/colors";
+
 type MenuItem = {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
   route: Href;
 };
+
 const MENU_ITEMS: MenuItem[] = [
-  // {
-  //   icon: "chatbubble-outline" as const,
-  //   label: "Tin nhắn mới",
-  //   route: "/new-chat",
-  // },
   {
-    icon: "person-add-outline" as const,
-    label: "Thêm bạn",
+    icon: "person-add-outline",
+    label: "Them ban",
     route: "/friends/add",
   },
-  // {
-  //   icon: "people-outline" as const,
-  //   label: "Tạo nhóm",
-  //   route: "/create-group",
-  // },
 ];
 
 function TabIcon({ name, focused }: { name: string; focused: boolean }) {
-  const icons: Record<string, string> = {
+  const icons: Record<string, keyof typeof Ionicons.glyphMap> = {
     chat: focused ? "chatbubble" : "chatbubble-outline",
     contacts: focused ? "people" : "people-outline",
+    moments: focused ? "sparkles" : "sparkles-outline",
     discover: focused ? "compass" : "compass-outline",
     profile: focused ? "person" : "person-outline",
   };
-  return (
-    <Ionicons
-      name={icons[name] as any}
-      size={24}
-      color={focused ? Colors.primary : "#9CA3AF"}
-    />
-  );
+
+  return <Ionicons name={icons[name]} size={24} color={focused ? Colors.primary : "#9CA3AF"} />;
 }
 
 export default function TabsLayout() {
@@ -52,7 +39,7 @@ export default function TabsLayout() {
 
   return (
     <View style={{ flex: 1 }}>
-      <Header onAddPress={() => setMenuOpen(!menuOpen)} />
+      <Header onAddPress={() => setMenuOpen((prev) => !prev)} />
 
       <Tabs
         screenOptions={{
@@ -64,54 +51,54 @@ export default function TabsLayout() {
             borderTopColor: "#E5E7EB",
             paddingTop: 4,
             paddingBottom: Math.max(insets.bottom, 4),
-            height: 56 + Math.max(insets.bottom, 4),
+            height: 60 + Math.max(insets.bottom, 4),
           },
-          tabBarLabelStyle: { fontSize: 11, fontWeight: "600" },
+          tabBarLabelStyle: {
+            fontSize: 10,
+            fontWeight: "600",
+          },
         }}
       >
         <Tabs.Screen
           name="chat"
           options={{
-            title: "Tin nhắn",
+            title: "Tin nhan",
             href: "/(tabs)/chat/chats",
-            tabBarIcon: ({ focused }) => (
-              <TabIcon name="chat" focused={focused} />
-            ),
+            tabBarIcon: ({ focused }) => <TabIcon name="chat" focused={focused} />,
           }}
         />
         <Tabs.Screen
           name="contacts"
           options={{
-            title: "Danh bạ",
-            tabBarIcon: ({ focused }) => (
-              <TabIcon name="contacts" focused={focused} />
-            ),
+            title: "Danh ba",
+            tabBarIcon: ({ focused }) => <TabIcon name="contacts" focused={focused} />,
+          }}
+        />
+        <Tabs.Screen
+          name="moments"
+          options={{
+            title: "Khoanh khac",
+            tabBarIcon: ({ focused }) => <TabIcon name="moments" focused={focused} />,
           }}
         />
         <Tabs.Screen
           name="discover"
           options={{
-            title: "Khám phá",
-            tabBarIcon: ({ focused }) => (
-              <TabIcon name="discover" focused={focused} />
-            ),
+            title: "Kham pha",
+            tabBarIcon: ({ focused }) => <TabIcon name="discover" focused={focused} />,
           }}
         />
         <Tabs.Screen
           name="profile"
           options={{
-            title: "Cá nhân",
-            tabBarIcon: ({ focused }) => (
-              <TabIcon name="profile" focused={focused} />
-            ),
+            title: "Ca nhan",
+            tabBarIcon: ({ focused }) => <TabIcon name="profile" focused={focused} />,
           }}
         />
       </Tabs>
 
-      {/* Dropdown Menu */}
       {menuOpen && (
         <>
-          {/* Backdrop overlay */}
           <Pressable
             onPress={() => setMenuOpen(false)}
             style={{
@@ -124,7 +111,6 @@ export default function TabsLayout() {
             }}
           />
 
-          {/* Dropdown menu */}
           <View
             style={{
               position: "absolute",
@@ -141,9 +127,9 @@ export default function TabsLayout() {
               shadowOffset: { width: 0, height: 2 },
             }}
           >
-            {MENU_ITEMS.map((item, index) => (
+            {MENU_ITEMS.map((item) => (
               <TouchableOpacity
-                key={index}
+                key={item.label}
                 style={{
                   flexDirection: "row",
                   alignItems: "center",
