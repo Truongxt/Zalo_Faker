@@ -5,7 +5,7 @@
  * Participant object structure:
  * {
  *   userId: String,
- *   role: String, // e.g. 'admin', 'member'
+ *   role: String, // e.g. 'admin', 'deputy', 'member'
  *   nickname: String,
  *   joinedAt: Date (ISO string),
  *   lastRead: Date (ISO string)

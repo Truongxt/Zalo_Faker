@@ -10,6 +10,7 @@ const socketConfig = require("./config/socket");
 const userRoutes = require("./routes/userRoutes");
 
 const groupRoutes = require("./routes/groupRoutes");
+const momentRoutes = require("./routes/momentRoutes");
 
 
 const friendRoutes = require("./routes/friendRoutes");
@@ -31,6 +32,17 @@ app.use("/api/messages", messageRoutes);
 
 app.use("/api/friends", friendRoutes);
 app.use("/api/groups", groupRoutes);
+app.use("/api/moments", momentRoutes);
+
+app.use((err, req, res, next) => {
+  if (err instanceof SyntaxError && err.status === 400 && "body" in err) {
+    return res.status(400).json({
+      message: "Invalid JSON body"
+    });
+  }
+
+  return next(err);
+});
 // ===== Health check =====
 app.get("/", (req, res) => {
   res.send("API is running...");
