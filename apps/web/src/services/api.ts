@@ -1,16 +1,22 @@
+import { useAuthStore } from '@/stores/authStore'
+
 const baseAPI = "http://localhost:3000/api";
 
+const getAuthHeaders = (): Record<string, string> => {
+    const token = useAuthStore.getState().accessToken;
+    return token ? { 'Authorization': `Bearer ${token}` } : {};
+};
+
 const getConversation = async () => {
-    const response = await fetch(`${baseAPI}/conversations`);
+    const response = await fetch(`${baseAPI}/conversations`, { headers: getAuthHeaders() });
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
     const data = await response.json();
     // DynamoDB trả về _id, frontend dùng id → cần map
     return data.map((conv: any) => ({ ...conv, id: conv._id }));
 }
 
-
 const getMessages = async (conversationId: string) => {
-    const response = await fetch(`${baseAPI}/messages/conversation/${conversationId}`);
+    const response = await fetch(`${baseAPI}/messages/conversation/${conversationId}`, { headers: getAuthHeaders() });
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
     const data = await response.json();
     // DynamoDB trả về _id, frontend dùng id → cần map
@@ -22,22 +28,23 @@ const sendMessage = async (message: any) => {
         method: "POST",
         headers: {
             "Content-Type": "application/json",
+            ...getAuthHeaders()
         },
         body: JSON.stringify(message),
     });
     return response.json();
 }
 
-
 const getUsers = async () => {
-    const response = await fetch(`${baseAPI}/users`);
+    const response = await fetch(`${baseAPI}/users`, { headers: getAuthHeaders() });
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
     return response.json();
 }
 
 const deleteChatHistory = async (roomId: string) => {
     const response = await fetch(`${baseAPI}/messages/room/${roomId}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        headers: getAuthHeaders()
     });
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
     return response.json();
@@ -46,7 +53,10 @@ const deleteChatHistory = async (roomId: string) => {
 const createGroup = async (groupData: { name: string, memberIds: string[], createdBy: string }) => {
     const response = await fetch(`${baseAPI}/groups`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+            'Content-Type': 'application/json',
+            ...getAuthHeaders()
+        },
         body: JSON.stringify(groupData)
     });
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
@@ -61,7 +71,10 @@ const updateParticipantSetting = async (
 ) => {
     const response = await fetch(`${baseAPI}/conversations/${conversationId}/setting`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+            'Content-Type': 'application/json',
+            ...getAuthHeaders()
+        },
         body: JSON.stringify({ userId, ...data })
     });
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
@@ -72,7 +85,10 @@ const updateParticipantSetting = async (
 const addGroupMember = async (groupId: string, data: { userId: string, newUserId: string }) => {
     const response = await fetch(`${baseAPI}/groups/${groupId}/add-member`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+            'Content-Type': 'application/json',
+            ...getAuthHeaders()
+        },
         body: JSON.stringify(data)
     });
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
@@ -82,7 +98,10 @@ const addGroupMember = async (groupId: string, data: { userId: string, newUserId
 const removeGroupMember = async (groupId: string, data: { userId: string, removeUserId: string }) => {
     const response = await fetch(`${baseAPI}/groups/${groupId}/remove-member`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+            'Content-Type': 'application/json',
+            ...getAuthHeaders()
+        },
         body: JSON.stringify(data)
     });
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
@@ -92,7 +111,10 @@ const removeGroupMember = async (groupId: string, data: { userId: string, remove
 const leaveGroup = async (groupId: string, data: { userId: string }) => {
     const response = await fetch(`${baseAPI}/groups/${groupId}/leave`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+            'Content-Type': 'application/json',
+            ...getAuthHeaders()
+        },
         body: JSON.stringify(data)
     });
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
@@ -100,7 +122,7 @@ const leaveGroup = async (groupId: string, data: { userId: string }) => {
 }
 
 const getStickers = async () => {
-    const response = await fetch(`${baseAPI}/messages/stickers`);
+    const response = await fetch(`${baseAPI}/messages/stickers`, { headers: getAuthHeaders() });
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
     return response.json();
 }
@@ -108,7 +130,10 @@ const getStickers = async () => {
 const updateConversationBackground = async (conversationId: string, backgroundUrl: string) => {
     const response = await fetch(`${baseAPI}/conversations/${conversationId}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+            'Content-Type': 'application/json',
+            ...getAuthHeaders()
+        },
         body: JSON.stringify({ background: backgroundUrl })
     });
     if (!response.ok) throw new Error(`HTTP ${response.status}`)

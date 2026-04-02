@@ -20,10 +20,14 @@ const getConversation = async (req, res) => {
 
 const getConversations = async (req, res) => {
     try {
-        const conversations = await conversationService.getConversations()
-        res.json(conversations)
+        const conversations = await conversationService.getConversations();
+        const userId = req.user.id;
+        const filteredConversations = conversations.filter(c => 
+            c.participants && c.participants.some(p => p.userId === userId)
+        );
+        res.json(filteredConversations);
     } catch (error) {
-        res.status(500).json({ message: error.message })
+        res.status(500).json({ message: error.message });
     }
 }
 
