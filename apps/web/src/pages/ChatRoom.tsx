@@ -6,6 +6,7 @@ import { useToast } from '@/contexts/ToastContext'
 import { useMediaUpload } from '@/hooks/useMediaUpload'
 import { useDebounce } from '@/hooks/useDebounce'
 import { useOfflineQueue } from '@/hooks/useOfflineQueue'
+import { useMessagePagination } from '@/hooks/useMessagePagination'
 import {
     Send,
     Image,
@@ -27,6 +28,7 @@ import {
 import MessageBubble from '@/components/chat/MessageBubble'
 import TypingIndicator from '@/components/chat/TypingIndicator'
 import StickerPicker from '@/components/chat/StickerPicker'
+import VirtualizedMessageList from '@/components/chat/VirtualizedMessageList'
 import { getMessages, getConversation } from '@/services/api'
 import { socketService } from '@/lib/socket'
 import EmojiPicker, { EmojiClickData, Theme } from 'emoji-picker-react'
@@ -69,6 +71,9 @@ export default function ChatRoom() {
     const [showGroupManagement, setShowGroupManagement] = useState(false)
     const [forwardMessage, setForwardMessage] = useState<Message | null>(null)
     const [showBackgroundPicker, setShowBackgroundPicker] = useState(false)
+
+    // Pagination state
+    const pagination = useMessagePagination(conversationId)
 
     // Voice Recording State
     const [isRecording, setIsRecording] = useState(false)
@@ -926,90 +931,93 @@ export default function ChatRoom() {
                     </div>
                 )}
 
-                <div className="flex-1 overflow-y-auto p-4 space-y-4 relative z-10">
-                    {isLoading ? (
-                        <div className="flex justify-center py-8">
-                            <div className="w-8 h-8 border-4 border-primary-500 border-t-transparent rounded-full animate-spin" />
-                        </div>
-                    ) : (
-                        (() => {
-                            const filteredMessages = messages.filter(msg => {
-                                if (!debouncedSearchQuery) return true
+                <VirtualizedMessageList
+                    isLoading={pagination.isLoading}
+                    hasMore={pagination.hasMore}
+                    onReachTop={pagination.loadMore}
+                    className="relative z-10"
+                >
+                    {(() => {
+                        const filteredMessages = messages.filter(msg => {
+                            if (!debouncedSearchQuery) return true
 
-                                const query = debouncedSearchQuery.toLowerCase()
+                            const query = debouncedSearchQuery.toLowerCase()
 
-                                // Search text messages
-                                if (msg.type === 'text' && msg.content.text) {
-                                    return msg.content.text.toLowerCase().includes(query)
-                                }
-
-                                // Search file names
-                                if (msg.type === 'file' && msg.content.fileName) {
-                                    return msg.content.fileName.toLowerCase().includes(query)
-                                }
-
-                                // Search sticker/image/video content if they have descriptions
-                                if ((msg.type === 'sticker' || msg.type === 'image' || msg.type === 'video') && msg.content.text) {
-                                    return msg.content.text.toLowerCase().includes(query)
-                                }
-
-                                return false
-                            })
-
-                            if (debouncedSearchQuery && filteredMessages.length === 0) {
-                                return (
-                                    <div className="flex flex-col items-center justify-center py-10 opacity-60">
-                                        <Search className="w-10 h-10 mb-3 text-gray-400" />
-                                        <p className="text-gray-500 dark:text-gray-400 text-sm text-center">
-                                            Không tìm thấy tin nhắn nào chứa "<span className="font-medium">{debouncedSearchQuery}</span>"
-                                        </p>
-                                    </div>
-                                )
+                            // Search text messages
+                            if (msg.type === 'text' && msg.content.text) {
+                                return msg.content.text.toLowerCase().includes(query)
                             }
 
-                            return filteredMessages.map((msg, index) => {
-                                const isSent = msg.senderId === user?.id
-                                const showAvatar = !isSent && (
-                                    index === 0 ||
-                                    filteredMessages[index - 1].senderId !== msg.senderId
-                                )
-                                const sender = activeConversation?.participants.find(
-                                    p => p.userId === msg.senderId
-                                )
+                            // Search file names
+                            if (msg.type === 'file' && msg.content.fileName) {
+                                return msg.content.fileName.toLowerCase().includes(query)
+                            }
 
-                                return (
-                                    <MessageBubble
-                                        key={msg.id}
-                                        message={msg}
-                                        isSent={isSent}
-                                        showAvatar={showAvatar}
-                                        senderName={sender?.fullName}
-                                        senderAvatar={sender?.avatarUrl ?? undefined}
-                                        replyMessage={msg.replyTo ? messages.find(m => m.id === msg.replyTo) || null : null}
-                                        replySenderName={msg.replyTo ? (() => {
-                                            const repliedMsg = messages.find(m => m.id === msg.replyTo)
-                                            if (!repliedMsg) return undefined
-                                            const repliedSender = activeConversation?.participants.find(p => p.userId === repliedMsg.senderId)
-                                            return repliedSender?.fullName
-                                        })() : undefined}
-                                        onReply={() => setReplyTo(msg.id)}
-                                        onRecall={() => handleRecall(msg.id)}
-                                        onReact={(emoji) => handleReact(msg.id, emoji)}
-                                        onForward={() => setForwardMessage(msg)}
-                                        participants={activeConversation?.participants?.map(p => ({
-                                            userId: p.userId,
-                                            fullName: p.fullName
-                                        })) ?? []}
-                                        isGroupChat={activeConversation?.type === 'group'}
-                                    />
-                                )
-                            })
-                        })()
-                    )}
+                            // Search sticker/image/video content if they have descriptions
+                            if ((msg.type === 'sticker' || msg.type === 'image' || msg.type === 'video') && msg.content.text) {
+                                return msg.content.text.toLowerCase().includes(query)
+                            }
 
-                    {typing.length > 0 && <TypingIndicator />}
-                    <div ref={messagesEndRef} />
-                </div>
+                            return false
+                        })
+
+                        if (debouncedSearchQuery && filteredMessages.length === 0) {
+                            return (
+                                <div className="flex flex-col items-center justify-center py-10 opacity-60">
+                                    <Search className="w-10 h-10 mb-3 text-gray-400" />
+                                    <p className="text-gray-500 dark:text-gray-400 text-sm text-center">
+                                        Không tìm thấy tin nhắn nào chứa "<span className="font-medium">{debouncedSearchQuery}</span>"
+                                    </p>
+                                </div>
+                            )
+                        }
+
+                        return (
+                            <>
+                                {filteredMessages.map((msg, index) => {
+                                    const isSent = msg.senderId === user?.id
+                                    const showAvatar = !isSent && (
+                                        index === 0 ||
+                                        filteredMessages[index - 1].senderId !== msg.senderId
+                                    )
+                                    const sender = activeConversation?.participants.find(
+                                        p => p.userId === msg.senderId
+                                    )
+
+                                    return (
+                                        <MessageBubble
+                                            key={msg.id}
+                                            message={msg}
+                                            isSent={isSent}
+                                            showAvatar={showAvatar}
+                                            senderName={sender?.fullName}
+                                            senderAvatar={sender?.avatarUrl ?? undefined}
+                                            replyMessage={msg.replyTo ? messages.find(m => m.id === msg.replyTo) || null : null}
+                                            replySenderName={msg.replyTo ? (() => {
+                                                const repliedMsg = messages.find(m => m.id === msg.replyTo)
+                                                if (!repliedMsg) return undefined
+                                                const repliedSender = activeConversation?.participants.find(p => p.userId === repliedMsg.senderId)
+                                                return repliedSender?.fullName
+                                            })() : undefined}
+                                            onReply={() => setReplyTo(msg.id)}
+                                            onRecall={() => handleRecall(msg.id)}
+                                            onReact={(emoji) => handleReact(msg.id, emoji)}
+                                            onForward={() => setForwardMessage(msg)}
+                                            participants={activeConversation?.participants?.map(p => ({
+                                                userId: p.userId,
+                                                fullName: p.fullName
+                                            })) ?? []}
+                                            isGroupChat={activeConversation?.type === 'group'}
+                                        />
+                                    )
+                                })}
+
+                                {typing.length > 0 && <TypingIndicator />}
+                                <div ref={messagesEndRef} />
+                            </>
+                        )
+                    })()}
+                </VirtualizedMessageList>
             </div>
 
             {/* Reply preview */}

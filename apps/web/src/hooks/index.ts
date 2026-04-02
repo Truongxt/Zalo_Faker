@@ -3,4 +3,6 @@ export { useMediaUpload } from './useMediaUpload'
 export { useImagePicker } from './useImagePicker'
 export { useSocket } from './useSocket'
 export { useOfflineQueue } from './useOfflineQueue'
+export { useMessagePagination } from './useMessagePagination'
+
 
