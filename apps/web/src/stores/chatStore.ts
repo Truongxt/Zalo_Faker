@@ -39,6 +39,7 @@ export interface Conversation {
     type: 'private' | 'group'
     name?: string
     avatar?: string
+    background?: string
     participants: Participant[]
     lastMessage?: {
         content: string

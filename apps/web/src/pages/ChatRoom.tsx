@@ -24,7 +24,8 @@ import StickerPicker from '@/components/chat/StickerPicker'
 import { getMessages, getConversation } from '@/services/api'
 import { socketService } from '@/lib/socket'
 import EmojiPicker, { EmojiClickData, Theme } from 'emoji-picker-react'
-import { deleteChatHistory, updateParticipantSetting } from '@/services/api'
+import { deleteChatHistory, updateParticipantSetting, updateConversationBackground } from '@/services/api'
+import GroupManagementModal from '@/components/chat/GroupManagementModal'
 
 export default function ChatRoom() {
     const { conversationId } = useParams<{ conversationId: string }>()
@@ -53,6 +54,7 @@ export default function ChatRoom() {
     const [showMenu, setShowMenu] = useState(false)
     const [isSearching, setIsSearching] = useState(false)
     const [searchMessageQuery, setSearchMessageQuery] = useState('')
+    const [showGroupManagement, setShowGroupManagement] = useState(false)
     
     // Voice Recording State
     const [isRecording, setIsRecording] = useState(false)
@@ -610,6 +612,26 @@ export default function ChatRoom() {
         }
     }
 
+    const handleUpdateBackground = async () => {
+        if (!conversationId) return
+        
+        const currentBackground = activeConversation?.background || ''
+        const newBackgroundUrl = prompt('Nhập URL hình nền (để trống để xóa):', currentBackground)
+        
+        if (newBackgroundUrl === null) return
+
+        try {
+            await updateConversationBackground(conversationId, newBackgroundUrl.trim())
+            useChatStore.getState().updateConversation(conversationId, {
+                background: newBackgroundUrl.trim()
+            })
+            setShowMenu(false)
+        } catch (error) {
+            console.error('Update background error', error)
+            alert('Không thể đổi hình nền lúc này.')
+        }
+    }
+
     const conversationName = activeConversation?.type === 'group'
         ? activeConversation.name
         : (activeNickname || otherUser?.fullName || 'Người dùng')
@@ -695,7 +717,17 @@ export default function ChatRoom() {
 
                         {showMenu && (
                             <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-dark-300 rounded-xl shadow-lg border border-gray-100 dark:border-gray-800 py-1 z-50 animate-scale-in">
-                                {activeConversation?.type !== 'group' && (
+                                {activeConversation?.type === 'group' ? (
+                                    <button
+                                        onClick={() => {
+                                            setShowGroupManagement(true)
+                                            setShowMenu(false)
+                                        }}
+                                        className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-dark-100 transition-colors"
+                                    >
+                                        Quản trị nhóm
+                                    </button>
+                                ) : (
                                     <button
                                         onClick={handleUpdateNickname}
                                         className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-dark-100 transition-colors"
@@ -703,6 +735,12 @@ export default function ChatRoom() {
                                         Đổi tên gợi nhớ
                                     </button>
                                 )}
+                                <button
+                                    onClick={handleUpdateBackground}
+                                    className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-dark-100 transition-colors"
+                                >
+                                    Đổi hình nền
+                                </button>
                                 <button
                                     onClick={handleDeleteHistory}
                                     className="w-full text-left px-4 py-2 text-sm text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors border-t border-gray-100 dark:border-gray-800"
@@ -738,12 +776,23 @@ export default function ChatRoom() {
             )}
 
             {/* Messages */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                {isLoading ? (
-                    <div className="flex justify-center py-8">
-                        <div className="w-8 h-8 border-4 border-primary-500 border-t-transparent rounded-full animate-spin" />
+            <div className="flex-1 relative overflow-hidden flex flex-col">
+                {/* Custom Background */}
+                {activeConversation?.background && (
+                    <div 
+                        className="absolute inset-0 z-0 bg-cover bg-center pointer-events-none"
+                        style={{ backgroundImage: `url(${activeConversation.background})` }}
+                    >
+                        <div className="absolute inset-0 bg-white/70 dark:bg-black/70" />
                     </div>
-                ) : (
+                )}
+                
+                <div className="flex-1 overflow-y-auto p-4 space-y-4 relative z-10">
+                    {isLoading ? (
+                        <div className="flex justify-center py-8">
+                            <div className="w-8 h-8 border-4 border-primary-500 border-t-transparent rounded-full animate-spin" />
+                        </div>
+                    ) : (
                     (() => {
                         const filteredMessages = messages.filter(msg => {
                             if (!searchMessageQuery) return true
@@ -801,6 +850,7 @@ export default function ChatRoom() {
                 {typing.length > 0 && <TypingIndicator />}
                 <div ref={messagesEndRef} />
             </div>
+        </div>
 
             {/* Reply preview */}
             {replyTo && (() => {
@@ -958,6 +1008,12 @@ export default function ChatRoom() {
                     )}
                 </form>
             </div>
+
+            <GroupManagementModal 
+                isOpen={showGroupManagement} 
+                onClose={() => setShowGroupManagement(false)}
+                group={activeConversation}
+            />
         </div>
     )
 }

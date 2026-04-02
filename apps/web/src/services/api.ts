@@ -69,6 +69,47 @@ const updateParticipantSetting = async (
     return { ...json, id: json._id };
 }
 
+const addGroupMember = async (groupId: string, data: { userId: string, newUserId: string }) => {
+    const response = await fetch(`${baseAPI}/groups/${groupId}/add-member`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    return response.json();
+}
+
+const removeGroupMember = async (groupId: string, data: { userId: string, removeUserId: string }) => {
+    const response = await fetch(`${baseAPI}/groups/${groupId}/remove-member`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    return response.json();
+}
+
+const leaveGroup = async (groupId: string, data: { userId: string }) => {
+    const response = await fetch(`${baseAPI}/groups/${groupId}/leave`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    return response.json();
+}
+
+const updateConversationBackground = async (conversationId: string, backgroundUrl: string) => {
+    const response = await fetch(`${baseAPI}/conversations/${conversationId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ background: backgroundUrl })
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    const json = await response.json();
+    return { ...json, id: json._id };
+}
+
 export {
     getConversation,
     getMessages,
@@ -76,5 +117,9 @@ export {
     getUsers,
     deleteChatHistory,
     createGroup,
-    updateParticipantSetting
+    updateParticipantSetting,
+    addGroupMember,
+    removeGroupMember,
+    leaveGroup,
+    updateConversationBackground
 }

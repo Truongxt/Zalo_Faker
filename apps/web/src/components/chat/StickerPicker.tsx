@@ -1,4 +1,3 @@
-import React from 'react'
 
 const MOCK_STICKERS = [
     'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Smilies/Cat%20with%20Tears%20of%20Joy.png',
