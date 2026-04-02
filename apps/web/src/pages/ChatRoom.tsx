@@ -15,7 +15,8 @@ import {
     X,
     Reply,
     ArrowLeft,
-    Sticker
+    Sticker,
+    Search
 } from 'lucide-react'
 import MessageBubble from '@/components/chat/MessageBubble'
 import TypingIndicator from '@/components/chat/TypingIndicator'
@@ -50,6 +51,8 @@ export default function ChatRoom() {
     const [showStickerPicker, setShowStickerPicker] = useState(false)
     const [isSendingMedia, setIsSendingMedia] = useState(false)
     const [showMenu, setShowMenu] = useState(false)
+    const [isSearching, setIsSearching] = useState(false)
+    const [searchMessageQuery, setSearchMessageQuery] = useState('')
     
     // Voice Recording State
     const [isRecording, setIsRecording] = useState(false)
@@ -669,6 +672,13 @@ export default function ChatRoom() {
                 </div>
 
                 <div className="flex items-center gap-1">
+                    <button 
+                        onClick={() => setIsSearching(!isSearching)}
+                        className={`p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-600 dark:text-gray-400 transition-colors ${isSearching ? 'bg-gray-100 dark:bg-gray-800 text-primary-500' : ''}`}
+                        title="Tìm kiếm tin nhắn"
+                    >
+                        <Search className="w-5 h-5" />
+                    </button>
                     <button className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-600 dark:text-gray-400">
                         <Phone className="w-5 h-5" />
                     </button>
@@ -705,6 +715,28 @@ export default function ChatRoom() {
                 </div>
             </div>
 
+            {/* Search Bar */}
+            {isSearching && (
+                <div className="px-4 py-2 border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-dark-300 animate-fade-in">
+                    <div className="relative">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                        <input
+                            autoFocus
+                            type="text"
+                            value={searchMessageQuery}
+                            onChange={(e) => setSearchMessageQuery(e.target.value)}
+                            placeholder="Nhập từ khóa tìm kiếm..."
+                            className="w-full pl-9 pr-8 py-1.5 bg-white dark:bg-dark-100 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:ring-1 focus:ring-primary-500 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400"
+                        />
+                        {searchMessageQuery && (
+                            <button onClick={() => setSearchMessageQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 p-0.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
+                                <X className="w-3.5 h-3.5" />
+                            </button>
+                        )}
+                    </div>
+                </div>
+            )}
+
             {/* Messages */}
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
                 {isLoading ? (
@@ -712,17 +744,37 @@ export default function ChatRoom() {
                         <div className="w-8 h-8 border-4 border-primary-500 border-t-transparent rounded-full animate-spin" />
                     </div>
                 ) : (
-                    messages.map((msg, index) => {
-                        const isSent = msg.senderId === user?.id
-                        const showAvatar = !isSent && (
-                            index === 0 ||
-                            messages[index - 1].senderId !== msg.senderId
-                        )
-                        const sender = activeConversation?.participants.find(
-                            p => p.userId === msg.senderId
-                        )
+                    (() => {
+                        const filteredMessages = messages.filter(msg => {
+                            if (!searchMessageQuery) return true
+                            if (msg.type === 'text' && msg.content.text) {
+                                return msg.content.text.toLowerCase().includes(searchMessageQuery.toLowerCase())
+                            }
+                            return false
+                        })
 
-                        return (
+                        if (searchMessageQuery && filteredMessages.length === 0) {
+                            return (
+                                <div className="flex flex-col items-center justify-center py-10 opacity-60">
+                                    <Search className="w-10 h-10 mb-3 text-gray-400" />
+                                    <p className="text-gray-500 dark:text-gray-400 text-sm text-center">
+                                        Không tìm thấy tin nhắn nào chứa "<span className="font-medium">{searchMessageQuery}</span>"
+                                    </p>
+                                </div>
+                            )
+                        }
+
+                        return filteredMessages.map((msg, index) => {
+                            const isSent = msg.senderId === user?.id
+                            const showAvatar = !isSent && (
+                                index === 0 ||
+                                filteredMessages[index - 1].senderId !== msg.senderId
+                            )
+                            const sender = activeConversation?.participants.find(
+                                p => p.userId === msg.senderId
+                            )
+
+                            return (
                             <MessageBubble
                                 key={msg.id}
                                 message={msg}
@@ -742,7 +794,8 @@ export default function ChatRoom() {
                                 onReact={(emoji) => handleReact(msg.id, emoji)}
                             />
                         )
-                    })
+                        })
+                    })()
                 )}
 
                 {typing.length > 0 && <TypingIndicator />}
