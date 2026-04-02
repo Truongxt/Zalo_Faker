@@ -20,7 +20,7 @@ import TypingIndicator from '@/components/chat/TypingIndicator'
 import { getMessages, getConversation } from '@/services/api'
 import { socketService } from '@/lib/socket'
 import EmojiPicker, { EmojiClickData, Theme } from 'emoji-picker-react'
-import { deleteChatHistory } from '@/services/api'
+import { deleteChatHistory, updateParticipantSetting } from '@/services/api'
 
 export default function ChatRoom() {
     const { conversationId } = useParams<{ conversationId: string }>()
@@ -479,9 +479,38 @@ export default function ChatRoom() {
     }
 
     const otherUser = getOtherParticipant()
+    const currentP = activeConversation?.participants.find(p => p.userId === user?.id)
+    const activeNickname = currentP?.nickname
+    const isMuted = currentP?.isMuted
+
+    const handleUpdateNickname = async () => {
+        if (!conversationId || !user) return
+        if (activeConversation?.type === 'group') {
+            alert('Hiện chỉ hỗ trợ đổi tên gợi nhớ trong trò chuyện cá nhân.')
+            return
+        }
+
+        const oldName = activeNickname || otherUser?.fullName || ''
+        const newNickname = prompt('Nhập tên gợi nhớ (để trống để xóa):', oldName)
+        if (newNickname === null) return 
+
+        try {
+            await updateParticipantSetting(conversationId, user.id, { nickname: newNickname.trim() })
+            useChatStore.getState().updateConversation(conversationId, {
+                participants: activeConversation!.participants.map(part => 
+                    part.userId === user.id ? { ...part, nickname: newNickname.trim() } : part
+                )
+            })
+            setShowMenu(false)
+        } catch (error) {
+            console.error('Update nickname error', error)
+            alert('Không thể đổi tên gợi nhớ lúc này.')
+        }
+    }
+
     const conversationName = activeConversation?.type === 'group'
         ? activeConversation.name
-        : otherUser?.fullName || 'Người dùng'
+        : (activeNickname || otherUser?.fullName || 'Người dùng')
     const conversationAvatar = activeConversation?.type === 'group'
         ? activeConversation.avatar
         : otherUser?.avatarUrl
@@ -526,8 +555,9 @@ export default function ChatRoom() {
                     </div>
 
                     <div>
-                        <h3 className="font-semibold text-gray-900 dark:text-white">
+                        <h3 className="font-semibold text-gray-900 dark:text-white flex items-center gap-2">
                             {conversationName}
+                            {isMuted && <span className="text-gray-400" title="Đã tắt thông báo">🔕</span>}
                         </h3>
                         <p className="text-sm text-gray-500 dark:text-gray-400">
                             {otherUser?.status === 'online'
@@ -556,9 +586,17 @@ export default function ChatRoom() {
 
                         {showMenu && (
                             <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-dark-300 rounded-xl shadow-lg border border-gray-100 dark:border-gray-800 py-1 z-50 animate-scale-in">
+                                {activeConversation?.type !== 'group' && (
+                                    <button
+                                        onClick={handleUpdateNickname}
+                                        className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-dark-100 transition-colors"
+                                    >
+                                        Đổi tên gợi nhớ
+                                    </button>
+                                )}
                                 <button
                                     onClick={handleDeleteHistory}
-                                    className="w-full text-left px-4 py-2 text-sm text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                                    className="w-full text-left px-4 py-2 text-sm text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors border-t border-gray-100 dark:border-gray-800"
                                 >
                                     Xóa lịch sử trò chuyện
                                 </button>

@@ -54,11 +54,27 @@ const createGroup = async (groupData: { name: string, memberIds: string[], creat
     return { ...data, id: data._id };
 }
 
+const updateParticipantSetting = async (
+    conversationId: string, 
+    userId: string, 
+    data: { isPinned?: boolean, isMuted?: boolean, nickname?: string }
+) => {
+    const response = await fetch(`${baseAPI}/conversations/${conversationId}/setting`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, ...data })
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    const json = await response.json();
+    return { ...json, id: json._id };
+}
+
 export {
     getConversation,
     getMessages,
     sendMessage,
     getUsers,
     deleteChatHistory,
-    createGroup
+    createGroup,
+    updateParticipantSetting
 }

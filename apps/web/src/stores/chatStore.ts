@@ -29,6 +29,9 @@ export interface Participant {
     fullName?: string
     avatarUrl?: string
     status?: 'online' | 'offline'
+    nickname?: string
+    isPinned?: boolean
+    isMuted?: boolean
 }
 
 export interface Conversation {

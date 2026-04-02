@@ -45,6 +45,34 @@ const deleteConversation = async (req, res) => {
     }
 }
 
+const updateParticipantSetting = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { userId, isPinned, isMuted, nickname } = req.body;
+
+        const conversation = await conversationService.getConversation(id);
+        if (!conversation) return res.status(404).json({ message: "Conversation not found" });
+
+        const participants = [...(conversation.participants || [])];
+        const participantIndex = participants.findIndex(p => p.userId === userId);
+        
+        if (participantIndex === -1) {
+            return res.status(403).json({ message: "User is not in this conversation" });
+        }
+
+        // Cập nhật các trường
+        if (isPinned !== undefined) participants[participantIndex].isPinned = isPinned;
+        if (isMuted !== undefined) participants[participantIndex].isMuted = isMuted;
+        if (nickname !== undefined) participants[participantIndex].nickname = nickname;
+
+        const updated = await conversationService.updateConversation(id, { participants });
+        res.json(updated);
+
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+}
+
 // const getConversationsByUserId = async (req, res) => {
 //     try {
 //         const conversations = await conversationService.getConversationsByUserId(req.params.userId)
@@ -60,4 +88,5 @@ module.exports = {
     getConversations,
     updateConversation,
     deleteConversation,
+    updateParticipantSetting
 }

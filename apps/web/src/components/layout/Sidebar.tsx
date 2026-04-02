@@ -10,9 +10,13 @@ import {
     Users,
     MessageCircle,
     User as UserIcon,
-    Bot
+    Bot,
+    Pin,
+    BellOff,
+    MoreHorizontal
 } from 'lucide-react'
 import CreateGroupModal from '@/components/chat/CreateGroupModal'
+import { updateParticipantSetting } from '@/services/api'
 
 export default function Sidebar() {
     const navigate = useNavigate()
@@ -42,6 +46,9 @@ export default function Sidebar() {
     })
 
     const getConversationName = (conv: Conversation) => {
+        const currentP = conv.participants.find(p => p.userId === user?.id)
+        if (currentP?.nickname) return currentP.nickname
+
         if (conv.type === 'group') return conv.name || 'Nhóm chat'
         const other = conv.participants.find(p => p.userId !== user?.id)
         return other?.fullName || 'Người dùng'
@@ -63,6 +70,52 @@ export default function Sidebar() {
         setActiveConversation(conv)
         navigate(`/chat/${conv.id}`)
     }
+
+    const handleTogglePin = async (e: React.MouseEvent, conv: Conversation) => {
+        e.stopPropagation()
+        if (!user) return
+        const p = conv.participants.find(p => p.userId === user.id)
+        const isPinned = !(p?.isPinned)
+        try {
+            await updateParticipantSetting(conv.id, user.id, { isPinned })
+            useChatStore.getState().updateConversation(conv.id, {
+                participants: conv.participants.map(part => 
+                    part.userId === user.id ? { ...part, isPinned } : part
+                )
+            })
+        } catch (err) {
+            console.error('Error toggling pin:', err)
+        }
+    }
+
+    const handleToggleMute = async (e: React.MouseEvent, conv: Conversation) => {
+        e.stopPropagation()
+        if (!user) return
+        const p = conv.participants.find(p => p.userId === user.id)
+        const isMuted = !(p?.isMuted)
+        try {
+            await updateParticipantSetting(conv.id, user.id, { isMuted })
+            useChatStore.getState().updateConversation(conv.id, {
+                participants: conv.participants.map(part => 
+                    part.userId === user.id ? { ...part, isMuted } : part
+                )
+            })
+        } catch (err) {
+            console.error('Error toggling mute:', err)
+        }
+    }
+
+    const sortedConversations = [...filteredConversations].sort((a, b) => {
+        const pA = a.participants.find(p => p.userId === user?.id)
+        const pB = b.participants.find(p => p.userId === user?.id)
+        
+        if (pA?.isPinned && !pB?.isPinned) return -1
+        if (!pA?.isPinned && pB?.isPinned) return 1
+        
+        const timeA = a.updatedAt || a.lastMessage?.timestamp || 0
+        const timeB = b.updatedAt || b.lastMessage?.timestamp || 0
+        return new Date(timeB).getTime() - new Date(timeA).getTime()
+    })
 
     return (
         <div className="sidebar">
@@ -131,18 +184,24 @@ export default function Sidebar() {
 
             {/* Conversations list */}
             <div className="flex-1 overflow-y-auto p-2">
-                {filteredConversations.length === 0 ? (
+                {sortedConversations.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-12 text-gray-500 dark:text-gray-400">
                         <MessageCircle className="w-12 h-12 mb-3 opacity-50" />
                         <p className="text-sm">Chưa có cuộc trò chuyện</p>
                     </div>
                 ) : (
-                    filteredConversations.map((conv) => (
-                        <button
+                    sortedConversations.map((conv) => {
+                        const currentP = conv.participants.find(p => p.userId === user?.id)
+                        const isPinned = currentP?.isPinned
+                        const isMuted = currentP?.isMuted
+
+                        return (
+                        <div
                             key={conv.id}
                             onClick={() => handleConversationClick(conv)}
-                            className={`chat-item w-full ${activeConversation?.id === conv.id ? 'active' : ''
-                                }`}
+                            className={`chat-item w-full flex items-center gap-3 relative group cursor-pointer ${
+                                activeConversation?.id === conv.id ? 'active' : ''
+                            }`}
                         >
                             {/* Avatar */}
                             <div className="relative flex-shrink-0">
@@ -171,31 +230,53 @@ export default function Sidebar() {
                             {/* Content */}
                             <div className="flex-1 min-w-0 text-left">
                                 <div className="flex items-center justify-between">
-                                    <h3 className="font-medium text-gray-900 dark:text-white truncate">
+                                    <h3 className="font-medium text-gray-900 dark:text-white truncate flex items-center gap-1">
                                         {getConversationName(conv)}
+                                        {isMuted && <BellOff className="w-3 h-3 text-gray-400" />}
                                     </h3>
-                                    {conv.lastMessage && (
-                                        <span className="text-xs text-gray-500 dark:text-gray-400 flex-shrink-0 ml-2">
-                                            {formatDistanceToNow(new Date(conv.lastMessage.timestamp), {
-                                                addSuffix: false,
-                                                locale: vi
-                                            })}
-                                        </span>
-                                    )}
+                                    <div className="flex items-center gap-1">
+                                        {isPinned && <Pin className="w-3 h-3 text-primary-500" />}
+                                        {conv.lastMessage && (
+                                            <span className="text-xs text-gray-500 dark:text-gray-400 flex-shrink-0">
+                                                {formatDistanceToNow(new Date(conv.lastMessage.timestamp), {
+                                                    addSuffix: false,
+                                                    locale: vi
+                                                })}
+                                            </span>
+                                        )}
+                                    </div>
                                 </div>
                                 <div className="flex items-center justify-between">
                                     <p className="text-sm text-gray-500 dark:text-gray-400 truncate">
                                         {conv.lastMessage?.content || 'Bắt đầu cuộc trò chuyện'}
                                     </p>
-                                    {conv.unreadCount > 0 && (
+                                    {conv.unreadCount > 0 && !isMuted && (
                                         <span className="badge flex-shrink-0 ml-2">
                                             {conv.unreadCount > 99 ? '99+' : conv.unreadCount}
                                         </span>
                                     )}
                                 </div>
                             </div>
-                        </button>
-                    ))
+                            
+                            {/* Hover Actions */}
+                            <div className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-white dark:bg-dark-300 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 flex items-center p-1">
+                                <button
+                                    onClick={(e) => handleTogglePin(e, conv)}
+                                    className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-600 rounded-md transition-colors text-gray-500"
+                                    title={isPinned ? 'Bỏ ghim' : 'Ghim'}
+                                >
+                                    <Pin className={`w-4 h-4 ${isPinned ? 'fill-primary-500 text-primary-500' : ''}`} />
+                                </button>
+                                <button
+                                    onClick={(e) => handleToggleMute(e, conv)}
+                                    className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-600 rounded-md transition-colors text-gray-500"
+                                    title={isMuted ? 'Bật thông báo' : 'Tắt thông báo'}
+                                >
+                                    <BellOff className={`w-4 h-4 ${isMuted ? 'text-red-500' : ''}`} />
+                                </button>
+                            </div>
+                        </div>
+                    )})
                 )}
             </div>
 
