@@ -1,5 +1,12 @@
 import { create } from 'zustand'
 
+export interface Label {
+    _id: string
+    userId: string
+    name: string
+    color: string
+}
+
 export interface Message {
     id: string
     conversationId: string
@@ -32,6 +39,7 @@ export interface Participant {
     nickname?: string
     isPinned?: boolean
     isMuted?: boolean
+    labelIds?: string[]
 }
 
 export interface Conversation {
@@ -59,8 +67,15 @@ interface ChatState {
     typingUsers: Record<string, string[]>  // conversationId -> userIds
     isLoadingConversations: boolean
     isLoadingMessages: boolean
+    labels: Label[]
+    isLoadingLabels: boolean
 
     // Actions
+    setLabels: (labels: Label[]) => void
+    addLabel: (label: Label) => void
+    updateLabel: (id: string, updates: Partial<Label>) => void
+    removeLabel: (id: string) => void
+
     setConversations: (conversations: Conversation[]) => void
     addConversation: (conversation: Conversation) => void
     updateConversation: (id: string, updates: Partial<Conversation>) => void
@@ -91,6 +106,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
     typingUsers: {},
     isLoadingConversations: false,
     isLoadingMessages: false,
+    labels: [],
+    isLoadingLabels: false,
+
+    setLabels: (labels) => set({ labels }),
+    addLabel: (label) => set((state) => ({ labels: [...state.labels, label] })),
+    updateLabel: (id, updates) => set((state) => ({
+        labels: state.labels.map((l) => l._id === id ? { ...l, ...updates } : l)
+    })),
+    removeLabel: (id) => set((state) => ({
+        labels: state.labels.filter(l => l._id !== id)
+    })),
 
     setConversations: (conversations) => set({ conversations }),
 

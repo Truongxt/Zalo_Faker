@@ -67,7 +67,7 @@ const createGroup = async (groupData: { name: string, memberIds: string[], creat
 const updateParticipantSetting = async (
     conversationId: string,
     userId: string,
-    data: { isPinned?: boolean, isMuted?: boolean, nickname?: string }
+    data: { isPinned?: boolean, isMuted?: boolean, nickname?: string, labelIds?: string[] }
 ) => {
     const response = await fetch(`${baseAPI}/conversations/${conversationId}/setting`, {
         method: 'PATCH',
@@ -155,6 +155,47 @@ const uploadMedia = async (file: File) => {
     return await response.json();
 }
 
+const getLabels = async () => {
+    const response = await fetch(`${baseAPI}/labels`, { headers: getAuthHeaders() });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return await response.json();
+}
+
+const createLabel = async (data: { name: string, color: string }) => {
+    const response = await fetch(`${baseAPI}/labels`, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            ...getAuthHeaders()
+        },
+        body: JSON.stringify(data)
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return await response.json();
+}
+
+const updateLabel = async (id: string, data: { name?: string, color?: string }) => {
+    const response = await fetch(`${baseAPI}/labels/${id}`, {
+        method: "PUT",
+        headers: {
+            "Content-Type": "application/json",
+            ...getAuthHeaders()
+        },
+        body: JSON.stringify(data)
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return await response.json();
+}
+
+const deleteLabel = async (id: string) => {
+    const response = await fetch(`${baseAPI}/labels/${id}`, {
+        method: "DELETE",
+        headers: getAuthHeaders()
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return await response.json();
+}
+
 export {
     getConversation,
     getMessages,
@@ -168,5 +209,9 @@ export {
     leaveGroup,
     getStickers,
     updateConversationBackground,
-    uploadMedia
+    uploadMedia,
+    getLabels,
+    createLabel,
+    updateLabel,
+    deleteLabel
 }
