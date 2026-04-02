@@ -85,12 +85,27 @@ module.exports = (socketConfig) => {
     });
 
     // ── 5. Đã đọc tin nhắn ──────────────────────────────────
-    socket.on("chat:read", ({ conversationId, messageId, userId }) => {
-      socket.to(conversationId).emit("chat:read", {
-        conversationId,
-        messageId,
-        userId,
-      });
+    socket.on("chat:read", async ({ conversationId, messageId, userId }) => {
+      try {
+        if (messageId && userId) {
+          const message = await messageService.getMessage(messageId);
+          if (message) {
+            let newReadBy = [...(message.readBy || [])];
+            if (!newReadBy.some(r => r.userId === userId)) {
+              newReadBy.push({ userId, readAt: new Date().toISOString() });
+              await messageService.updateMessage(messageId, { readBy: newReadBy });
+            }
+          }
+        }
+
+        socket.to(conversationId).emit("chat:read", {
+          conversationId,
+          messageId,
+          userId,
+        });
+      } catch (err) {
+        console.error("chat:read error:", err);
+      }
     });
 
     // ── 6. Disconnect ────────────────────────────────────────
