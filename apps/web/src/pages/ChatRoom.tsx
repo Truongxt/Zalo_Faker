@@ -11,12 +11,15 @@ import {
     Video,
     MoreVertical,
     Mic,
+    Square,
     X,
     Reply,
-    ArrowLeft
+    ArrowLeft,
+    Sticker
 } from 'lucide-react'
 import MessageBubble from '@/components/chat/MessageBubble'
 import TypingIndicator from '@/components/chat/TypingIndicator'
+import StickerPicker from '@/components/chat/StickerPicker'
 import { getMessages, getConversation } from '@/services/api'
 import { socketService } from '@/lib/socket'
 import EmojiPicker, { EmojiClickData, Theme } from 'emoji-picker-react'
@@ -44,8 +47,16 @@ export default function ChatRoom() {
     const [isLoading, setIsLoading] = useState(false)
     const [replyTo, setReplyTo] = useState<string | null>(null)
     const [showEmojiPicker, setShowEmojiPicker] = useState(false)
+    const [showStickerPicker, setShowStickerPicker] = useState(false)
     const [isSendingMedia, setIsSendingMedia] = useState(false)
     const [showMenu, setShowMenu] = useState(false)
+    
+    // Voice Recording State
+    const [isRecording, setIsRecording] = useState(false)
+    const [recordingTime, setRecordingTime] = useState(0)
+    const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+    const audioChunksRef = useRef<BlobPart[]>([])
+    const timerRef = useRef<NodeJS.Timeout | null>(null)
 
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const menuRef = useRef<HTMLDivElement>(null)
@@ -54,6 +65,7 @@ export default function ChatRoom() {
     const fileInputRef = useRef<HTMLInputElement>(null)
     const typingTimeoutRef = useRef<ReturnType<typeof setTimeout>>()
     const emojiPickerRef = useRef<HTMLDivElement>(null)
+    const stickerPickerRef = useRef<HTMLDivElement>(null)
 
     const readFileAsDataUrl = (file: File) =>
         new Promise<string>((resolve, reject) => {
@@ -84,21 +96,24 @@ export default function ChatRoom() {
         }
     }, [conversationId, user?.id, updateMessage])
 
-    // Click outside emoji picker & menu → đóng
+    // Click outside emoji picker & menu & sticker picker → đóng
     useEffect(() => {
         const handleClickOutside = (e: MouseEvent) => {
             if (emojiPickerRef.current && !emojiPickerRef.current.contains(e.target as Node)) {
                 setShowEmojiPicker(false)
             }
+            if (stickerPickerRef.current && !stickerPickerRef.current.contains(e.target as Node)) {
+                setShowStickerPicker(false)
+            }
             if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
                 setShowMenu(false)
             }
         }
-        if (showEmojiPicker || showMenu) {
+        if (showEmojiPicker || showStickerPicker || showMenu) {
             document.addEventListener('mousedown', handleClickOutside)
         }
         return () => document.removeEventListener('mousedown', handleClickOutside)
-    }, [showEmojiPicker, showMenu])
+    }, [showEmojiPicker, showStickerPicker, showMenu])
 
     // Xử lý chọn emoji
     const onEmojiClick = useCallback((emojiData: EmojiClickData) => {
@@ -213,20 +228,9 @@ export default function ChatRoom() {
         }
 
         // Lắng nghe reaction tin nhắn (idempotent — trùng event không toggle nhầm)
-        const handleReaction = ({ messageId, userId, emoji }: { messageId: string; userId: string; emoji: string }) => {
-            const currentMessages = useChatStore.getState().messages[conversationId] || []
-            const msg = currentMessages.find(m => m.id === messageId)
-            if (!msg) return
-
-            const existing = msg.reactions.find(r => r.userId === userId)
-            if (existing?.emoji === emoji) return
-
-            const newReactions = [
-                ...msg.reactions.filter(r => r.userId !== userId),
-                { userId, emoji }
-            ]
+        const handleReaction = ({ messageId, reactions }: { messageId: string; reactions: any[] }) => {
             useChatStore.getState().updateMessage(conversationId, messageId, {
-                reactions: newReactions
+                reactions
             })
         }
 
@@ -339,6 +343,11 @@ export default function ChatRoom() {
             if (conversationId && user?.id) {
                 socketService.stopTyping(conversationId, user.id)
             }
+            if (timerRef.current) clearInterval(timerRef.current)
+            if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+                mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop())
+                mediaRecorderRef.current.stop()
+            }
         }
     }, [conversationId, user?.id])
 
@@ -393,7 +402,7 @@ export default function ChatRoom() {
         })
     }
 
-    const sendMediaMessage = async (file: File, type: 'image' | 'file') => {
+    const sendMediaMessage = async (file: File, type: 'image' | 'video' | 'file' | 'voice') => {
         if (!conversationId || !user) return
 
         // Prevent payload too large for socket/db
@@ -424,7 +433,7 @@ export default function ChatRoom() {
 
             updateConversation(conversationId, {
                 lastMessage: {
-                    content: type === 'image' ? '[Hình ảnh]' : `[File] ${file.name}`,
+                    content: type === 'image' ? '[Hình ảnh]' : type === 'video' ? '[Video]' : `[File] ${file.name}`,
                     type,
                     senderId: user.id,
                     timestamp: new Date().toISOString(),
@@ -442,7 +451,8 @@ export default function ChatRoom() {
     const handlePickImage = async (e: ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0]
         if (!file) return
-        await sendMediaMessage(file, 'image')
+        const type = file.type.startsWith('video/') ? 'video' : 'image'
+        await sendMediaMessage(file, type)
         e.target.value = ''
     }
 
@@ -451,6 +461,95 @@ export default function ChatRoom() {
         if (!file) return
         await sendMediaMessage(file, 'file')
         e.target.value = ''
+    }
+
+    const handleToggleRecord = async () => {
+        if (isRecording) {
+            setIsRecording(false)
+            if (timerRef.current) clearInterval(timerRef.current)
+            if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+                mediaRecorderRef.current.stop()
+            }
+        } else {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+                const mediaRecorder = new MediaRecorder(stream)
+                mediaRecorderRef.current = mediaRecorder
+                audioChunksRef.current = []
+
+                mediaRecorder.ondataavailable = (event) => {
+                    if (event.data.size > 0) audioChunksRef.current.push(event.data)
+                }
+
+                mediaRecorder.onstop = async () => {
+                    stream.getTracks().forEach(track => track.stop())
+                    const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
+                    
+                    if (audioChunksRef.current.length > 0) {
+                        const file = new File([audioBlob], `voice_${Date.now()}.webm`, { type: 'audio/webm' })
+                        await sendMediaMessage(file, 'voice')
+                    }
+                    setRecordingTime(0)
+                }
+
+                mediaRecorder.start(200)
+                setIsRecording(true)
+                setRecordingTime(0)
+                
+                if (timerRef.current) clearInterval(timerRef.current)
+                timerRef.current = setInterval(() => {
+                    setRecordingTime(prev => prev + 1)
+                }, 1000)
+
+            } catch (err) {
+                console.error('Lỗi khi thu âm:', err)
+                alert('Không thể truy cập Microphone. Vui lòng vào Cài đặt để cấp quyền.')
+            }
+        }
+    }
+
+    const handleSendSticker = (stickerUrl: string) => {
+        if (!conversationId || !user) return
+
+        const stickerMsg: Message = {
+            id: `temp-sticker-${Date.now()}`,
+            conversationId,
+            senderId: user.id,
+            type: 'sticker',
+            content: { mediaUrl: stickerUrl },
+            reactions: [],
+            readBy: [],
+            isDeleted: false,
+            createdAt: new Date().toISOString(),
+        }
+        addMessage(conversationId, stickerMsg)
+        
+        socketService.sendMessage({
+            conversationId,
+            senderId: user.id,
+            type: 'sticker',
+            content: { mediaUrl: stickerUrl },
+        }, (res) => {
+            if (res.success) {
+                useChatStore.getState().removeMessage(conversationId, stickerMsg.id)
+                addMessage(conversationId, res.message)
+            } else {
+                useChatStore.getState().removeMessage(conversationId, stickerMsg.id)
+                console.error('Gửi sticker thất bại:', res.error)
+            }
+        })
+
+        updateConversation(conversationId, {
+            lastMessage: {
+                content: '[Nhãn dán]',
+                type: 'sticker',
+                senderId: user.id,
+                timestamp: new Date().toISOString(),
+            },
+            updatedAt: new Date().toISOString(),
+        })
+
+        setShowStickerPicker(false)
     }
 
     const getOtherParticipant = () => {
@@ -703,7 +802,7 @@ export default function ChatRoom() {
                     <input
                         ref={imageInputRef}
                         type="file"
-                        accept="image/*"
+                        accept="image/*,video/*"
                         className="hidden"
                         onChange={handlePickImage}
                     />
@@ -715,60 +814,93 @@ export default function ChatRoom() {
                     />
 
                     <div className="flex-1 relative" ref={emojiPickerRef}>
-                        <input
-                            ref={inputRef}
-                            type="text"
-                            value={message}
-                            onChange={(e) => {
-                                setMessage(e.target.value)
-                                handleTyping()
-                            }}
-                            placeholder="Nhập tin nhắn..."
-                            className="w-full px-4 py-2.5 bg-gray-100 dark:bg-dark-300 rounded-full
-                                text-gray-900 dark:text-white placeholder-gray-500
-                                focus:outline-none focus:ring-2 focus:ring-primary-500"
-                        />
-                        <button
-                            type="button"
-                            onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-                            className={`absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-full transition-colors
-                                ${showEmojiPicker
-                                    ? 'bg-primary-100 text-primary-500'
-                                    : 'hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500'
-                                }`}
-                        >
-                            <SmileIcon className="w-5 h-5" />
-                        </button>
-
-                        {/* Emoji Picker Popup */}
-                        {showEmojiPicker && (
-                            <div className="absolute bottom-full right-0 mb-2 z-50">
-                                <EmojiPicker
-                                    onEmojiClick={onEmojiClick}
-                                    theme={document.documentElement.classList.contains('dark') ? Theme.DARK : Theme.LIGHT}
-                                    width={350}
-                                    height={400}
-                                    searchPlaceHolder="Tìm emoji..."
-                                    previewConfig={{ showPreview: false }}
-                                    lazyLoadEmojis={true}
-                                />
+                        {isRecording ? (
+                            <div className="w-full flex items-center justify-between px-4 py-2.5 bg-red-100 dark:bg-red-900/30 rounded-full text-red-600 dark:text-red-400">
+                                <div className="flex items-center gap-2">
+                                    <span className="w-2.5 h-2.5 bg-red-500 rounded-full animate-pulse" />
+                                    <span className="font-medium text-sm">Đang thu âm...</span>
+                                </div>
+                                <span className="font-mono">{Math.floor(recordingTime / 60)}:{String(recordingTime % 60).padStart(2, '0')}</span>
                             </div>
+                        ) : (
+                            <>
+                                <input
+                                    ref={inputRef}
+                                    type="text"
+                                    value={message}
+                                    onChange={(e) => {
+                                        setMessage(e.target.value)
+                                        handleTyping()
+                                    }}
+                                    placeholder="Nhập tin nhắn..."
+                                    className="w-full px-4 py-2.5 bg-gray-100 dark:bg-dark-300 rounded-full
+                                        text-gray-900 dark:text-white placeholder-gray-500
+                                        focus:outline-none focus:ring-2 focus:ring-primary-500"
+                                />
+                                <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                                    <div ref={stickerPickerRef} className="relative">
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowStickerPicker(!showStickerPicker)}
+                                            className={`p-1 rounded-full transition-colors ${
+                                                showStickerPicker ? 'bg-primary-100 text-primary-500' : 'hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500'
+                                            }`}
+                                        >
+                                            <Sticker className="w-5 h-5" />
+                                        </button>
+                                        
+                                        {/* Sticker Picker Popup */}
+                                        {showStickerPicker && (
+                                            <div className="absolute bottom-full right-0 mb-2 z-50">
+                                                <StickerPicker onSelect={handleSendSticker} />
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                                        className={`p-1 rounded-full transition-colors ${
+                                            showEmojiPicker ? 'bg-primary-100 text-primary-500' : 'hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500'
+                                        }`}
+                                    >
+                                        <SmileIcon className="w-5 h-5" />
+                                    </button>
+                                </div>
+                                
+                                {/* Emoji Picker Popup */}
+                                {showEmojiPicker && (
+                                    <div className="absolute bottom-full right-0 mb-2 z-50">
+                                        <EmojiPicker
+                                            onEmojiClick={onEmojiClick}
+                                            theme={document.documentElement.classList.contains('dark') ? Theme.DARK : Theme.LIGHT}
+                                            width={350}
+                                            height={400}
+                                            searchPlaceHolder="Tìm emoji..."
+                                            previewConfig={{ showPreview: false }}
+                                            lazyLoadEmojis={true}
+                                        />
+                                    </div>
+                                )}
+                            </>
                         )}
                     </div>
 
-                    {message.trim() ? (
+                    {message.trim() && !isRecording ? (
                         <button
                             type="submit"
-                            className="p-3 bg-primary-500 text-white rounded-full hover:bg-primary-600 transition-colors"
+                            className="p-3 bg-primary-500 text-white rounded-full hover:bg-primary-600 transition-colors flex-shrink-0"
                         >
                             <Send className="w-5 h-5" />
                         </button>
                     ) : (
                         <button
                             type="button"
-                            className="p-3 bg-primary-500 text-white rounded-full hover:bg-primary-600 transition-colors"
+                            onClick={handleToggleRecord}
+                            className={`p-3 text-white rounded-full transition-all flex-shrink-0
+                                ${isRecording ? 'bg-red-500 hover:bg-red-600 animate-pulse' : 'bg-primary-500 hover:bg-primary-600'}`}
                         >
-                            <Mic className="w-5 h-5" />
+                            {isRecording ? <Square className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
                         </button>
                     )}
                 </form>

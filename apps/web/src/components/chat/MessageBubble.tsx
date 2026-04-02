@@ -114,18 +114,12 @@ export default function MessageBubble({
 
             case 'voice':
                 return (
-                    <div className="flex items-center gap-3 min-w-[200px]">
-                        <button className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center">
-                            ▶
-                        </button>
-                        <div className="flex-1">
-                            <div className="h-1 bg-white/30 rounded-full">
-                                <div className="h-full w-0 bg-white rounded-full" />
-                            </div>
-                            <span className="text-xs opacity-70 mt-1">
-                                {message.content.duration ? `${Math.floor(message.content.duration / 60)}:${String(message.content.duration % 60).padStart(2, '0')}` : '0:00'}
-                            </span>
-                        </div>
+                    <div className="flex flex-col gap-1">
+                        <audio
+                            src={message.content.mediaUrl}
+                            controls
+                            className="max-w-[250px] h-12 rounded-full"
+                        />
                     </div>
                 )
 

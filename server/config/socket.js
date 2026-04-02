@@ -128,8 +128,7 @@ module.exports = (socketConfig) => {
 
         io.to(conversationId).emit("chat:reaction", {
           messageId,
-          userId,
-          emoji
+          reactions: newReactions
         });
 
         if (callback) callback({ success: true });
