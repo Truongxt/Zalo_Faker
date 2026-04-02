@@ -4,6 +4,7 @@ import { useChatStore, type Message } from '@/stores/chatStore'
 import { useAuthStore } from '@/stores/authStore'
 import { useToast } from '@/contexts/ToastContext'
 import { useMediaUpload } from '@/hooks/useMediaUpload'
+import { useDebounce } from '@/hooks/useDebounce'
 import {
     Send,
     Image,
@@ -61,6 +62,7 @@ export default function ChatRoom() {
     const [showMenu, setShowMenu] = useState(false)
     const [isSearching, setIsSearching] = useState(false)
     const [searchMessageQuery, setSearchMessageQuery] = useState('')
+    const debouncedSearchQuery = useDebounce(searchMessageQuery, 300)
     const [showGroupManagement, setShowGroupManagement] = useState(false)
     const [forwardMessage, setForwardMessage] = useState<Message | null>(null)
     const [showBackgroundPicker, setShowBackgroundPicker] = useState(false)
@@ -774,7 +776,13 @@ export default function ChatRoom() {
 
                 <div className="flex items-center gap-1">
                     <button
-                        onClick={() => setIsSearching(!isSearching)}
+                        onClick={() => {
+                            setIsSearching(!isSearching)
+                            // Reset search query when toggling off
+                            if (isSearching) {
+                                setSearchMessageQuery('')
+                            }
+                        }}
                         className={`p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-600 dark:text-gray-400 transition-colors ${isSearching ? 'bg-gray-100 dark:bg-gray-800 text-primary-500' : ''}`}
                         title="Tìm kiếm tin nhắn"
                     >
@@ -877,19 +885,34 @@ export default function ChatRoom() {
                     ) : (
                         (() => {
                             const filteredMessages = messages.filter(msg => {
-                                if (!searchMessageQuery) return true
+                                if (!debouncedSearchQuery) return true
+
+                                const query = debouncedSearchQuery.toLowerCase()
+
+                                // Search text messages
                                 if (msg.type === 'text' && msg.content.text) {
-                                    return msg.content.text.toLowerCase().includes(searchMessageQuery.toLowerCase())
+                                    return msg.content.text.toLowerCase().includes(query)
                                 }
+
+                                // Search file names
+                                if (msg.type === 'file' && msg.content.fileName) {
+                                    return msg.content.fileName.toLowerCase().includes(query)
+                                }
+
+                                // Search sticker/image/video content if they have descriptions
+                                if ((msg.type === 'sticker' || msg.type === 'image' || msg.type === 'video') && msg.content.text) {
+                                    return msg.content.text.toLowerCase().includes(query)
+                                }
+
                                 return false
                             })
 
-                            if (searchMessageQuery && filteredMessages.length === 0) {
+                            if (debouncedSearchQuery && filteredMessages.length === 0) {
                                 return (
                                     <div className="flex flex-col items-center justify-center py-10 opacity-60">
                                         <Search className="w-10 h-10 mb-3 text-gray-400" />
                                         <p className="text-gray-500 dark:text-gray-400 text-sm text-center">
-                                            Không tìm thấy tin nhắn nào chứa "<span className="font-medium">{searchMessageQuery}</span>"
+                                            Không tìm thấy tin nhắn nào chứa "<span className="font-medium">{debouncedSearchQuery}</span>"
                                         </p>
                                     </div>
                                 )
