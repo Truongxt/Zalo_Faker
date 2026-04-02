@@ -1,4 +1,7 @@
 
+import { useState, useEffect } from 'react'
+import { getStickers } from '@/services/api'
+
 const MOCK_STICKERS = [
     'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Smilies/Cat%20with%20Tears%20of%20Joy.png',
     'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Smilies/Cat%20with%20Wry%20Smile.png',
@@ -23,10 +26,47 @@ interface StickerPickerProps {
 }
 
 export default function StickerPicker({ onSelect }: StickerPickerProps) {
+    const [stickers, setStickers] = useState<string[]>([])
+    const [loading, setLoading] = useState(true)
+    const [error, setError] = useState<string | null>(null)
+
+    useEffect(() => {
+        const fetchStickers = async () => {
+            try {
+                const data = await getStickers()
+                setStickers(data)
+            } catch (err) {
+                console.error('Failed to load stickers:', err)
+                setError('Failed to load stickers')
+                // Fallback to mock data
+                setStickers(MOCK_STICKERS)
+            } finally {
+                setLoading(false)
+            }
+        }
+        fetchStickers()
+    }, [])
+
+    if (loading) {
+        return (
+            <div className="w-[300px] h-[300px] bg-white dark:bg-dark-300 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-2 flex items-center justify-center">
+                <div className="text-gray-500">Loading stickers...</div>
+            </div>
+        )
+    }
+
+    if (error && stickers.length === 0) {
+        return (
+            <div className="w-[300px] h-[300px] bg-white dark:bg-dark-300 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-2 flex items-center justify-center">
+                <div className="text-red-500">{error}</div>
+            </div>
+        )
+    }
+
     return (
         <div className="w-[300px] h-[300px] bg-white dark:bg-dark-300 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-2 overflow-y-auto">
             <div className="grid grid-cols-4 gap-2">
-                {MOCK_STICKERS.map((url, i) => (
+                {stickers.map((url, i) => (
                     <button
                         key={i}
                         onClick={() => onSelect(url)}

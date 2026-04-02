@@ -8,6 +8,7 @@ router.get("/", messageController.getMessages);
 // ⚠️ Route cụ thể PHẢI đặt TRƯỚC route /:id
 // Nếu không, Express sẽ match "conversation" là :id
 router.get("/conversation/:conversationId", messageController.getMessagesByConversationId);
+router.get("/stickers", messageController.getStickers);
 router.delete("/room/:roomId", messageController.deleteMessagesByRoom);
 
 router.get("/:id", messageController.getMessage);

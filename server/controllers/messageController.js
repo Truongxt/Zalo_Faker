@@ -62,6 +62,15 @@ const deleteMessagesByRoom = async (req, res) => {
     }
 }
 
+const getStickers = async (req, res) => {
+    try {
+        const stickers = await messageService.getStickers()
+        res.json(stickers)
+    } catch (error) {
+        res.status(500).json({ message: error.message })
+    }
+}
+
 module.exports = {
     createMessage,
     getMessage,
@@ -69,5 +78,6 @@ module.exports = {
     updateMessage,
     deleteMessage,
     getMessagesByConversationId,
-    deleteMessagesByRoom
+    deleteMessagesByRoom,
+    getStickers
 }

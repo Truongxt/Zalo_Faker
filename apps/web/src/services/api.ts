@@ -55,8 +55,8 @@ const createGroup = async (groupData: { name: string, memberIds: string[], creat
 }
 
 const updateParticipantSetting = async (
-    conversationId: string, 
-    userId: string, 
+    conversationId: string,
+    userId: string,
     data: { isPinned?: boolean, isMuted?: boolean, nickname?: string }
 ) => {
     const response = await fetch(`${baseAPI}/conversations/${conversationId}/setting`, {
@@ -99,6 +99,12 @@ const leaveGroup = async (groupId: string, data: { userId: string }) => {
     return response.json();
 }
 
+const getStickers = async () => {
+    const response = await fetch(`${baseAPI}/messages/stickers`);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    return response.json();
+}
+
 const updateConversationBackground = async (conversationId: string, backgroundUrl: string) => {
     const response = await fetch(`${baseAPI}/conversations/${conversationId}`, {
         method: 'PUT',
@@ -121,5 +127,6 @@ export {
     addGroupMember,
     removeGroupMember,
     leaveGroup,
+    getStickers,
     updateConversationBackground
 }
