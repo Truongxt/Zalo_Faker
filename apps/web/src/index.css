@@ -246,6 +246,16 @@
   }
 }
 
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
 @layer utilities {
   .animate-slide-in {
     animation: slide-in 0.3s ease-out;
@@ -257,5 +267,9 @@
 
   .animate-spin-fast {
     animation: spin-fast 0.6s linear infinite;
+  }
+
+  .animate-fade-in {
+    animation: fade-in 0.3s ease-out;
   }
 }

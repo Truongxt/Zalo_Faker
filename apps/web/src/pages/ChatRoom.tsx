@@ -30,6 +30,7 @@ import EmojiPicker, { EmojiClickData, Theme } from 'emoji-picker-react'
 import { deleteChatHistory, updateParticipantSetting, updateConversationBackground } from '@/services/api'
 import GroupManagementModal from '@/components/chat/GroupManagementModal'
 import ForwardMessageModal from '@/components/chat/ForwardMessageModal'
+import BackgroundPickerModal from '@/components/chat/BackgroundPickerModal'
 
 export default function ChatRoom() {
     const { conversationId } = useParams<{ conversationId: string }>()
@@ -62,6 +63,7 @@ export default function ChatRoom() {
     const [searchMessageQuery, setSearchMessageQuery] = useState('')
     const [showGroupManagement, setShowGroupManagement] = useState(false)
     const [forwardMessage, setForwardMessage] = useState<Message | null>(null)
+    const [showBackgroundPicker, setShowBackgroundPicker] = useState(false)
 
     // Voice Recording State
     const [isRecording, setIsRecording] = useState(false)
@@ -693,23 +695,19 @@ export default function ChatRoom() {
         }
     }
 
-    const handleUpdateBackground = async () => {
+    const handleUpdateBackground = async (backgroundUrl: string) => {
         if (!conversationId) return
 
-        const currentBackground = activeConversation?.background || ''
-        const newBackgroundUrl = prompt('Nhập URL hình nền (để trống để xóa):', currentBackground)
-
-        if (newBackgroundUrl === null) return
-
         try {
-            await updateConversationBackground(conversationId, newBackgroundUrl.trim())
+            await updateConversationBackground(conversationId, backgroundUrl)
             useChatStore.getState().updateConversation(conversationId, {
-                background: newBackgroundUrl.trim()
+                background: backgroundUrl
             })
-            setShowMenu(false)
+            addToast('Đổi hình nền thành công!', 'success', 3000)
         } catch (error) {
             console.error('Update background error', error)
-            alert('Không thể đổi hình nền lúc này.')
+            addToast('Không thể đổi hình nền lúc này.', 'error', 5000)
+            throw error
         }
     }
 
@@ -817,7 +815,10 @@ export default function ChatRoom() {
                                     </button>
                                 )}
                                 <button
-                                    onClick={handleUpdateBackground}
+                                    onClick={() => {
+                                        setShowBackgroundPicker(true)
+                                        setShowMenu(false)
+                                    }}
                                     className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-dark-100 transition-colors"
                                 >
                                     Đổi hình nền
@@ -1113,6 +1114,14 @@ export default function ChatRoom() {
                 message={forwardMessage}
                 onForward={handleForwardSend}
             />
+
+            {showBackgroundPicker && (
+                <BackgroundPickerModal
+                    currentBackground={activeConversation?.background}
+                    onApply={handleUpdateBackground}
+                    onClose={() => setShowBackgroundPicker(false)}
+                />
+            )}
         </div>
     )
 }
