@@ -101,6 +101,45 @@ module.exports = (socketConfig) => {
         console.log(`User ${socket.userId} is offline`);
       }
     });
+    // ── Reaction tin nhắn ────────────────────────────────
+    socket.on("chat:reaction", async (data, callback) => {
+      try {
+        const { messageId, conversationId, userId, emoji } = data;
+
+        const message = await messageService.getMessage(messageId);
+        if (!message) {
+          return callback?.({ success: false, error: "Tin nhắn không tồn tại" });
+        }
+
+        let newReactions = [...(message.reactions || [])];
+        const existingReactionIndex = newReactions.findIndex(r => r.userId === userId);
+
+        if (existingReactionIndex !== -1) {
+          if (newReactions[existingReactionIndex].emoji === emoji) {
+            newReactions.splice(existingReactionIndex, 1);
+          } else {
+            newReactions[existingReactionIndex].emoji = emoji;
+          }
+        } else {
+          newReactions.push({ userId, emoji });
+        }
+
+        await messageService.updateMessage(messageId, { reactions: newReactions });
+
+        io.to(conversationId).emit("chat:reaction", {
+          messageId,
+          userId,
+          emoji
+        });
+
+        if (callback) callback({ success: true });
+
+      } catch (err) {
+        console.error("chat:reaction error:", err);
+        if (callback) callback({ success: false, error: err.message });
+      }
+    });
+
     // ── Thu hồi tin nhắn ────────────────────────────────
     socket.on("chat:recall", async (data, callback) => {
       try {

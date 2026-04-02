@@ -20,6 +20,7 @@ import TypingIndicator from '@/components/chat/TypingIndicator'
 import { getMessages, getConversation } from '@/services/api'
 import { socketService } from '@/lib/socket'
 import EmojiPicker, { EmojiClickData, Theme } from 'emoji-picker-react'
+import { deleteChatHistory } from '@/services/api'
 
 export default function ChatRoom() {
     const { conversationId } = useParams<{ conversationId: string }>()
@@ -44,8 +45,10 @@ export default function ChatRoom() {
     const [replyTo, setReplyTo] = useState<string | null>(null)
     const [showEmojiPicker, setShowEmojiPicker] = useState(false)
     const [isSendingMedia, setIsSendingMedia] = useState(false)
+    const [showMenu, setShowMenu] = useState(false)
 
     const messagesEndRef = useRef<HTMLDivElement>(null)
+    const menuRef = useRef<HTMLDivElement>(null)
     const inputRef = useRef<HTMLInputElement>(null)
     const imageInputRef = useRef<HTMLInputElement>(null)
     const fileInputRef = useRef<HTMLInputElement>(null)
@@ -81,18 +84,21 @@ export default function ChatRoom() {
         }
     }, [conversationId, user?.id, updateMessage])
 
-    // Click outside emoji picker → đóng
+    // Click outside emoji picker & menu → đóng
     useEffect(() => {
         const handleClickOutside = (e: MouseEvent) => {
             if (emojiPickerRef.current && !emojiPickerRef.current.contains(e.target as Node)) {
                 setShowEmojiPicker(false)
             }
+            if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+                setShowMenu(false)
+            }
         }
-        if (showEmojiPicker) {
+        if (showEmojiPicker || showMenu) {
             document.addEventListener('mousedown', handleClickOutside)
         }
         return () => document.removeEventListener('mousedown', handleClickOutside)
-    }, [showEmojiPicker])
+    }, [showEmojiPicker, showMenu])
 
     // Xử lý chọn emoji
     const onEmojiClick = useCallback((emojiData: EmojiClickData) => {
@@ -452,6 +458,26 @@ export default function ChatRoom() {
         return activeConversation.participants.find(p => p.userId !== user?.id)
     }
 
+    const handleDeleteHistory = async () => {
+        if (!conversationId) return
+        if (!confirm('Bạn có chắc muốn xóa toàn bộ tin nhắn trong cuộc trò chuyện này không? Hành động này không thể hoàn tác.')) return
+        
+        try {
+            await deleteChatHistory(conversationId)
+            // Cập nhật lại list messages trên client về []
+            useChatStore.getState().setMessages(conversationId, [])
+            setShowMenu(false)
+            // Clear preview
+            updateConversation(conversationId, {
+                lastMessage: undefined,
+                updatedAt: new Date().toISOString()
+            })
+        } catch (error) {
+            console.error('Lỗi khi xóa lịch sử', error)
+            alert('Không thể xóa lịch sử trò chuyện lúc này.')
+        }
+    }
+
     const otherUser = getOtherParticipant()
     const conversationName = activeConversation?.type === 'group'
         ? activeConversation.name
@@ -520,9 +546,25 @@ export default function ChatRoom() {
                     <button className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-600 dark:text-gray-400">
                         <Video className="w-5 h-5" />
                     </button>
-                    <button className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-600 dark:text-gray-400">
-                        <MoreVertical className="w-5 h-5" />
-                    </button>
+                    <div className="relative" ref={menuRef}>
+                        <button 
+                            onClick={() => setShowMenu(!showMenu)}
+                            className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-600 dark:text-gray-400"
+                        >
+                            <MoreVertical className="w-5 h-5" />
+                        </button>
+
+                        {showMenu && (
+                            <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-dark-300 rounded-xl shadow-lg border border-gray-100 dark:border-gray-800 py-1 z-50 animate-scale-in">
+                                <button
+                                    onClick={handleDeleteHistory}
+                                    className="w-full text-left px-4 py-2 text-sm text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                                >
+                                    Xóa lịch sử trò chuyện
+                                </button>
+                            </div>
+                        )}
+                    </div>
                 </div>
             </div>
 

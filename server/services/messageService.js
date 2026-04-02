@@ -25,11 +25,16 @@ const deleteMessage = async (id) => {
     return await messageModel.deleteMessage(id)
 }
 
+const deleteMessagesByConversationId = async (conversationId) => {
+    return await messageModel.deleteMessagesByConversationId(conversationId)
+}
+
 module.exports = {
     createMessage,
     getMessage,
     getMessages,
     updateMessage,
     deleteMessage,
-    getMessagesByConversationId
+    getMessagesByConversationId,
+    deleteMessagesByConversationId
 }

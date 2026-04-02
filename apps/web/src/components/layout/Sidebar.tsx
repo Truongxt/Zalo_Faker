@@ -12,6 +12,7 @@ import {
     User as UserIcon,
     Bot
 } from 'lucide-react'
+import CreateGroupModal from '@/components/chat/CreateGroupModal'
 
 export default function Sidebar() {
     const navigate = useNavigate()
@@ -20,6 +21,7 @@ export default function Sidebar() {
 
     const [searchQuery, setSearchQuery] = useState('')
     const [activeTab, setActiveTab] = useState<'all' | 'unread' | 'groups'>('all')
+    const [showCreateGroup, setShowCreateGroup] = useState(false)
 
     const filteredConversations = conversations.filter(conv => {
         // Search filter
@@ -69,7 +71,10 @@ export default function Sidebar() {
                 <div className="flex items-center justify-between mb-4">
                     <h1 className="text-xl font-bold text-gray-900 dark:text-white">Tin nhắn</h1>
                     <div className="flex items-center gap-2">
-                        <button className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-600 dark:text-gray-400">
+                        <button 
+                            onClick={() => setShowCreateGroup(true)}
+                            className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-600 dark:text-gray-400"
+                        >
                             <Plus className="w-5 h-5" />
                         </button>
                     </div>
@@ -218,6 +223,11 @@ export default function Sidebar() {
                     </Link>
                 </div>
             </div>
+            {/* Create Group Modal */}
+            <CreateGroupModal 
+                isOpen={showCreateGroup} 
+                onClose={() => setShowCreateGroup(false)} 
+            />
         </div>
     )
 }

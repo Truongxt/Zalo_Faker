@@ -35,9 +35,30 @@ const getUsers = async () => {
     return response.json();
 }
 
+const deleteChatHistory = async (roomId: string) => {
+    const response = await fetch(`${baseAPI}/messages/room/${roomId}`, {
+        method: 'DELETE'
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    return response.json();
+}
+
+const createGroup = async (groupData: { name: string, memberIds: string[], createdBy: string }) => {
+    const response = await fetch(`${baseAPI}/groups`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(groupData)
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    const data = await response.json();
+    return { ...data, id: data._id };
+}
+
 export {
     getConversation,
     getMessages,
     sendMessage,
-    getUsers
+    getUsers,
+    deleteChatHistory,
+    createGroup
 }
