@@ -5,6 +5,7 @@ import { useAuthStore } from '@/stores/authStore'
 import { useToast } from '@/contexts/ToastContext'
 import { useMediaUpload } from '@/hooks/useMediaUpload'
 import { useDebounce } from '@/hooks/useDebounce'
+import { useOfflineQueue } from '@/hooks/useOfflineQueue'
 import {
     Send,
     Image,
@@ -20,7 +21,8 @@ import {
     ArrowLeft,
     Sticker,
     Search,
-    Loader
+    Loader,
+    WifiOff
 } from 'lucide-react'
 import MessageBubble from '@/components/chat/MessageBubble'
 import TypingIndicator from '@/components/chat/TypingIndicator'
@@ -38,6 +40,7 @@ export default function ChatRoom() {
     const { user } = useAuthStore()
     const { addToast } = useToast()
     const { validateFile, handleUploadError } = useMediaUpload()
+    const { isOnline, status: offlineStatus, storeOfflineMessage, removeFromQueue } = useOfflineQueue()
     const {
         activeConversation,
         setMessages,
@@ -280,7 +283,7 @@ export default function ChatRoom() {
         }
     }, [messages, conversationId, user?.id, markMessageAsRead, updateConversation])
 
-    // ✅ Gửi tin nhắn qua socket
+    // ✅ Gửi tin nhắn qua socket (hoặc lưu offline nếu không có kết nối)
     const handleSendMessage = async (e: FormEvent) => {
         e.preventDefault()
         if (!message.trim() || !conversationId || !user) return
@@ -309,6 +312,26 @@ export default function ChatRoom() {
         }
         addMessage(conversationId, optimisticMsg)
 
+        // Check if online
+        if (!isOnline) {
+            // Store offline message for later sync
+            try {
+                const offlineMsg = await storeOfflineMessage(
+                    conversationId,
+                    user.id,
+                    'text',
+                    { text: messageText },
+                    replyTo || undefined
+                )
+                addToast('Bạn đang offline. Tin nhắn sẽ được gửi khi có kết nối.', 'info', 3000)
+            } catch (error) {
+                console.error('Failed to store offline message:', error)
+                useChatStore.getState().removeMessage(conversationId, tempId)
+                addToast('Lỗi khi lưu tin nhắn ngoại tuyến', 'error', 3000)
+            }
+            return
+        }
+
         // Gửi qua socket
         socketService.sendMessage({
             conversationId,
@@ -325,6 +348,7 @@ export default function ChatRoom() {
                 // ❌ Gửi thất bại — xóa tin nhắn tạm
                 useChatStore.getState().removeMessage(conversationId, tempId)
                 console.error('Gửi tin nhắn thất bại:', res.error)
+                addToast('Không thể gửi tin nhắn. Vui lòng thử lại.', 'error', 3000)
             }
         })
 
@@ -488,6 +512,12 @@ export default function ChatRoom() {
         try {
             setIsSendingMedia(true)
             addToast('Đang gửi...', 'info')
+
+            // Check if offline
+            if (!isOnline) {
+                addToast('Bạn đang offline. Không thể gửi media lúc này.', 'warning', 3000)
+                return
+            }
 
             const dataUrl = await readFileAsDataUrl(file)
 
@@ -763,13 +793,32 @@ export default function ChatRoom() {
                         <h3 className="font-semibold text-gray-900 dark:text-white flex items-center gap-2">
                             {conversationName}
                             {isMuted && <span className="text-gray-400" title="Đã tắt thông báo">🔕</span>}
+                            {!isOnline && (
+                                <span className="text-xs bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-2 py-0.5 rounded-full flex items-center gap-1 font-normal">
+                                    <WifiOff className="w-3 h-3" />
+                                    Offline
+                                </span>
+                            )}
                         </h3>
-                        <p className="text-sm text-gray-500 dark:text-gray-400">
-                            {otherUser?.status === 'online'
-                                ? 'Đang hoạt động'
-                                : activeConversation.type === 'group'
-                                    ? `${activeConversation.participants.length} thành viên`
-                                    : 'Offline'}
+                        <p className="text-sm text-gray-500 dark:text-gray-400 flex items-center gap-2">
+                            {!isOnline ? (
+                                <>
+                                    <span>Không có kết nối</span>
+                                    {offlineStatus.pendingCount > 0 && (
+                                        <span className="text-xs bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 px-1.5 py-0.5 rounded">
+                                            {offlineStatus.pendingCount} tin nhắn chờ
+                                        </span>
+                                    )}
+                                </>
+                            ) : (
+                                <>
+                                    {otherUser?.status === 'online'
+                                        ? 'Đang hoạt động'
+                                        : activeConversation.type === 'group'
+                                            ? `${activeConversation.participants.length} thành viên`
+                                            : 'Offline'}
+                                </>
+                            )}
                         </p>
                     </div>
                 </div>
