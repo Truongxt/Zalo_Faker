@@ -141,6 +141,20 @@ const updateConversationBackground = async (conversationId: string, backgroundUr
     return { ...json, id: json._id };
 }
 
+const uploadMedia = async (file: File) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    
+    const response = await fetch(`${baseAPI}/upload`, {
+        method: "POST",
+        headers: getAuthHeaders(), // Do NOT override Content-Type when sending FormData
+        body: formData,
+    });
+    
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return await response.json();
+}
+
 export {
     getConversation,
     getMessages,
@@ -153,5 +167,6 @@ export {
     removeGroupMember,
     leaveGroup,
     getStickers,
-    updateConversationBackground
+    updateConversationBackground,
+    uploadMedia
 }

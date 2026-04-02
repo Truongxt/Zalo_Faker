@@ -32,7 +32,7 @@ import VirtualizedMessageList from '@/components/chat/VirtualizedMessageList'
 import { getMessages, getConversation } from '@/services/api'
 import { socketService } from '@/lib/socket'
 import EmojiPicker, { EmojiClickData, Theme } from 'emoji-picker-react'
-import { deleteChatHistory, updateParticipantSetting, updateConversationBackground } from '@/services/api'
+import { deleteChatHistory, updateParticipantSetting, updateConversationBackground, uploadMedia } from '@/services/api'
 import GroupManagementModal from '@/components/chat/GroupManagementModal'
 import ForwardMessageModal from '@/components/chat/ForwardMessageModal'
 import BackgroundPickerModal from '@/components/chat/BackgroundPickerModal'
@@ -524,10 +524,21 @@ export default function ChatRoom() {
                 return
             }
 
-            const dataUrl = await readFileAsDataUrl(file)
+            // Upload media qua HTTP SDK (S3) thay vì Base64 socket cực tốn băng thông
+            let mediaUrl = ''
+            if (type !== 'voice') {
+                const uploadRes = await uploadMedia(file)
+                mediaUrl = uploadRes.url
+            } else {
+                // Voice message could be small enough for socket or you can format it for FormData too
+                // Dùng uploadMedia cho voice luôn
+                const voiceFile = new File([file], `voice_${Date.now()}.webm`, { type: 'audio/webm' })
+                const uploadRes = await uploadMedia(voiceFile)
+                mediaUrl = uploadRes.url
+            }
 
             const content: any = {
-                mediaUrl: dataUrl,
+                mediaUrl: mediaUrl,
                 fileName: file.name,
                 fileSize: file.size,
             }

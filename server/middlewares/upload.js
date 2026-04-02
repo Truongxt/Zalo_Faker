@@ -13,10 +13,8 @@ const storage = multer.memoryStorage({
 const upload = multer({
   storage: storage,
   limits: {
-    fileSize: 1024 * 1024 * 5, // option để quản lý file size, ở đây là maximun file size đc upload
+    fileSize: 1024 * 1024 * 50, // Nâng giới hạn lên 50MB cho video
   },
-}).single("image"); // phương thức để chỉ đinh cho phép upload 1 hay nhiều file
-// với phương thức này đc chỉ định chỉ cho upload 1 file. "image" chính là tên 
-// của input bên form(client)  
+}).single("file"); // Đổi thành 'file' để hỗ trợ mọi định dạng
 
 module.exports = upload;

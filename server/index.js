@@ -20,6 +20,7 @@ app.use(express.json());
 // ===== Routes =====
 const conversationRoutes = require("./routes/conversationRoutes");
 const messageRoutes = require("./routes/messageRoutes");
+const uploadRoutes = require("./routes/uploadRoutes");
 
 app.use("/api/users", userRoutes);
 app.use("/api/conversations", conversationRoutes);
@@ -27,6 +28,7 @@ app.use("/api/messages", messageRoutes);
 app.use("/api/friends", friendRoutes);
 app.use("/api/groups", groupRoutes); 
 app.use("/api/ai", aiRoutes);
+app.use("/api/upload", uploadRoutes);
 // ===== Health check =====
 app.get("/", (req, res) => {
   res.send("API is running...");
