@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { Message } from '@/stores/chatStore'
 import { formatDistanceToNow } from 'date-fns'
 import { vi } from 'date-fns/locale'
-import { Check, CheckCheck, Reply, SmilePlus, Trash2 } from 'lucide-react'
+import { Check, CheckCheck, Reply, SmilePlus, Trash2, Share } from 'lucide-react'
 
 interface MessageBubbleProps {
     message: Message
@@ -15,6 +15,7 @@ interface MessageBubbleProps {
     onReply?: () => void
     onRecall?: () => void
     onReact?: (emoji: string) => void
+    onForward?: () => void
 }
 
 const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '😡']
@@ -30,6 +31,7 @@ export default function MessageBubble({
     onReply,
     onRecall,
     onReact,
+    onForward,
 }: MessageBubbleProps) {
     const [showReactionPicker, setShowReactionPicker] = useState(false)
     const [showConfirmRecall, setShowConfirmRecall] = useState(false)
@@ -215,6 +217,16 @@ export default function MessageBubble({
                     >
                         <Reply className="w-4 h-4 text-gray-500" />
                     </button>
+
+                    {!message.isDeleted && (
+                        <button
+                            onClick={onForward}
+                            className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition-colors"
+                            title="Chuyển tiếp"
+                        >
+                            <Share className="w-4 h-4 text-gray-500" />
+                        </button>
+                    )}
 
                     {/* Reaction button with mini picker */}
                     <div className="relative" ref={reactionRef}>

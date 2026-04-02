@@ -26,6 +26,7 @@ import { socketService } from '@/lib/socket'
 import EmojiPicker, { EmojiClickData, Theme } from 'emoji-picker-react'
 import { deleteChatHistory, updateParticipantSetting, updateConversationBackground } from '@/services/api'
 import GroupManagementModal from '@/components/chat/GroupManagementModal'
+import ForwardMessageModal from '@/components/chat/ForwardMessageModal'
 
 export default function ChatRoom() {
     const { conversationId } = useParams<{ conversationId: string }>()
@@ -55,6 +56,7 @@ export default function ChatRoom() {
     const [isSearching, setIsSearching] = useState(false)
     const [searchMessageQuery, setSearchMessageQuery] = useState('')
     const [showGroupManagement, setShowGroupManagement] = useState(false)
+    const [forwardMessage, setForwardMessage] = useState<Message | null>(null)
     
     // Voice Recording State
     const [isRecording, setIsRecording] = useState(false)
@@ -327,6 +329,64 @@ export default function ChatRoom() {
             },
             updatedAt: new Date().toISOString(),
         })
+    }
+
+    const handleForwardSend = (targetConversationIds: string[]) => {
+        if (!forwardMessage || !user) return
+
+        targetConversationIds.forEach(targetId => {
+            const tempId = `temp-fw-${Date.now()}-${Math.random()}`
+            const optimisticMsg: Message = {
+                id: tempId,
+                conversationId: targetId,
+                senderId: user.id,
+                type: forwardMessage.type,
+                content: forwardMessage.content,
+                reactions: [],
+                readBy: [],
+                isDeleted: false,
+                createdAt: new Date().toISOString(),
+            }
+            addMessage(targetId, optimisticMsg)
+
+            socketService.sendMessage({
+                conversationId: targetId,
+                senderId: user.id,
+                type: forwardMessage.type,
+                content: forwardMessage.content,
+            }, (res) => {
+                const store = useChatStore.getState()
+                if (res.success) {
+                    store.removeMessage(targetId, tempId)
+                    store.addMessage(targetId, res.message)
+                } else {
+                    store.removeMessage(targetId, tempId)
+                    console.error('Chuyển tiếp thất bại:', res.error)
+                }
+            })
+
+            let previewText = '[Tin nhắn]'
+            switch (forwardMessage.type) {
+                case 'text': previewText = forwardMessage.content.text || ''; break;
+                case 'image': previewText = '[Hình ảnh]'; break;
+                case 'video': previewText = '[Video]'; break;
+                case 'file': previewText = `[File] ${forwardMessage.content.fileName}`; break;
+                case 'sticker': previewText = '[Nhãn dán]'; break;
+                case 'voice': previewText = '[Tin nhắn thoại]'; break;
+            }
+
+            updateConversation(targetId, {
+                lastMessage: {
+                    content: previewText,
+                    type: forwardMessage.type,
+                    senderId: user.id,
+                    timestamp: new Date().toISOString(),
+                },
+                updatedAt: new Date().toISOString(),
+            })
+        })
+
+        setForwardMessage(null)
     }
 
     // ✅ Typing indicator với debounce
@@ -841,6 +901,7 @@ export default function ChatRoom() {
                                 onReply={() => setReplyTo(msg.id)}
                                 onRecall={() => handleRecall(msg.id)}
                                 onReact={(emoji) => handleReact(msg.id, emoji)}
+                                onForward={() => setForwardMessage(msg)}
                             />
                         )
                         })
@@ -1013,6 +1074,13 @@ export default function ChatRoom() {
                 isOpen={showGroupManagement} 
                 onClose={() => setShowGroupManagement(false)}
                 group={activeConversation}
+            />
+
+            <ForwardMessageModal
+                isOpen={!!forwardMessage}
+                onClose={() => setForwardMessage(null)}
+                message={forwardMessage}
+                onForward={handleForwardSend}
             />
         </div>
     )
