@@ -947,6 +947,11 @@ export default function ChatRoom() {
                                         onRecall={() => handleRecall(msg.id)}
                                         onReact={(emoji) => handleReact(msg.id, emoji)}
                                         onForward={() => setForwardMessage(msg)}
+                                        participants={activeConversation?.participants?.map(p => ({
+                                            userId: p.userId,
+                                            fullName: p.fullName
+                                        })) ?? []}
+                                        isGroupChat={activeConversation?.type === 'group'}
                                     />
                                 )
                             })

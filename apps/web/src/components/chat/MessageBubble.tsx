@@ -17,6 +17,8 @@ interface MessageBubbleProps {
     onRecall?: () => void
     onReact?: (emoji: string) => void
     onForward?: () => void
+    participants?: Array<{ userId: string; fullName?: string }>
+    isGroupChat?: boolean
 }
 
 const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '😡']
@@ -33,11 +35,64 @@ export default function MessageBubble({
     onRecall,
     onReact,
     onForward,
+    participants = [],
+    isGroupChat = false,
 }: MessageBubbleProps) {
     const [showReactionPicker, setShowReactionPicker] = useState(false)
     const [showConfirmRecall, setShowConfirmRecall] = useState(false)
     const reactionRef = useRef<HTMLDivElement>(null)
     const confirmRef = useRef<HTMLDivElement>(null)
+
+    // Format read receipt info for tooltip
+    const getReadReceiptInfo = () => {
+        if (!isSent || message.readBy.length === 0) return ''
+
+        const readUsers = message.readBy
+            .map(r => {
+                const participant = participants.find(p => p.userId === r.userId)
+                return {
+                    name: participant?.fullName || 'Người dùng',
+                    time: new Date(r.readAt)
+                }
+            })
+            .sort((a, b) => b.time.getTime() - a.time.getTime())
+
+        if (readUsers.length === 0) return ''
+
+        let tooltip = '✓ '
+        if (isGroupChat && participants.length > 0) {
+            // For group chats show count
+            if (readUsers.length === participants.length) {
+                tooltip += `Tất cả đã đọc`
+            } else {
+                tooltip += `${readUsers.length}/${participants.length} người đã đọc`
+            }
+        } else {
+            // For private chats show person name
+            tooltip += `${readUsers[0].name} đã đọc`
+        }
+
+        // Add times for first few people
+        tooltip += '\n' + readUsers
+            .slice(0, 3)
+            .map(u => {
+                const timeStr = u.time.toLocaleTimeString('vi-VN', {
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                })
+                return `${u.name} · ${timeStr}`
+            })
+            .join('\n')
+
+        if (readUsers.length > 3) {
+            tooltip += `\n...và ${readUsers.length - 3} người khác`
+        }
+
+        return tooltip
+    }
 
     // Click outside → đóng reaction picker
     useEffect(() => {
@@ -199,11 +254,42 @@ export default function MessageBubble({
                             {formatDistanceToNow(new Date(message.createdAt), { addSuffix: false, locale: vi })}
                         </span>
                         {isSent && (
-                            message.readBy.length > 0 ? (
-                                <CheckCheck className="w-3 h-3 text-primary-500" />
-                            ) : (
-                                <Check className="w-3 h-3 text-gray-400" />
-                            )
+                            <div className="group/receipt relative">
+                                {message.readBy.length > 0 ? (
+                                    <>
+                                        <CheckCheck
+                                            className="w-3 h-3 text-primary-500 cursor-help"
+                                            title={getReadReceiptInfo()}
+                                        />
+                                        {/* Tooltip on hover */}
+                                        <div className="absolute bottom-full right-0 mb-2 hidden group-hover/receipt:block z-50">
+                                            <div className="bg-gray-900 dark:bg-gray-800 text-white text-xs rounded px-2 py-1 whitespace-nowrap shadow-lg">
+                                                {isGroupChat && participants.length > 0 ? (
+                                                    message.readBy.length === participants.length ? (
+                                                        <span>
+                                                            {message.readBy.length === 1
+                                                                ? `1 người đã đọc`
+                                                                : `Tất cả ${message.readBy.length} người đã đọc`
+                                                            }
+                                                        </span>
+                                                    ) : (
+                                                        <span>
+                                                            {message.readBy.length}/{participants.length} người đã đọc
+                                                        </span>
+                                                    )
+                                                ) : (
+                                                    <span>Đã được đọc</span>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </>
+                                ) : (
+                                    <Check
+                                        className="w-3 h-3 text-gray-400"
+                                        title="Đã gửi"
+                                    />
+                                )}
+                            </div>
                         )}
                     </div>
                 </div>
