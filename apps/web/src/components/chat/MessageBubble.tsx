@@ -3,6 +3,7 @@ import { Message } from '@/stores/chatStore'
 import { formatDistanceToNow } from 'date-fns'
 import { vi } from 'date-fns/locale'
 import { Check, CheckCheck, Reply, SmilePlus, Trash2, Share } from 'lucide-react'
+import VoicePlayer from './VoicePlayer'
 
 interface MessageBubbleProps {
     message: Message
@@ -117,10 +118,9 @@ export default function MessageBubble({
             case 'voice':
                 return (
                     <div className="flex flex-col gap-1">
-                        <audio
+                        <VoicePlayer
                             src={message.content.mediaUrl}
-                            controls
-                            className="max-w-[250px] h-12 rounded-full"
+                            duration={message.content.duration}
                         />
                     </div>
                 )

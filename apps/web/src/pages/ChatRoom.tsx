@@ -57,7 +57,7 @@ export default function ChatRoom() {
     const [searchMessageQuery, setSearchMessageQuery] = useState('')
     const [showGroupManagement, setShowGroupManagement] = useState(false)
     const [forwardMessage, setForwardMessage] = useState<Message | null>(null)
-    
+
     // Voice Recording State
     const [isRecording, setIsRecording] = useState(false)
     const [recordingTime, setRecordingTime] = useState(0)
@@ -467,7 +467,7 @@ export default function ChatRoom() {
         })
     }
 
-    const sendMediaMessage = async (file: File, type: 'image' | 'video' | 'file' | 'voice') => {
+    const sendMediaMessage = async (file: File, type: 'image' | 'video' | 'file' | 'voice', duration?: number) => {
         if (!conversationId || !user) return
 
         // Prevent payload too large for socket/db
@@ -481,15 +481,22 @@ export default function ChatRoom() {
             setIsSendingMedia(true)
             const dataUrl = await readFileAsDataUrl(file)
 
+            const content: any = {
+                mediaUrl: dataUrl,
+                fileName: file.name,
+                fileSize: file.size,
+            }
+
+            // Add duration for voice messages
+            if (type === 'voice' && duration !== undefined) {
+                content.duration = duration
+            }
+
             socketService.sendMessage({
                 conversationId,
                 senderId: user.id,
                 type,
-                content: {
-                    mediaUrl: dataUrl,
-                    fileName: file.name,
-                    fileSize: file.size,
-                },
+                content,
             }, (res) => {
                 if (!res.success) {
                     console.error('Gửi media thất bại:', res.error)
@@ -498,7 +505,7 @@ export default function ChatRoom() {
 
             updateConversation(conversationId, {
                 lastMessage: {
-                    content: type === 'image' ? '[Hình ảnh]' : type === 'video' ? '[Video]' : `[File] ${file.name}`,
+                    content: type === 'image' ? '[Hình ảnh]' : type === 'video' ? '[Video]' : type === 'voice' ? '[Tin nhắn thoại]' : `[File] ${file.name}`,
                     type,
                     senderId: user.id,
                     timestamp: new Date().toISOString(),
@@ -549,10 +556,10 @@ export default function ChatRoom() {
                 mediaRecorder.onstop = async () => {
                     stream.getTracks().forEach(track => track.stop())
                     const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
-                    
+
                     if (audioChunksRef.current.length > 0) {
                         const file = new File([audioBlob], `voice_${Date.now()}.webm`, { type: 'audio/webm' })
-                        await sendMediaMessage(file, 'voice')
+                        await sendMediaMessage(file, 'voice', recordingTime)
                     }
                     setRecordingTime(0)
                 }
@@ -560,7 +567,7 @@ export default function ChatRoom() {
                 mediaRecorder.start(200)
                 setIsRecording(true)
                 setRecordingTime(0)
-                
+
                 if (timerRef.current) clearInterval(timerRef.current)
                 timerRef.current = setInterval(() => {
                     setRecordingTime(prev => prev + 1)
@@ -588,7 +595,7 @@ export default function ChatRoom() {
             createdAt: new Date().toISOString(),
         }
         addMessage(conversationId, stickerMsg)
-        
+
         socketService.sendMessage({
             conversationId,
             senderId: user.id,
@@ -625,7 +632,7 @@ export default function ChatRoom() {
     const handleDeleteHistory = async () => {
         if (!conversationId) return
         if (!confirm('Bạn có chắc muốn xóa toàn bộ tin nhắn trong cuộc trò chuyện này không? Hành động này không thể hoàn tác.')) return
-        
+
         try {
             await deleteChatHistory(conversationId)
             // Cập nhật lại list messages trên client về []
@@ -656,12 +663,12 @@ export default function ChatRoom() {
 
         const oldName = activeNickname || otherUser?.fullName || ''
         const newNickname = prompt('Nhập tên gợi nhớ (để trống để xóa):', oldName)
-        if (newNickname === null) return 
+        if (newNickname === null) return
 
         try {
             await updateParticipantSetting(conversationId, user.id, { nickname: newNickname.trim() })
             useChatStore.getState().updateConversation(conversationId, {
-                participants: activeConversation!.participants.map(part => 
+                participants: activeConversation!.participants.map(part =>
                     part.userId === user.id ? { ...part, nickname: newNickname.trim() } : part
                 )
             })
@@ -674,10 +681,10 @@ export default function ChatRoom() {
 
     const handleUpdateBackground = async () => {
         if (!conversationId) return
-        
+
         const currentBackground = activeConversation?.background || ''
         const newBackgroundUrl = prompt('Nhập URL hình nền (để trống để xóa):', currentBackground)
-        
+
         if (newBackgroundUrl === null) return
 
         try {
@@ -754,7 +761,7 @@ export default function ChatRoom() {
                 </div>
 
                 <div className="flex items-center gap-1">
-                    <button 
+                    <button
                         onClick={() => setIsSearching(!isSearching)}
                         className={`p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-600 dark:text-gray-400 transition-colors ${isSearching ? 'bg-gray-100 dark:bg-gray-800 text-primary-500' : ''}`}
                         title="Tìm kiếm tin nhắn"
@@ -768,7 +775,7 @@ export default function ChatRoom() {
                         <Video className="w-5 h-5" />
                     </button>
                     <div className="relative" ref={menuRef}>
-                        <button 
+                        <button
                             onClick={() => setShowMenu(!showMenu)}
                             className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-600 dark:text-gray-400"
                         >
@@ -839,79 +846,79 @@ export default function ChatRoom() {
             <div className="flex-1 relative overflow-hidden flex flex-col">
                 {/* Custom Background */}
                 {activeConversation?.background && (
-                    <div 
+                    <div
                         className="absolute inset-0 z-0 bg-cover bg-center pointer-events-none"
                         style={{ backgroundImage: `url(${activeConversation.background})` }}
                     >
                         <div className="absolute inset-0 bg-white/70 dark:bg-black/70" />
                     </div>
                 )}
-                
+
                 <div className="flex-1 overflow-y-auto p-4 space-y-4 relative z-10">
                     {isLoading ? (
                         <div className="flex justify-center py-8">
                             <div className="w-8 h-8 border-4 border-primary-500 border-t-transparent rounded-full animate-spin" />
                         </div>
                     ) : (
-                    (() => {
-                        const filteredMessages = messages.filter(msg => {
-                            if (!searchMessageQuery) return true
-                            if (msg.type === 'text' && msg.content.text) {
-                                return msg.content.text.toLowerCase().includes(searchMessageQuery.toLowerCase())
+                        (() => {
+                            const filteredMessages = messages.filter(msg => {
+                                if (!searchMessageQuery) return true
+                                if (msg.type === 'text' && msg.content.text) {
+                                    return msg.content.text.toLowerCase().includes(searchMessageQuery.toLowerCase())
+                                }
+                                return false
+                            })
+
+                            if (searchMessageQuery && filteredMessages.length === 0) {
+                                return (
+                                    <div className="flex flex-col items-center justify-center py-10 opacity-60">
+                                        <Search className="w-10 h-10 mb-3 text-gray-400" />
+                                        <p className="text-gray-500 dark:text-gray-400 text-sm text-center">
+                                            Không tìm thấy tin nhắn nào chứa "<span className="font-medium">{searchMessageQuery}</span>"
+                                        </p>
+                                    </div>
+                                )
                             }
-                            return false
-                        })
 
-                        if (searchMessageQuery && filteredMessages.length === 0) {
-                            return (
-                                <div className="flex flex-col items-center justify-center py-10 opacity-60">
-                                    <Search className="w-10 h-10 mb-3 text-gray-400" />
-                                    <p className="text-gray-500 dark:text-gray-400 text-sm text-center">
-                                        Không tìm thấy tin nhắn nào chứa "<span className="font-medium">{searchMessageQuery}</span>"
-                                    </p>
-                                </div>
-                            )
-                        }
+                            return filteredMessages.map((msg, index) => {
+                                const isSent = msg.senderId === user?.id
+                                const showAvatar = !isSent && (
+                                    index === 0 ||
+                                    filteredMessages[index - 1].senderId !== msg.senderId
+                                )
+                                const sender = activeConversation?.participants.find(
+                                    p => p.userId === msg.senderId
+                                )
 
-                        return filteredMessages.map((msg, index) => {
-                            const isSent = msg.senderId === user?.id
-                            const showAvatar = !isSent && (
-                                index === 0 ||
-                                filteredMessages[index - 1].senderId !== msg.senderId
-                            )
-                            const sender = activeConversation?.participants.find(
-                                p => p.userId === msg.senderId
-                            )
+                                return (
+                                    <MessageBubble
+                                        key={msg.id}
+                                        message={msg}
+                                        isSent={isSent}
+                                        showAvatar={showAvatar}
+                                        senderName={sender?.fullName}
+                                        senderAvatar={sender?.avatarUrl ?? undefined}
+                                        replyMessage={msg.replyTo ? messages.find(m => m.id === msg.replyTo) || null : null}
+                                        replySenderName={msg.replyTo ? (() => {
+                                            const repliedMsg = messages.find(m => m.id === msg.replyTo)
+                                            if (!repliedMsg) return undefined
+                                            const repliedSender = activeConversation?.participants.find(p => p.userId === repliedMsg.senderId)
+                                            return repliedSender?.fullName
+                                        })() : undefined}
+                                        onReply={() => setReplyTo(msg.id)}
+                                        onRecall={() => handleRecall(msg.id)}
+                                        onReact={(emoji) => handleReact(msg.id, emoji)}
+                                        onForward={() => setForwardMessage(msg)}
+                                    />
+                                )
+                            })
+                        })()
+                    )}
 
-                            return (
-                            <MessageBubble
-                                key={msg.id}
-                                message={msg}
-                                isSent={isSent}
-                                showAvatar={showAvatar}
-                                senderName={sender?.fullName}
-                                senderAvatar={sender?.avatarUrl ?? undefined}
-                                replyMessage={msg.replyTo ? messages.find(m => m.id === msg.replyTo) || null : null}
-                                replySenderName={msg.replyTo ? (() => {
-                                    const repliedMsg = messages.find(m => m.id === msg.replyTo)
-                                    if (!repliedMsg) return undefined
-                                    const repliedSender = activeConversation?.participants.find(p => p.userId === repliedMsg.senderId)
-                                    return repliedSender?.fullName
-                                })() : undefined}
-                                onReply={() => setReplyTo(msg.id)}
-                                onRecall={() => handleRecall(msg.id)}
-                                onReact={(emoji) => handleReact(msg.id, emoji)}
-                                onForward={() => setForwardMessage(msg)}
-                            />
-                        )
-                        })
-                    })()
-                )}
-
-                {typing.length > 0 && <TypingIndicator />}
-                <div ref={messagesEndRef} />
+                    {typing.length > 0 && <TypingIndicator />}
+                    <div ref={messagesEndRef} />
+                </div>
             </div>
-        </div>
 
             {/* Reply preview */}
             {replyTo && (() => {
@@ -1006,13 +1013,12 @@ export default function ChatRoom() {
                                         <button
                                             type="button"
                                             onClick={() => setShowStickerPicker(!showStickerPicker)}
-                                            className={`p-1 rounded-full transition-colors ${
-                                                showStickerPicker ? 'bg-primary-100 text-primary-500' : 'hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500'
-                                            }`}
+                                            className={`p-1 rounded-full transition-colors ${showStickerPicker ? 'bg-primary-100 text-primary-500' : 'hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500'
+                                                }`}
                                         >
                                             <Sticker className="w-5 h-5" />
                                         </button>
-                                        
+
                                         {/* Sticker Picker Popup */}
                                         {showStickerPicker && (
                                             <div className="absolute bottom-full right-0 mb-2 z-50">
@@ -1024,14 +1030,13 @@ export default function ChatRoom() {
                                     <button
                                         type="button"
                                         onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-                                        className={`p-1 rounded-full transition-colors ${
-                                            showEmojiPicker ? 'bg-primary-100 text-primary-500' : 'hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500'
-                                        }`}
+                                        className={`p-1 rounded-full transition-colors ${showEmojiPicker ? 'bg-primary-100 text-primary-500' : 'hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500'
+                                            }`}
                                     >
                                         <SmileIcon className="w-5 h-5" />
                                     </button>
                                 </div>
-                                
+
                                 {/* Emoji Picker Popup */}
                                 {showEmojiPicker && (
                                     <div className="absolute bottom-full right-0 mb-2 z-50">
@@ -1070,8 +1075,8 @@ export default function ChatRoom() {
                 </form>
             </div>
 
-            <GroupManagementModal 
-                isOpen={showGroupManagement} 
+            <GroupManagementModal
+                isOpen={showGroupManagement}
                 onClose={() => setShowGroupManagement(false)}
                 group={activeConversation}
             />
