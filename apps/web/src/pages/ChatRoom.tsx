@@ -2,6 +2,8 @@ import { useState, useRef, useEffect, useCallback, FormEvent, ChangeEvent } from
 import { useParams } from 'react-router-dom'
 import { useChatStore, type Message } from '@/stores/chatStore'
 import { useAuthStore } from '@/stores/authStore'
+import { useToast } from '@/contexts/ToastContext'
+import { useMediaUpload } from '@/hooks/useMediaUpload'
 import {
     Send,
     Image,
@@ -16,7 +18,8 @@ import {
     Reply,
     ArrowLeft,
     Sticker,
-    Search
+    Search,
+    Loader
 } from 'lucide-react'
 import MessageBubble from '@/components/chat/MessageBubble'
 import TypingIndicator from '@/components/chat/TypingIndicator'
@@ -31,6 +34,8 @@ import ForwardMessageModal from '@/components/chat/ForwardMessageModal'
 export default function ChatRoom() {
     const { conversationId } = useParams<{ conversationId: string }>()
     const { user } = useAuthStore()
+    const { addToast } = useToast()
+    const { validateFile, handleUploadError } = useMediaUpload()
     const {
         activeConversation,
         setMessages,
@@ -470,15 +475,16 @@ export default function ChatRoom() {
     const sendMediaMessage = async (file: File, type: 'image' | 'video' | 'file' | 'voice', duration?: number) => {
         if (!conversationId || !user) return
 
-        // Prevent payload too large for socket/db
-        const maxSizeBytes = 5 * 1024 * 1024
-        if (file.size > maxSizeBytes) {
-            alert('File quá lớn. Vui lòng chọn file <= 5MB.')
+        // Validate file
+        const validation = validateFile(file, type)
+        if (!validation.valid) {
             return
         }
 
         try {
             setIsSendingMedia(true)
+            addToast('Đang gửi...', 'info')
+
             const dataUrl = await readFileAsDataUrl(file)
 
             const content: any = {
@@ -498,7 +504,10 @@ export default function ChatRoom() {
                 type,
                 content,
             }, (res) => {
-                if (!res.success) {
+                if (res.success) {
+                    addToast('Gửi thành công!', 'success', 3000)
+                } else {
+                    addToast(`Gửi thất bại: ${res.error || 'Vui lòng thử lại.'}`, 'error', 5000)
                     console.error('Gửi media thất bại:', res.error)
                 }
             })
@@ -513,8 +522,7 @@ export default function ChatRoom() {
                 updatedAt: new Date().toISOString(),
             })
         } catch (error) {
-            console.error('Không thể xử lý file:', error)
-            alert('Không thể gửi file này. Vui lòng thử lại.')
+            handleUploadError(error, type)
         } finally {
             setIsSendingMedia(false)
         }
@@ -575,7 +583,13 @@ export default function ChatRoom() {
 
             } catch (err) {
                 console.error('Lỗi khi thu âm:', err)
-                alert('Không thể truy cập Microphone. Vui lòng vào Cài đặt để cấp quyền.')
+                if (err instanceof Error && err.name === 'NotAllowedError') {
+                    addToast('Quyền truy cập Microphone bị từ chối. Vui lòng cấp quyền trong cài đặt.', 'error', 5000)
+                } else if (err instanceof Error && err.name === 'NotFoundError') {
+                    addToast('Không tìm thấy Microphone. Vui lòng kiểm tra kết nối thiết bị.', 'error', 5000)
+                } else {
+                    addToast('Không thể truy cập Microphone. Vui lòng thử lại.', 'error', 5000)
+                }
             }
         }
     }
@@ -957,17 +971,27 @@ export default function ChatRoom() {
                             type="button"
                             onClick={() => imageInputRef.current?.click()}
                             disabled={isSendingMedia}
-                            className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-600 dark:text-gray-400"
+                            className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-600 dark:text-gray-400 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
+                            title={isSendingMedia ? 'Đang gửi...' : 'Gửi hình ảnh/video'}
                         >
-                            <Image className="w-5 h-5" />
+                            {isSendingMedia ? (
+                                <Loader className="w-5 h-5 animate-spin-fast" />
+                            ) : (
+                                <Image className="w-5 h-5" />
+                            )}
                         </button>
                         <button
                             type="button"
                             onClick={() => fileInputRef.current?.click()}
                             disabled={isSendingMedia}
-                            className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-600 dark:text-gray-400"
+                            className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-600 dark:text-gray-400 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
+                            title={isSendingMedia ? 'Đang gửi...' : 'Gửi file'}
                         >
-                            <Paperclip className="w-5 h-5" />
+                            {isSendingMedia ? (
+                                <Loader className="w-5 h-5 animate-spin-fast" />
+                            ) : (
+                                <Paperclip className="w-5 h-5" />
+                            )}
                         </button>
                     </div>
                     <input
@@ -976,12 +1000,14 @@ export default function ChatRoom() {
                         accept="image/*,video/*"
                         className="hidden"
                         onChange={handlePickImage}
+                        disabled={isSendingMedia}
                     />
                     <input
                         ref={fileInputRef}
                         type="file"
                         className="hidden"
                         onChange={handlePickFile}
+                        disabled={isSendingMedia}
                     />
 
                     <div className="flex-1 relative" ref={emojiPickerRef}>
