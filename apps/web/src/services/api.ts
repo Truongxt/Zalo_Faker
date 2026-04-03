@@ -157,6 +157,53 @@ const deleteLabel = async (id: string) => {
     return await response.json();
 }
 
+const deleteChatHistory = async (conversationId: string) => {
+    const response = await fetch(`${baseAPI}/conversations/${conversationId}`, {
+        method: "DELETE",
+        headers: getAuthHeaders()
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return await response.json();
+}
+
+const createGroup = async (data: any) => {
+    const response = await fetch(`${baseAPI}/groups`, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            ...getAuthHeaders()
+        },
+        body: JSON.stringify(data)
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return await response.json();
+}
+
+const updateParticipantSetting = async (conversationId: string, userId: string, data: any) => {
+    const response = await fetch(`${baseAPI}/conversations/${conversationId}/setting`, {
+        method: "PATCH",
+        headers: {
+            "Content-Type": "application/json",
+            ...getAuthHeaders()
+        },
+        body: JSON.stringify({ userId, ...data })
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return await response.json();
+}
+
+const addGroupMember = async (groupId: string, data: any) => {
+    const response = await fetch(`${baseAPI}/groups/${groupId}/add-member`, {
+        method: "PUT",
+        headers: {
+            "Content-Type": "application/json",
+            ...getAuthHeaders()
+        },
+        body: JSON.stringify(data)
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return await response.json();
+}
 export {
     getConversation,
     getMessages,

@@ -36,7 +36,6 @@ import { deleteChatHistory, updateParticipantSetting, updateConversationBackgrou
 import GroupManagementModal from '@/components/chat/GroupManagementModal'
 import ForwardMessageModal from '@/components/chat/ForwardMessageModal'
 import BackgroundPickerModal from '@/components/chat/BackgroundPickerModal'
-=======
 import { useCallStore } from '@/stores/callStore'
 
 export default function ChatRoom() {
@@ -876,13 +875,13 @@ export default function ChatRoom() {
                 </div>
 
                 <div className="flex items-center gap-1">
-                    <button 
+                    <button
                         onClick={handleStartVoiceCall}
                         className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-600 dark:text-gray-400"
                     >
                         <Phone className="w-5 h-5" />
                     </button>
-                    <button 
+                    <button
                         onClick={handleStartVideoCall}
                         className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-600 dark:text-gray-400"
                     >
