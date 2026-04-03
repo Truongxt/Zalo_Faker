@@ -1,6 +1,9 @@
 const express = require("express");
 const router = express.Router();
 const messageController = require("../controllers/messageController");
+const authMiddleware = require("../middlewares/authMiddleware");
+
+router.use(authMiddleware);
 
 router.post("/", messageController.createMessage);
 router.get("/", messageController.getMessages);
@@ -8,6 +11,8 @@ router.get("/", messageController.getMessages);
 // ⚠️ Route cụ thể PHẢI đặt TRƯỚC route /:id
 // Nếu không, Express sẽ match "conversation" là :id
 router.get("/conversation/:conversationId", messageController.getMessagesByConversationId);
+router.get("/stickers", messageController.getStickers);
+router.delete("/room/:roomId", messageController.deleteMessagesByRoom);
 
 router.get("/:id", messageController.getMessage);
 router.put("/:id", messageController.updateMessage);

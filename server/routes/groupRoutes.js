@@ -1,8 +1,9 @@
 const express = require("express");
 const router = express.Router();
 const GroupController = require("../controllers/groupController");
-const auth = require("../middlewares/authMiddleware");
-const upload = require("../middlewares/upload");
+const authMiddleware = require("../middlewares/authMiddleware");
+
+router.use(authMiddleware);
 
 router.use(auth);
 
@@ -15,8 +16,16 @@ router.put("/:id/transfer-admin", GroupController.transferAdmin);
 router.put("/:id/appoint-deputy", GroupController.appointDeputy);
 router.put("/:id/revoke-deputy", GroupController.revokeDeputy);
 router.put("/:id/leave", GroupController.leaveGroup);
-router.delete("/:id/dissolve", GroupController.dissolveGroup);
-router.get("/:id/members", GroupController.getGroupMembers);
-router.get("/", GroupController.getGroups);
+router.get("/", async (req, res) => {
+  try {
+    const ConversationModel = require("../models/conversation.js");
+    const conversations = await ConversationModel.getConversations();
+    const groups = conversations.filter(c => c.type === "group" && c.participants && c.participants.some(p => p.userId === req.user.id));
+
+    res.json(groups);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
 
 module.exports = router;

@@ -1,12 +1,16 @@
 const express = require("express");
 const router = express.Router();
 const conversationController = require("../controllers/conversationController");
-const auth = require("../middlewares/authMiddleware");
+const authMiddleware = require("../middlewares/authMiddleware");
 
-router.post("/", auth, conversationController.createConversation);
-router.get("/", auth, conversationController.getConversations);
-router.get("/:id", auth, conversationController.getConversation);
-router.put("/:id", auth, conversationController.updateConversation);
-router.delete("/:id", auth, conversationController.deleteConversation);
+// Yêu cầu xác thực (đăng nhập) cho tất cả API chat
+router.use(authMiddleware);
 
-module.exports = router;    
+router.post("/", conversationController.createConversation);
+router.get("/", conversationController.getConversations);
+router.get("/:id", conversationController.getConversation);
+router.put("/:id", conversationController.updateConversation);
+router.patch("/:id/setting", conversationController.updateParticipantSetting);
+router.delete("/:id", conversationController.deleteConversation);
+
+module.exports = router;

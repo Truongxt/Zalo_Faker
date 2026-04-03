@@ -133,20 +133,26 @@ const MessageModel = {
   },
 
   deleteMessagesByConversationId: async (conversationId) => {
-    const messages = await MessageModel.getMessagesByConversationId(conversationId);
-
-    if (!messages.length) {
-      return { deletedCount: 0 };
+    const params = {
+      TableName: tableName,
+      FilterExpression: "conversationId = :conversationId",
+      ExpressionAttributeValues: { ":conversationId": conversationId }
+    };
+    try {
+      const data = await dynamodb.scan(params).promise();
+      const messagesToDelete = data.Items;
+      
+      for (const msg of messagesToDelete) {
+        await dynamodb.delete({
+          TableName: tableName,
+          Key: { _id: msg._id }
+        }).promise();
+      }
+      return { deletedCount: messagesToDelete.length };
+    } catch (error) {
+      console.error("Error deleting messages by conversation id:", error);
+      throw error;
     }
-
-    for (const message of messages) {
-      await dynamodb.delete({
-        TableName: tableName,
-        Key: { _id: message._id }
-      }).promise();
-    }
-
-    return { deletedCount: messages.length };
   },
 
   // Methods for reactions and read receipts

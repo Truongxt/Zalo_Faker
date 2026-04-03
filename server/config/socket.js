@@ -37,12 +37,27 @@ module.exports = (socketConfig) => {
     // ── 3. Gửi tin nhắn ────────────────────────────────────
     socket.on("chat:send", async (data, callback) => {
       try {
-        const { conversationId, senderId, type, content, replyTo } = data;
+        const { conversationId, type, content, replyTo } = data;
+        const actualSenderId = socket.userId || data.senderId; // Dự phòng data.senderId nếu socket chưa store auth kịp
+
+        if (!actualSenderId) {
+          return callback && callback({ success: false, error: "Unauthorized socket" });
+        }
+
+        // Permission check
+        const { getConversation } = require("../services/conversationService");
+        const conv = await getConversation(conversationId);
+        if (!conv) {
+          return callback && callback({ success: false, error: "Conversation not found" });
+        }
+        if (!conv.participants || !conv.participants.some(p => p.userId === actualSenderId)) {
+          return callback && callback({ success: false, error: "Not a member of this conversation" });
+        }
 
         // Lưu vào DynamoDB
         const saved = await messageService.createMessage({
           conversationId,
-          senderId,
+          senderId: actualSenderId,
           type: type || "text",
           content,
           replyTo: replyTo || null,
@@ -54,9 +69,9 @@ module.exports = (socketConfig) => {
         // Cập nhật lastMessage của conversation
         await conversationModel.updateConversation(conversationId, {
           lastMessage: {
-            content: content.text || "[Media]",
+            content: content.text || (type === 'image' ? '[Hình ảnh]' : type === 'video' ? '[Video]' : type === 'voice' ? '[Tin nhắn thoại]' : '[File]'),
             type: type || "text",
-            senderId,
+            senderId: actualSenderId,
             timestamp: saved.createdAt,
           },
         });
@@ -85,12 +100,27 @@ module.exports = (socketConfig) => {
     });
 
     // ── 5. Đã đọc tin nhắn ──────────────────────────────────
-    socket.on("chat:read", ({ conversationId, messageId, userId }) => {
-      socket.to(conversationId).emit("chat:read", {
-        conversationId,
-        messageId,
-        userId,
-      });
+    socket.on("chat:read", async ({ conversationId, messageId, userId }) => {
+      try {
+        if (messageId && userId) {
+          const message = await messageService.getMessage(messageId);
+          if (message) {
+            let newReadBy = [...(message.readBy || [])];
+            if (!newReadBy.some(r => r.userId === userId)) {
+              newReadBy.push({ userId, readAt: new Date().toISOString() });
+              await messageService.updateMessage(messageId, { readBy: newReadBy });
+            }
+          }
+        }
+
+        socket.to(conversationId).emit("chat:read", {
+          conversationId,
+          messageId,
+          userId,
+        });
+      } catch (err) {
+        console.error("chat:read error:", err);
+      }
     });
 
     // ── 6. Disconnect ────────────────────────────────────────
@@ -101,6 +131,44 @@ module.exports = (socketConfig) => {
         console.log(`User ${socket.userId} is offline`);
       }
     });
+    // ── Reaction tin nhắn ────────────────────────────────
+    socket.on("chat:reaction", async (data, callback) => {
+      try {
+        const { messageId, conversationId, userId, emoji } = data;
+
+        const message = await messageService.getMessage(messageId);
+        if (!message) {
+          return callback?.({ success: false, error: "Tin nhắn không tồn tại" });
+        }
+
+        let newReactions = [...(message.reactions || [])];
+        const existingReactionIndex = newReactions.findIndex(r => r.userId === userId);
+
+        if (existingReactionIndex !== -1) {
+          if (newReactions[existingReactionIndex].emoji === emoji) {
+            newReactions.splice(existingReactionIndex, 1);
+          } else {
+            newReactions[existingReactionIndex].emoji = emoji;
+          }
+        } else {
+          newReactions.push({ userId, emoji });
+        }
+
+        await messageService.updateMessage(messageId, { reactions: newReactions });
+
+        io.to(conversationId).emit("chat:reaction", {
+          messageId,
+          reactions: newReactions
+        });
+
+        if (callback) callback({ success: true });
+
+      } catch (err) {
+        console.error("chat:reaction error:", err);
+        if (callback) callback({ success: false, error: err.message });
+      }
+    });
+
     // ── Thu hồi tin nhắn ────────────────────────────────
     socket.on("chat:recall", async (data, callback) => {
       try {
