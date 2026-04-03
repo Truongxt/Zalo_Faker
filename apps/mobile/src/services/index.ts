@@ -4,5 +4,6 @@ export { userService } from "./userService";
 export { friendsService } from "./friendsService";
 export { messageService } from "./messageService";
 export {aiService} from "./aiService";
+export { momentService } from "./momentService";
 
 export { conversationService } from "./conversationService";

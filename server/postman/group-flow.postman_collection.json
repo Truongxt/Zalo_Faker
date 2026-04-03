@@ -1,0 +1,331 @@
+{
+  "info": {
+    "_postman_id": "d0d8f86f-6d76-4b45-9f7f-91f8c9f8f4f2",
+    "name": "Zalo Faker Group Flow",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Collection test toan bo luong group: login, tao nhom, cap quyen, xem thanh vien, thu hoi quyen, chuyen admin, va giai tan nhom."
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3000" },
+    { "key": "email", "value": "demo1@zalo-faker.com" },
+    { "key": "password", "value": "123456" },
+    { "key": "secondAdminEmail", "value": "demo2@zalo-faker.com" },
+    { "key": "secondAdminPassword", "value": "123456" },
+    { "key": "accessToken", "value": "" },
+    { "key": "refreshToken", "value": "" },
+    { "key": "groupId", "value": "" },
+    { "key": "groupName", "value": "Postman Group Demo" },
+    { "key": "renamedGroupName", "value": "Postman Group Renamed" },
+    { "key": "groupAvatar", "value": "https://example.com/group.png" },
+    { "key": "groupAvatarUpdated", "value": "https://example.com/group-updated.png" },
+    { "key": "memberUserId1", "value": "10002" },
+    { "key": "memberUserId2", "value": "10003" },
+    { "key": "memberUserId3", "value": "10004" }
+  ],
+  "item": [
+    {
+      "name": "1. Login Admin",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/users/login",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "users", "login"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const data = pm.response.json();",
+              "pm.collectionVariables.set('accessToken', data.accessToken);",
+              "pm.collectionVariables.set('refreshToken', data.refreshToken);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Create Group",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"{{groupName}}\",\n  \"avatar\": \"{{groupAvatar}}\",\n  \"memberIds\": [\"{{memberUserId1}}\", \"{{memberUserId2}}\"]\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/groups",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "groups"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const data = pm.response.json();",
+              "pm.collectionVariables.set('groupId', data._id);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Get My Groups",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/groups",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "groups"]
+        }
+      }
+    },
+    {
+      "name": "4. Rename Group",
+      "request": {
+        "method": "PUT",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"{{renamedGroupName}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/groups/{{groupId}}/rename",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "groups", "{{groupId}}", "rename"]
+        }
+      }
+    },
+    {
+      "name": "5. Update Group Avatar",
+      "request": {
+        "method": "PUT",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"avatar\": \"{{groupAvatarUpdated}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/groups/{{groupId}}/avatar",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "groups", "{{groupId}}", "avatar"]
+        }
+      }
+    },
+    {
+      "name": "6. Add Member",
+      "request": {
+        "method": "PUT",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"newUserId\": \"{{memberUserId3}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/groups/{{groupId}}/add-member",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "groups", "{{groupId}}", "add-member"]
+        }
+      }
+    },
+    {
+      "name": "7. Appoint Deputy",
+      "request": {
+        "method": "PUT",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"deputyUserId\": \"{{memberUserId2}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/groups/{{groupId}}/appoint-deputy",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "groups", "{{groupId}}", "appoint-deputy"]
+        }
+      }
+    },
+    {
+      "name": "8. Get All Members",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/groups/{{groupId}}/members",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "groups", "{{groupId}}", "members"]
+        }
+      }
+    },
+    {
+      "name": "9. Get Deputy Members",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/groups/{{groupId}}/members?role=deputy",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "groups", "{{groupId}}", "members"],
+          "query": [
+            { "key": "role", "value": "deputy" }
+          ]
+        }
+      }
+    },
+    {
+      "name": "10. Revoke Deputy",
+      "request": {
+        "method": "PUT",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"deputyUserId\": \"{{memberUserId2}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/groups/{{groupId}}/revoke-deputy",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "groups", "{{groupId}}", "revoke-deputy"]
+        }
+      }
+    },
+    {
+      "name": "11. Transfer Admin",
+      "request": {
+        "method": "PUT",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"newAdminUserId\": \"{{memberUserId1}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/groups/{{groupId}}/transfer-admin",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "groups", "{{groupId}}", "transfer-admin"]
+        }
+      }
+    },
+    {
+      "name": "12. Login New Admin",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"{{secondAdminEmail}}\",\n  \"password\": \"{{secondAdminPassword}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/users/login",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "users", "login"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const data = pm.response.json();",
+              "pm.collectionVariables.set('accessToken', data.accessToken);",
+              "pm.collectionVariables.set('refreshToken', data.refreshToken);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "13. Appoint Deputy Again",
+      "request": {
+        "method": "PUT",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"deputyUserId\": \"{{memberUserId2}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/groups/{{groupId}}/appoint-deputy",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "groups", "{{groupId}}", "appoint-deputy"]
+        }
+      }
+    },
+    {
+      "name": "14. Remove Member",
+      "request": {
+        "method": "PUT",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"removeUserId\": \"{{memberUserId3}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/groups/{{groupId}}/remove-member",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "groups", "{{groupId}}", "remove-member"]
+        }
+      }
+    },
+    {
+      "name": "15. Dissolve Group",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/groups/{{groupId}}/dissolve",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "groups", "{{groupId}}", "dissolve"]
+        }
+      }
+    }
+  ]
+}

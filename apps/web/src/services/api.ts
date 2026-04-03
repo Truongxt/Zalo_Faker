@@ -1,6 +1,30 @@
-import { useAuthStore } from '@/stores/authStore'
+import { useAuthStore } from '../stores/authStore';
 
-const baseAPI = "http://localhost:3000/api";
+export const baseAPI = import.meta.env.VITE_API_URL || "http://localhost:3000/api";
+
+export const fetchWithAuth = async (endpoint: string, options: RequestInit = {}) => {
+    const token = useAuthStore.getState().accessToken;
+    
+    const headers = new Headers(options.headers || {});
+    if (token) {
+        headers.set("Authorization", `Bearer ${token}`);
+    }
+    
+    if (!headers.has('Content-Type') && options.method !== 'GET') {
+        headers.set("Content-Type", "application/json");
+    }
+
+    const response = await fetch(`${baseAPI}${endpoint}`, {
+        ...options,
+        headers,
+    });
+
+    if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+    }
+
+    return response;
+};
 
 const getAuthHeaders = (): Record<string, string> => {
     const token = useAuthStore.getState().accessToken;
@@ -8,90 +32,27 @@ const getAuthHeaders = (): Record<string, string> => {
 };
 
 const getConversation = async () => {
-    const response = await fetch(`${baseAPI}/conversations`, { headers: getAuthHeaders() });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    const response = await fetchWithAuth(`/conversations`);
     const data = await response.json();
-    // DynamoDB trả về _id, frontend dùng id → cần map
     return data.map((conv: any) => ({ ...conv, id: conv._id }));
 }
 
 const getMessages = async (conversationId: string) => {
-    const response = await fetch(`${baseAPI}/messages/conversation/${conversationId}`, { headers: getAuthHeaders() });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    const response = await fetchWithAuth(`/messages/conversation/${conversationId}`);
     const data = await response.json();
-    // DynamoDB trả về _id, frontend dùng id → cần map
     return data.map((msg: any) => ({ ...msg, id: msg._id }));
 }
 
 const sendMessage = async (message: any) => {
-    const response = await fetch(`${baseAPI}/messages`, {
+    const response = await fetchWithAuth(`/messages`, {
         method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-            ...getAuthHeaders()
-        },
         body: JSON.stringify(message),
     });
     return response.json();
 }
 
 const getUsers = async () => {
-    const response = await fetch(`${baseAPI}/users`, { headers: getAuthHeaders() });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`)
-    return response.json();
-}
-
-const deleteChatHistory = async (roomId: string) => {
-    const response = await fetch(`${baseAPI}/messages/room/${roomId}`, {
-        method: 'DELETE',
-        headers: getAuthHeaders()
-    });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`)
-    return response.json();
-}
-
-const createGroup = async (groupData: { name: string, memberIds: string[], createdBy: string }) => {
-    const response = await fetch(`${baseAPI}/groups`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            ...getAuthHeaders()
-        },
-        body: JSON.stringify(groupData)
-    });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`)
-    const data = await response.json();
-    return { ...data, id: data._id };
-}
-
-const updateParticipantSetting = async (
-    conversationId: string,
-    userId: string,
-    data: { isPinned?: boolean, isMuted?: boolean, nickname?: string, labelIds?: string[] }
-) => {
-    const response = await fetch(`${baseAPI}/conversations/${conversationId}/setting`, {
-        method: 'PATCH',
-        headers: {
-            'Content-Type': 'application/json',
-            ...getAuthHeaders()
-        },
-        body: JSON.stringify({ userId, ...data })
-    });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`)
-    const json = await response.json();
-    return { ...json, id: json._id };
-}
-
-const addGroupMember = async (groupId: string, data: { userId: string, newUserId: string }) => {
-    const response = await fetch(`${baseAPI}/groups/${groupId}/add-member`, {
-        method: 'PUT',
-        headers: {
-            'Content-Type': 'application/json',
-            ...getAuthHeaders()
-        },
-        body: JSON.stringify(data)
-    });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    const response = await fetchWithAuth(`/users`);
     return response.json();
 }
 

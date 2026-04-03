@@ -1,15 +1,17 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import { supabase } from '@/lib/supabase'
 
 export interface User {
     id: string
+    userId?: string
     email: string | null
     phone: string | null
     fullName: string
+    userName?: string
     avatarUrl: string | null
+    avartarUrl?: string | null // backend typo
     bio: string | null
-    status: 'online' | 'offline' | 'away'
+    status: 'online' | 'offline' | 'away' | string
     lastSeen: string | null
     createdAt: string
 }
@@ -17,6 +19,7 @@ export interface User {
 interface AuthState {
     user: User | null
     accessToken: string | null
+    refreshToken: string | null
     isLoading: boolean
     error: string | null
     initialized: boolean
@@ -24,11 +27,12 @@ interface AuthState {
     // Actions
     setUser: (user: User | null) => void
     setAccessToken: (token: string | null) => void
+    setRefreshToken: (token: string | null) => void
     setLoading: (loading: boolean) => void
     setError: (error: string | null) => void
     logout: () => void
     updateProfile: (updates: Partial<User>) => void
-    initialize: () => Promise<void>
+    initialize: () => void
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -36,6 +40,7 @@ export const useAuthStore = create<AuthState>()(
         (set, get) => ({
             user: null,
             accessToken: null,
+            refreshToken: null,
             isLoading: true,
             error: null,
             initialized: false,
@@ -44,6 +49,8 @@ export const useAuthStore = create<AuthState>()(
 
             setAccessToken: (accessToken) => set({ accessToken }),
 
+            setRefreshToken: (refreshToken) => set({ refreshToken }),
+
             setLoading: (isLoading) => set({ isLoading }),
 
             setError: (error) => set({ error, isLoading: false }),
@@ -51,6 +58,7 @@ export const useAuthStore = create<AuthState>()(
             logout: () => set({
                 user: null,
                 accessToken: null,
+                refreshToken: null,
                 isLoading: false,
                 error: null
             }),
@@ -59,56 +67,24 @@ export const useAuthStore = create<AuthState>()(
                 user: state.user ? { ...state.user, ...updates } : null
             })),
 
-            // Initialize auth state on app load
-            initialize: async () => {
+            // Dùng để đánh dấu đã rehydrate từ localStorage
+            initialize: () => {
                 if (get().initialized) return
-
-                try {
-                    const { data: { session } } = await supabase.auth.getSession()
-
-                    if (session?.user) {
-                        const user: User = {
-                            id: session.user.id,
-                            email: session.user.email || null,
-                            phone: session.user.phone || null,
-                            fullName: session.user.user_metadata?.full_name || 'User',
-                            avatarUrl: session.user.user_metadata?.avatar_url || null,
-                            bio: session.user.user_metadata?.bio || null,
-                            status: 'online',
-                            lastSeen: null,
-                            createdAt: session.user.created_at
-                        }
-                        set({
-                            user,
-                            accessToken: session.access_token,
-                            isLoading: false,
-                            initialized: true
-                        })
-                    } else {
-                        set({
-                            user: null,
-                            accessToken: null,
-                            isLoading: false,
-                            initialized: true
-                        })
-                    }
-                } catch (error) {
-                    console.error('Auth initialization error:', error)
-                    set({
-                        isLoading: false,
-                        initialized: true
-                    })
-                }
+                set({
+                    isLoading: false,
+                    initialized: true
+                })
             }
         }),
         {
             name: 'auth-storage',
             partialize: (state) => ({
                 user: state.user,
-                accessToken: state.accessToken
+                accessToken: state.accessToken,
+                refreshToken: state.refreshToken
             }),
             onRehydrateStorage: () => (state) => {
-                // After rehydrating from localStorage, set loading to false
+                // Sau khi load xong state từ localStorage thì bỏ loading
                 if (state) {
                     state.isLoading = false
                     state.initialized = true

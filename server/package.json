@@ -9,8 +9,13 @@
     "db:create-friends": "node scripts/create-friends-table.js",
     "db:create-participant": "node scripts/create-participant-table.js",
     "db:create-reaction": "node scripts/create-reaction-table.js",
+    "db:create-moment": "node scripts/create-moment-table.js",
+    "db:create-moment-comment": "node scripts/create-moment-comment-table.js",
+    "db:create-moment-reaction": "node scripts/create-moment-reaction-table.js",
+    "db:create-moment-tables": "npm run db:create-moment && npm run db:create-moment-comment && npm run db:create-moment-reaction",
     "db:create-chat-meta": "npm run db:create-participant ; npm run db:create-reaction",
-    "db:seed-users": "node scripts/seed-users.js"
+    "db:seed-users": "node scripts/seed-users.js",
+    "db:seed-demo": "node scripts/seed-demo.js"
   },
   "keywords": [],
   "author": "",

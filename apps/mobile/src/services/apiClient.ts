@@ -5,13 +5,28 @@ import { useAuthStore } from "@/stores/authStore";
 
 const apiClient = axios.create({
   baseURL: API_URL,
-  headers: {
-    "Content-Type": "application/json",
-  },
 });
 
 apiClient.interceptors.request.use(async (config) => {
   console.log("[apiClient] interceptor running for:", config.url);
+  const isFormData =
+    typeof FormData !== "undefined" && config.data instanceof FormData;
+
+  if (isFormData) {
+    if (config.headers) {
+      delete config.headers["Content-Type"];
+      delete config.headers["content-type"];
+    }
+  } else {
+    if (!config.headers) {
+      config.headers = {} as typeof config.headers;
+    }
+
+    if (!config.headers["Content-Type"] && !config.headers["content-type"]) {
+      config.headers["Content-Type"] = "application/json";
+    }
+  }
+
   let token: string | null = null;
 
   try {

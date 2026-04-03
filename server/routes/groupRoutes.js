@@ -5,11 +5,16 @@ const authMiddleware = require("../middlewares/authMiddleware");
 
 router.use(authMiddleware);
 
-router.post("/", GroupController.createGroup);
+router.use(auth);
+
+router.post("/", upload, GroupController.createGroup);
 router.put("/:id/rename", GroupController.renameGroup);
 router.put("/:id/avatar", GroupController.updateAvatar);
 router.put("/:id/add-member", GroupController.addMember);
 router.put("/:id/remove-member", GroupController.removeMember);
+router.put("/:id/transfer-admin", GroupController.transferAdmin);
+router.put("/:id/appoint-deputy", GroupController.appointDeputy);
+router.put("/:id/revoke-deputy", GroupController.revokeDeputy);
 router.put("/:id/leave", GroupController.leaveGroup);
 router.get("/", async (req, res) => {
   try {

@@ -1,255 +1,172 @@
-const ConversationModel = require("../models/conversation.js");
-const { createParticipant } = require("../models/participant.js");
+const GroupService = require("../services/groupService");
+const { uploadFile } = require("../services/file.service");
+
+const getRequesterId = (req) => req.user?.userId;
+
+const handleError = (res, error) => {
+  return res.status(error.statusCode || 500).json({
+    message: error.message
+  });
+};
 
 const GroupController = {
-
-  // =========================
-  // CREATE GROUP
-  // =========================
   createGroup: async (req, res) => {
     try {
-      const { name, avatar, memberIds = [], createdBy } = req.body;
+      const memberIds =
+        typeof req.body.memberIds === "string"
+          ? JSON.parse(req.body.memberIds)
+          : req.body.memberIds;
+      const avatar = req.file ? await uploadFile(req.file) : req.body.avatar;
 
-      const participants = [
-        createParticipant({ userId: createdBy, role: "admin" }),
-        ...memberIds.map(id =>
-          createParticipant({ userId: id, role: "member" })
-        )
-      ];
-
-      const conversation = await ConversationModel.createConversation({
-        type: "group",
-        name,
+      const group = await GroupService.createGroup({
+        ...req.body,
+        memberIds,
         avatar,
-        participants,
-        createdBy
+        createdBy: getRequesterId(req)
       });
 
-      res.status(201).json(conversation);
-
+      return res.status(201).json(group);
     } catch (error) {
-      res.status(500).json({ message: error.message });
+      return handleError(res, error);
     }
   },
 
-  // =========================
-  // RENAME MEMBER (mọi người được quyền)
-  // =========================
   renameGroup: async (req, res) => {
     try {
-      const { id } = req.params;
-      const { name, userId } = req.body;
+      const group = await GroupService.renameGroup(req.params.id, {
+        name: req.body.name,
+        userId: getRequesterId(req)
+      });
 
-      const group = await ConversationModel.getOneConversation(id);
-      if (!group) return res.status(404).json({ message: "Group not found" });
-
-      const isMember = group.participants.find(p => p.userId === userId);
-      if (!isMember)
-        return res.status(403).json({ message: "You are not in this group" });
-
-      const updated = await ConversationModel.updateConversation(id, { name });
-      res.json(updated);
-
+      return res.json(group);
     } catch (error) {
-      res.status(500).json({ message: error.message });
+      return handleError(res, error);
     }
   },
 
-  // =========================
-  // UPDATE AVATAR (mọi người được quyền)
-  // =========================
   updateAvatar: async (req, res) => {
     try {
-      const { id } = req.params;
-      const { avatar, userId } = req.body;
+      const group = await GroupService.updateAvatar(req.params.id, {
+        avatar: req.body.avatar,
+        userId: getRequesterId(req)
+      });
 
-      const group = await ConversationModel.getOneConversation(id);
-      if (!group) return res.status(404).json({ message: "Group not found" });
-
-      const isMember = group.participants.find(p => p.userId === userId);
-      if (!isMember)
-        return res.status(403).json({ message: "You are not in this group" });
-
-      const updated = await ConversationModel.updateConversation(id, { avatar });
-      res.json(updated);
-
+      return res.json(group);
     } catch (error) {
-      res.status(500).json({ message: error.message });
+      return handleError(res, error);
     }
   },
 
-  // =========================
-  // ADD MEMBER (mọi người được quyền)
-  // =========================
   addMember: async (req, res) => {
     try {
-      const { id } = req.params;
-      const { userId, newUserId } = req.body;
-
-      const group = await ConversationModel.getOneConversation(id);
-      if (!group) return res.status(404).json({ message: "Group not found" });
-
-      const isMember = group.participants.find(p => p.userId === userId);
-      if (!isMember)
-        return res.status(403).json({ message: "You are not in this group" });
-
-      const exists = group.participants.find(p => p.userId === newUserId);
-      if (exists)
-        return res.status(400).json({ message: "User already in group" });
-
-      const newParticipant = createParticipant({
-        userId: newUserId,
-        role: "member"
+      const group = await GroupService.addMember(req.params.id, {
+        newUserId: req.body.newUserId,
+        userId: getRequesterId(req)
       });
 
-      const updated = await ConversationModel.updateConversation(id, {
-        participants: [...group.participants, newParticipant]
-      });
-
-      res.json(updated);
-      
-
+      return res.json(group);
     } catch (error) {
-      res.status(500).json({ message: error.message });
+      return handleError(res, error);
     }
   },
 
-// =========================
-// REMOVE MEMBER (CHỈ ADMIN)
-// =========================
-removeMember: async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { userId, removeUserId } = req.body;
-
-    // kiểm tra body
-    if (!userId || !removeUserId) {
-      return res.status(400).json({
-        message: "userId and removeUserId are required"
+  removeMember: async (req, res) => {
+    try {
+      const result = await GroupService.removeMember(req.params.id, {
+        removeUserId: req.body.removeUserId,
+        userId: getRequesterId(req)
       });
+
+      return res.json(result);
+    } catch (error) {
+      return handleError(res, error);
     }
+  },
 
-    const group = await ConversationModel.getOneConversation(id);
-
-    if (!group) {
-      return res.status(404).json({
-        message: "Group not found"
+  transferAdmin: async (req, res) => {
+    try {
+      const result = await GroupService.transferAdmin(req.params.id, {
+        newAdminUserId: req.body.newAdminUserId,
+        userId: getRequesterId(req)
       });
-    }
 
-    // kiểm tra người thực hiện có trong nhóm
-    const currentUser = group.participants.find(p => p.userId === userId);
-    if (!currentUser) {
-      return res.status(403).json({
-        message: "You are not in this group"
+      return res.json(result);
+    } catch (error) {
+      return handleError(res, error);
+    }
+  },
+
+  appointDeputy: async (req, res) => {
+    try {
+      const result = await GroupService.appointDeputy(req.params.id, {
+        deputyUserId: req.body.deputyUserId,
+        userId: getRequesterId(req)
       });
-    }
 
-    // kiểm tra quyền admin
-    if (currentUser.role !== "admin") {
-      return res.status(403).json({
-        message: "Only admin can remove members"
+      return res.json(result);
+    } catch (error) {
+      return handleError(res, error);
+    }
+  },
+
+  revokeDeputy: async (req, res) => {
+    try {
+      const result = await GroupService.revokeDeputy(req.params.id, {
+        deputyUserId: req.body.deputyUserId,
+        userId: getRequesterId(req)
       });
+
+      return res.json(result);
+    } catch (error) {
+      return handleError(res, error);
     }
+  },
 
-    // kiểm tra user cần xóa có trong nhóm không
-    const memberToRemove = group.participants.find(
-      p => p.userId === removeUserId
-    );
-
-    if (!memberToRemove) {
-      return res.status(404).json({
-        message: "User not found in group"
+  getGroupMembers: async (req, res) => {
+    try {
+      const result = await GroupService.getGroupMembers(req.params.id, {
+        role: req.query.role,
+        userId: getRequesterId(req)
       });
-    }
 
-    // không cho admin tự xóa mình
-    if (userId === removeUserId) {
-      return res.status(400).json({
-        message: "Admin cannot remove themselves"
+      return res.json(result);
+    } catch (error) {
+      return handleError(res, error);
+    }
+  },
+
+  leaveGroup: async (req, res) => {
+    try {
+      const result = await GroupService.leaveGroup(req.params.id, {
+        userId: getRequesterId(req)
       });
+
+      return res.json(result);
+    } catch (error) {
+      return handleError(res, error);
     }
+  },
 
-    const updatedParticipants = group.participants.filter(
-      p => p.userId !== removeUserId
-    );
+  dissolveGroup: async (req, res) => {
+    try {
+      const result = await GroupService.dissolveGroup(req.params.id, {
+        userId: getRequesterId(req)
+      });
 
-    const updated = await ConversationModel.updateConversation(id, {
-      participants: updatedParticipants
-    });
+      return res.json(result);
+    } catch (error) {
+      return handleError(res, error);
+    }
+  },
 
-    res.json({
-      message: "Member removed successfully",
-      group: updated
-    });
-
-  } catch (error) {
-    res.status(500).json({
-      message: "Internal server error",
-      error: error.message
-    });
+  getGroups: async (req, res) => {
+    try {
+      const groups = await GroupService.getGroups(getRequesterId(req));
+      return res.json(groups);
+    } catch (error) {
+      return handleError(res, error);
+    }
   }
-},
-
-  // =========================
-// LEAVE GROUP (mọi người được quyền)
-// =========================
-leaveGroup: async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { userId } = req.body;
-
-    // kiểm tra dữ liệu
-    if (!userId) {
-      return res.status(400).json({
-        message: "userId is required"
-      });
-    }
-
-    const group = await ConversationModel.getOneConversation(id);
-
-    if (!group) {
-      return res.status(404).json({
-        message: "Group not found"
-      });
-    }
-
-    // kiểm tra user có trong nhóm không
-    const member = group.participants.find(p => p.userId === userId);
-
-    if (!member) {
-      return res.status(403).json({
-        message: "You are not in this group"
-      });
-    }
-
-    // nếu chỉ còn 1 người trong nhóm
-    if (group.participants.length === 1) {
-      return res.status(400).json({
-        message: "Cannot leave group because you are the last member"
-      });
-    }
-
-    const updatedParticipants = group.participants.filter(
-      p => p.userId !== userId
-    );
-
-    const updated = await ConversationModel.updateConversation(id, {
-      participants: updatedParticipants
-    });
-
-    res.json({
-      message: "You left the group successfully",
-      group: updated
-    });
-
-  } catch (error) {
-    res.status(500).json({
-      message: "Internal server error",
-      error: error.message
-    });
-  }
-}
 };
 
 module.exports = GroupController;
