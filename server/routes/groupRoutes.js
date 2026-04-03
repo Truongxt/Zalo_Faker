@@ -2,10 +2,9 @@ const express = require("express");
 const router = express.Router();
 const GroupController = require("../controllers/groupController");
 const authMiddleware = require("../middlewares/authMiddleware");
+const upload = require("../middlewares/upload");
 
 router.use(authMiddleware);
-
-router.use(auth);
 
 router.post("/", upload, GroupController.createGroup);
 router.put("/:id/rename", GroupController.renameGroup);
