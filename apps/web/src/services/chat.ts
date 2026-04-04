@@ -7,7 +7,10 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000/api'
 export const chatService = {
     // Initialize socket listeners
     init() {
-        const socket = socketService.connect()
+        const { user } = useAuthStore.getState()
+        if (!user?.id) return
+
+        const socket = socketService.connect(user.id)
         if (!socket) return
 
         socket.on('chat:message', (message: Message) => {
@@ -42,7 +45,7 @@ export const chatService = {
             })
         })
 
-        socket.on('chat:deleted', ({ conversationId, messageId }: { conversationId: string; messageId: string }) => {
+        socket.on('chat:recalled', ({ conversationId, messageId }: { conversationId: string; messageId: string }) => {
             const { updateMessage } = useChatStore.getState()
             updateMessage(conversationId, messageId, { isDeleted: true })
         })
@@ -111,11 +114,13 @@ export const chatService = {
         const { accessToken, user } = useAuthStore.getState()
         const { addMessage } = useChatStore.getState()
 
+        if (!user?.id) return
+
         // Optimistically add message
         const tempMessage: Message = {
             id: `temp-${Date.now()}`,
             conversationId,
-            senderId: user!.id,
+            senderId: user.id,
             type: data.type,
             content: data.content,
             replyTo: data.replyTo,
@@ -127,9 +132,12 @@ export const chatService = {
         addMessage(conversationId, tempMessage)
 
         // Send via socket for real-time
-        socketService.emit('chat:send', {
+        socketService.sendMessage({
             conversationId,
-            ...data
+            senderId: user.id,
+            type: data.type,
+            content: data.content,
+            replyTo: data.replyTo
         })
 
         // Also send via HTTP for persistence
@@ -152,14 +160,17 @@ export const chatService = {
 
     // Send typing indicator
     sendTyping(conversationId: string) {
-        socketService.emit('chat:typing', { conversationId })
+        const { user } = useAuthStore.getState()
+        if (!user?.id) return
+        socketService.sendTyping(conversationId, user.id)
     },
 
     // Mark messages as read
     async markAsRead(conversationId: string, messageId: string) {
-        const { accessToken } = useAuthStore.getState()
+        const { accessToken, user } = useAuthStore.getState()
+        if (!user?.id) return
 
-        socketService.emit('chat:read', { conversationId, messageId })
+        socketService.markAsRead(conversationId, messageId, user.id)
 
         try {
             await fetch(`${API_URL}/conversations/${conversationId}/messages/${messageId}/read`, {
@@ -175,7 +186,8 @@ export const chatService = {
 
     // Delete a message
     async deleteMessage(conversationId: string, messageId: string) {
-        const { accessToken } = useAuthStore.getState()
+        const { accessToken, user } = useAuthStore.getState()
+        if (!user?.id) return
         const { updateMessage } = useChatStore.getState()
 
         // Optimistic update
@@ -189,7 +201,11 @@ export const chatService = {
                 }
             })
 
-            socketService.emit('chat:delete', { conversationId, messageId })
+            socketService.recallMessage({
+                messageId,
+                conversationId,
+                senderId: user.id
+            })
         } catch (error) {
             console.error('Failed to delete message:', error)
             // Revert optimistic update
@@ -199,7 +215,15 @@ export const chatService = {
 
     // Add reaction to message
     async addReaction(conversationId: string, messageId: string, emoji: string) {
-        socketService.emit('chat:reaction', { conversationId, messageId, emoji })
+        const { user } = useAuthStore.getState()
+        if (!user?.id) return
+
+        socketService.reactToMessage({
+            conversationId,
+            messageId,
+            userId: user.id,
+            emoji
+        })
     },
 
     // Create a new conversation

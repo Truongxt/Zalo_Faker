@@ -28,11 +28,17 @@ const ConversationModel = {
     }
   },
 
-  getConversations: async () => {
+  getConversations: async (userId) => {
     const params = { TableName: tableName };
     try {
-      const conversations = await dynamodb.scan(params).promise();
-      return conversations.Items;
+      const conversationsResult = await dynamodb.scan(params).promise();
+      let conversations = conversationsResult.Items || [];
+      if (userId) {
+          conversations = conversations.filter(c => 
+              c.participants && c.participants.some(p => p.userId === String(userId))
+          );
+      }
+      return conversations;
     } catch (error) {
       console.error("Error getting conversations:", error);
       throw error;
@@ -44,7 +50,7 @@ const ConversationModel = {
     const updateFields = [];
     const ExpressionAttributeNames = {};
     const ExpressionAttributeValues = {};
-    const allowedFields = ["type", "name", "avatar", "participants", "lastMessage", "createdBy"];
+    const allowedFields = ["type", "name", "avatar", "participants", "lastMessage", "createdBy", "background", "groupSettings"];
     allowedFields.forEach(field => {
       if (conversationData[field] !== undefined) {
         updateFields.push(`#${field} = :${field}`);

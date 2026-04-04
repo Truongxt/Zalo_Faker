@@ -5,20 +5,24 @@
  * Participant object structure:
  * {
  *   userId: String,
- *   role: String, // e.g. 'admin', 'member'
+ *   role: String, // e.g. 'admin', 'deputy', 'member'
  *   nickname: String,
  *   joinedAt: Date (ISO string),
- *   lastRead: Date (ISO string)
+ *   lastRead: Date (ISO string),
+ *   isPinned: Boolean,
+ *   isMuted: Boolean
  * }
  */
 
-function createParticipant({ userId, role, nickname, joinedAt, lastRead }) {
+function createParticipant({ userId, role, nickname, joinedAt, lastRead, isPinned, isMuted }) {
   return {
     userId,
     role,
-    nickname,
+    nickname: nickname || "",
     joinedAt: joinedAt || new Date().toISOString(),
-    lastRead: lastRead || null
+    lastRead: lastRead || null,
+    isPinned: isPinned || false,
+    isMuted: isMuted || false
   };
 }
 

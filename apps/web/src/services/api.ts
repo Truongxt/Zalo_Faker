@@ -1,43 +1,307 @@
-const baseAPI = "http://localhost:3000/api";
+import { useAuthStore } from '../stores/authStore';
+
+export const baseAPI = import.meta.env.VITE_API_URL || "http://localhost:3000/api";
+
+export const fetchWithAuth = async (endpoint: string, options: RequestInit = {}) => {
+    const token = useAuthStore.getState().accessToken;
+    
+    const headers = new Headers(options.headers || {});
+    if (token) {
+        headers.set("Authorization", `Bearer ${token}`);
+    }
+    
+    if (!headers.has('Content-Type') && options.method !== 'GET') {
+        headers.set("Content-Type", "application/json");
+    }
+
+    const response = await fetch(`${baseAPI}${endpoint}`, {
+        ...options,
+        headers,
+    });
+
+    if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+    }
+
+    return response;
+};
+
+const getAuthHeaders = (): Record<string, string> => {
+    const token = useAuthStore.getState().accessToken;
+    return token ? { 'Authorization': `Bearer ${token}` } : {};
+};
 
 const getConversation = async () => {
-    const response = await fetch(`${baseAPI}/conversations`);
-    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    const response = await fetchWithAuth(`/conversations`);
     const data = await response.json();
-    // DynamoDB trả về _id, frontend dùng id → cần map
     return data.map((conv: any) => ({ ...conv, id: conv._id }));
 }
 
-
 const getMessages = async (conversationId: string) => {
-    const response = await fetch(`${baseAPI}/messages/conversation/${conversationId}`);
-    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    const response = await fetchWithAuth(`/messages/conversation/${conversationId}`);
     const data = await response.json();
-    // DynamoDB trả về _id, frontend dùng id → cần map
     return data.map((msg: any) => ({ ...msg, id: msg._id }));
 }
 
 const sendMessage = async (message: any) => {
-    const response = await fetch(`${baseAPI}/messages`, {
+    const response = await fetchWithAuth(`/messages`, {
         method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-        },
         body: JSON.stringify(message),
     });
     return response.json();
 }
 
-
 const getUsers = async () => {
-    const response = await fetch(`${baseAPI}/users`);
+    const response = await fetchWithAuth(`/users`);
+    return response.json();
+}
+
+const removeGroupMember = async (groupId: string, data: { userId: string, removeUserId: string }) => {
+    const response = await fetch(`${baseAPI}/groups/${groupId}/remove-member`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+            ...getAuthHeaders()
+        },
+        body: JSON.stringify(data)
+    });
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
     return response.json();
 }
 
+const leaveGroup = async (groupId: string, data: { userId: string }) => {
+    const response = await fetch(`${baseAPI}/groups/${groupId}/leave`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+            ...getAuthHeaders()
+        },
+        body: JSON.stringify(data)
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    return response.json();
+}
+
+const getStickers = async () => {
+    const response = await fetch(`${baseAPI}/messages/stickers`, { headers: getAuthHeaders() });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    return response.json();
+}
+
+const updateConversationBackground = async (conversationId: string, backgroundUrl: string) => {
+    const response = await fetch(`${baseAPI}/conversations/${conversationId}`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+            ...getAuthHeaders()
+        },
+        body: JSON.stringify({ background: backgroundUrl })
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    const json = await response.json();
+    return { ...json, id: json._id };
+}
+
+const uploadMedia = async (file: File) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    
+    const response = await fetch(`${baseAPI}/upload`, {
+        method: "POST",
+        headers: getAuthHeaders(), // Do NOT override Content-Type when sending FormData
+        body: formData,
+    });
+    
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return await response.json();
+}
+
+const getLabels = async () => {
+    const response = await fetch(`${baseAPI}/labels`, { headers: getAuthHeaders() });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return await response.json();
+}
+
+const createLabel = async (data: { name: string, color: string }) => {
+    const response = await fetch(`${baseAPI}/labels`, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            ...getAuthHeaders()
+        },
+        body: JSON.stringify(data)
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return await response.json();
+}
+
+const updateLabel = async (id: string, data: { name?: string, color?: string }) => {
+    const response = await fetch(`${baseAPI}/labels/${id}`, {
+        method: "PUT",
+        headers: {
+            "Content-Type": "application/json",
+            ...getAuthHeaders()
+        },
+        body: JSON.stringify(data)
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return await response.json();
+}
+
+const deleteLabel = async (id: string) => {
+    const response = await fetch(`${baseAPI}/labels/${id}`, {
+        method: "DELETE",
+        headers: getAuthHeaders()
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return await response.json();
+}
+
+const deleteChatHistory = async (conversationId: string) => {
+    const response = await fetch(`${baseAPI}/conversations/${conversationId}`, {
+        method: "DELETE",
+        headers: getAuthHeaders()
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return await response.json();
+}
+
+const createGroup = async (data: any) => {
+    const response = await fetch(`${baseAPI}/groups`, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            ...getAuthHeaders()
+        },
+        body: JSON.stringify(data)
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return await response.json();
+}
+
+const updateParticipantSetting = async (conversationId: string, userId: string, data: any) => {
+    const response = await fetch(`${baseAPI}/conversations/${conversationId}/setting`, {
+        method: "PATCH",
+        headers: {
+            "Content-Type": "application/json",
+            ...getAuthHeaders()
+        },
+        body: JSON.stringify({ userId, ...data })
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return await response.json();
+}
+
+const addGroupMember = async (groupId: string, data: any) => {
+    const response = await fetch(`${baseAPI}/groups/${groupId}/add-member`, {
+        method: "PUT",
+        headers: {
+            "Content-Type": "application/json",
+            ...getAuthHeaders()
+        },
+        body: JSON.stringify(data)
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return await response.json();
+}
+
+const getGroupSettings = async (groupId: string) => {
+    const response = await fetchWithAuth(`/groups/${groupId}/settings`);
+    return response.json();
+}
+
+const rotateGroupInviteCode = async (groupId: string) => {
+    const response = await fetchWithAuth(`/groups/${groupId}/invite/rotate`, {
+        method: "POST",
+    });
+    return response.json();
+}
+
+const updateGroupInviteSettings = async (groupId: string, data: { approvalRequired: boolean }) => {
+    const response = await fetchWithAuth(`/groups/${groupId}/settings/invite`, {
+        method: "PATCH",
+        body: JSON.stringify(data)
+    });
+    return response.json();
+}
+
+const joinGroupByInviteCode = async (inviteCode: string) => {
+    const response = await fetchWithAuth(`/groups/join-by-invite`, {
+        method: "POST",
+        body: JSON.stringify({ inviteCode })
+    });
+    return response.json();
+}
+
+const getGroupJoinRequests = async (groupId: string, includeResolved = false) => {
+    const response = await fetchWithAuth(
+        `/groups/${groupId}/join-requests${includeResolved ? "?includeResolved=true" : ""}`
+    );
+    return response.json();
+}
+
+const reviewGroupJoinRequest = async (
+    groupId: string,
+    requestId: string,
+    action: "approve" | "reject"
+) => {
+    const response = await fetchWithAuth(`/groups/${groupId}/join-requests/${requestId}/review`, {
+        method: "POST",
+        body: JSON.stringify({ action })
+    });
+    return response.json();
+}
+
+const updateGroupPermissions = async (
+    groupId: string,
+    data: { sendMedia?: string; pinMessage?: string; sendAnnouncement?: string }
+) => {
+    const response = await fetchWithAuth(`/groups/${groupId}/settings/permissions`, {
+        method: "PATCH",
+        body: JSON.stringify(data)
+    });
+    return response.json();
+}
+
+const pinGroupMessage = async (groupId: string, messageId: string) => {
+    const response = await fetchWithAuth(`/groups/${groupId}/pin-message`, {
+        method: "PUT",
+        body: JSON.stringify({ messageId })
+    });
+    return response.json();
+}
+
+const unpinGroupMessage = async (groupId: string) => {
+    const response = await fetchWithAuth(`/groups/${groupId}/pin-message`, {
+        method: "DELETE"
+    });
+    return response.json();
+}
 export {
     getConversation,
     getMessages,
     sendMessage,
-    getUsers
+    getUsers,
+    deleteChatHistory,
+    createGroup,
+    updateParticipantSetting,
+    addGroupMember,
+    removeGroupMember,
+    leaveGroup,
+    getGroupSettings,
+    rotateGroupInviteCode,
+    updateGroupInviteSettings,
+    joinGroupByInviteCode,
+    getGroupJoinRequests,
+    reviewGroupJoinRequest,
+    updateGroupPermissions,
+    pinGroupMessage,
+    unpinGroupMessage,
+    getStickers,
+    updateConversationBackground,
+    uploadMedia,
+    getLabels,
+    createLabel,
+    updateLabel,
+    deleteLabel
 }

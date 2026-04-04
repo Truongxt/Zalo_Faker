@@ -1,5 +1,12 @@
 import { create } from 'zustand'
 
+export interface Label {
+    _id: string
+    userId: string
+    name: string
+    color: string
+}
+
 export interface Message {
     id: string
     conversationId: string
@@ -13,6 +20,9 @@ export interface Message {
         fileSize?: number
         duration?: number
     }
+    metadata?: {
+        isAnnouncement?: boolean
+    } | null
     replyTo?: string
     reactions: { userId: string; emoji: string }[]
     readBy: { userId: string; readAt: string }[]
@@ -22,13 +32,52 @@ export interface Message {
 
 export interface Participant {
     userId: string
-    role: 'admin' | 'member'
+    role: 'admin' | 'deputy' | 'member'
     joinedAt: string
     lastRead?: string
     // User info (populated)
     fullName?: string
     avatarUrl?: string
     status?: 'online' | 'offline'
+    nickname?: string
+    isPinned?: boolean
+    isMuted?: boolean
+    labelIds?: string[]
+}
+
+export type GroupPermissionScope = 'all' | 'admin_deputy' | 'admin'
+
+export interface GroupJoinRequest {
+    requestId: string
+    userId: string
+    requestedAt: string
+    status: 'pending' | 'approved' | 'rejected'
+    reviewedAt?: string
+    reviewedBy?: string
+}
+
+export interface GroupPinnedMessage {
+    messageId: string
+    senderId: string
+    type: Message['type']
+    content: Message['content']
+    metadata?: Message['metadata']
+    pinnedAt: string
+    pinnedBy: string
+}
+
+export interface GroupSettings {
+    invite: {
+        code: string
+        approvalRequired: boolean
+    }
+    joinRequests: GroupJoinRequest[]
+    permissions: {
+        sendMedia: GroupPermissionScope
+        pinMessage: GroupPermissionScope
+        sendAnnouncement: GroupPermissionScope
+    }
+    pinnedMessage: GroupPinnedMessage | null
 }
 
 export interface Conversation {
@@ -36,7 +85,9 @@ export interface Conversation {
     type: 'private' | 'group'
     name?: string
     avatar?: string
+    background?: string
     participants: Participant[]
+    groupSettings?: GroupSettings
     lastMessage?: {
         content: string
         type: string
@@ -55,8 +106,15 @@ interface ChatState {
     typingUsers: Record<string, string[]>  // conversationId -> userIds
     isLoadingConversations: boolean
     isLoadingMessages: boolean
+    labels: Label[]
+    isLoadingLabels: boolean
 
     // Actions
+    setLabels: (labels: Label[]) => void
+    addLabel: (label: Label) => void
+    updateLabel: (id: string, updates: Partial<Label>) => void
+    removeLabel: (id: string) => void
+
     setConversations: (conversations: Conversation[]) => void
     addConversation: (conversation: Conversation) => void
     updateConversation: (id: string, updates: Partial<Conversation>) => void
@@ -87,6 +145,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
     typingUsers: {},
     isLoadingConversations: false,
     isLoadingMessages: false,
+    labels: [],
+    isLoadingLabels: false,
+
+    setLabels: (labels) => set({ labels }),
+    addLabel: (label) => set((state) => ({ labels: [...state.labels, label] })),
+    updateLabel: (id, updates) => set((state) => ({
+        labels: state.labels.map((l) => l._id === id ? { ...l, ...updates } : l)
+    })),
+    removeLabel: (id) => set((state) => ({
+        labels: state.labels.filter(l => l._id !== id)
+    })),
 
     setConversations: (conversations) => set({ conversations }),
 

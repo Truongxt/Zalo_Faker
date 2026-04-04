@@ -20,10 +20,11 @@ const getConversation = async (req, res) => {
 
 const getConversations = async (req, res) => {
     try {
-        const conversations = await conversationService.getConversations()
+        const userId = req.user.userId;
+        const conversations = await conversationService.getConversations(userId)
         res.json(conversations)
     } catch (error) {
-        res.status(500).json({ message: error.message })
+        res.status(500).json({ message: error.message });
     }
 }
 
@@ -45,6 +46,35 @@ const deleteConversation = async (req, res) => {
     }
 }
 
+const updateParticipantSetting = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { userId, isPinned, isMuted, nickname, labelIds } = req.body;
+
+        const conversation = await conversationService.getConversation(id);
+        if (!conversation) return res.status(404).json({ message: "Conversation not found" });
+
+        const participants = [...(conversation.participants || [])];
+        const participantIndex = participants.findIndex(p => p.userId === userId);
+        
+        if (participantIndex === -1) {
+            return res.status(403).json({ message: "User is not in this conversation" });
+        }
+
+        // Cập nhật các trường
+        if (isPinned !== undefined) participants[participantIndex].isPinned = isPinned;
+        if (isMuted !== undefined) participants[participantIndex].isMuted = isMuted;
+        if (nickname !== undefined) participants[participantIndex].nickname = nickname;
+        if (labelIds !== undefined) participants[participantIndex].labelIds = labelIds;
+
+        const updated = await conversationService.updateConversation(id, { participants });
+        res.json(updated);
+
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+}
+
 // const getConversationsByUserId = async (req, res) => {
 //     try {
 //         const conversations = await conversationService.getConversationsByUserId(req.params.userId)
@@ -60,4 +90,5 @@ module.exports = {
     getConversations,
     updateConversation,
     deleteConversation,
+    updateParticipantSetting
 }
