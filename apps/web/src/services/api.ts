@@ -148,6 +148,62 @@ const updateLabel = async (id: string, data: { name?: string, color?: string }) 
     return await response.json();
 }
 
+const deleteChatHistory = async (conversationId: string) => {
+    const response = await fetch(`${baseAPI}/messages/room/${conversationId}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders()
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return await response.json();
+}
+
+const createGroup = async (data: { name: string; memberIds: string[]; createdBy: string; avatar?: string }) => {
+    const formData = new FormData();
+    formData.append('name', data.name);
+    formData.append('memberIds', JSON.stringify(data.memberIds));
+    formData.append('createdBy', data.createdBy);
+    if (data.avatar) formData.append('avatar', data.avatar);
+
+    const response = await fetch(`${baseAPI}/groups`, {
+        method: 'POST',
+        headers: getAuthHeaders(), // Do NOT set Content-Type with FormData
+        body: formData
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const json = await response.json();
+    return { ...json, id: json._id };
+}
+
+const updateParticipantSetting = async (
+    conversationId: string,
+    userId: string,
+    settings: { isPinned?: boolean; isMuted?: boolean; nickname?: string; labelIds?: string[] }
+) => {
+    const response = await fetch(`${baseAPI}/conversations/${conversationId}/setting`, {
+        method: 'PATCH',
+        headers: {
+            'Content-Type': 'application/json',
+            ...getAuthHeaders()
+        },
+        body: JSON.stringify({ userId, ...settings })
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return await response.json();
+}
+
+const addGroupMember = async (groupId: string, data: { userId: string; newUserId: string }) => {
+    const response = await fetch(`${baseAPI}/groups/${groupId}/add-member`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+            ...getAuthHeaders()
+        },
+        body: JSON.stringify(data)
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return await response.json();
+}
+
 const deleteLabel = async (id: string) => {
     const response = await fetch(`${baseAPI}/labels/${id}`, {
         method: "DELETE",
