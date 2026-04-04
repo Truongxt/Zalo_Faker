@@ -19,7 +19,7 @@ router.get("/", async (req, res) => {
   try {
     const ConversationModel = require("../models/conversation.js");
     const conversations = await ConversationModel.getConversations();
-    const groups = conversations.filter(c => c.type === "group" && c.participants && c.participants.some(p => p.userId === req.user.id));
+    const groups = conversations.filter(c => c.type === "group" && c.participants && c.participants.some(p => p.userId === req.user.userId));
 
     res.json(groups);
   } catch (error) {
