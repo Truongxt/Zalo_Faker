@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback, FormEvent, ChangeEvent } from 'react'
 import { useParams } from 'react-router-dom'
-import { useChatStore, type Message } from '@/stores/chatStore'
+import { useChatStore, type Message, type GroupPermissionScope } from '@/stores/chatStore'
 import { useAuthStore } from '@/stores/authStore'
 import { useToast } from '@/contexts/ToastContext'
 import { useMediaUpload } from '@/hooks/useMediaUpload'
@@ -23,13 +23,15 @@ import {
     Sticker,
     Search,
     Loader,
-    WifiOff
+    WifiOff,
+    Megaphone,
+    Pin
 } from 'lucide-react'
 import MessageBubble from '@/components/chat/MessageBubble'
 import TypingIndicator from '@/components/chat/TypingIndicator'
 import StickerPicker from '@/components/chat/StickerPicker'
 import VirtualizedMessageList from '@/components/chat/VirtualizedMessageList'
-import { getMessages, getConversation } from '@/services/api'
+import { getMessages, getConversation, getGroupSettings, pinGroupMessage, unpinGroupMessage } from '@/services/api'
 import { socketService } from '@/lib/socket'
 import EmojiPicker, { EmojiClickData, Theme } from 'emoji-picker-react'
 import { deleteChatHistory, updateParticipantSetting, updateConversationBackground, uploadMedia } from '@/services/api'
@@ -43,7 +45,7 @@ export default function ChatRoom() {
     const { user } = useAuthStore()
     const { addToast } = useToast()
     const { validateFile, handleUploadError } = useMediaUpload()
-    const { isOnline, status: offlineStatus, storeOfflineMessage, removeFromQueue } = useOfflineQueue()
+    const { isOnline, status: offlineStatus, storeOfflineMessage } = useOfflineQueue()
     const {
         activeConversation,
         setMessages,
@@ -60,18 +62,20 @@ export default function ChatRoom() {
     )
 
     const [message, setMessage] = useState('')
-    const [isLoading, setIsLoading] = useState(false)
+    
     const [replyTo, setReplyTo] = useState<string | null>(null)
     const [showEmojiPicker, setShowEmojiPicker] = useState(false)
     const [showStickerPicker, setShowStickerPicker] = useState(false)
     const [isSendingMedia, setIsSendingMedia] = useState(false)
     const [showMenu, setShowMenu] = useState(false)
-    const [isSearching, setIsSearching] = useState(false)
+    const [isSearching] = useState(false)
     const [searchMessageQuery, setSearchMessageQuery] = useState('')
     const debouncedSearchQuery = useDebounce(searchMessageQuery, 300)
     const [showGroupManagement, setShowGroupManagement] = useState(false)
     const [forwardMessage, setForwardMessage] = useState<Message | null>(null)
     const [showBackgroundPicker, setShowBackgroundPicker] = useState(false)
+    const [announcementMode, setAnnouncementMode] = useState(false)
+    const [isPinningMessage, setIsPinningMessage] = useState(false)
 
     // Pagination state
     const pagination = useMessagePagination(conversationId)
@@ -91,17 +95,6 @@ export default function ChatRoom() {
     const typingTimeoutRef = useRef<ReturnType<typeof setTimeout>>()
     const emojiPickerRef = useRef<HTMLDivElement>(null)
     const stickerPickerRef = useRef<HTMLDivElement>(null)
-
-    const readFileAsDataUrl = (file: File) =>
-        new Promise<string>((resolve, reject) => {
-            const reader = new FileReader()
-            reader.onload = () => {
-                if (typeof reader.result === 'string') resolve(reader.result)
-                else reject(new Error('Không thể đọc file'))
-            }
-            reader.onerror = () => reject(reader.error || new Error('Đọc file thất bại'))
-            reader.readAsDataURL(file)
-        })
 
     const typing = conversationId ? typingUsers[conversationId] || [] : []
 
@@ -156,11 +149,9 @@ export default function ChatRoom() {
         if (!conversationId) return
         const msgs = useChatStore.getState().messages[conversationId] || []
         if (msgs.length === 0) {
-            setIsLoading(true)
             getMessages(conversationId)
                 .then(data => setMessages(conversationId, data))
                 .catch(err => console.error('Load messages error:', err))
-                .finally(() => setIsLoading(false))
         }
     }, [conversationId])
 
@@ -198,6 +189,36 @@ export default function ChatRoom() {
                 .catch(err => console.error('Error loading conversations:', err))
         }
     }, [conversationId, conversations])
+
+    useEffect(() => {
+        setAnnouncementMode(false)
+    }, [conversationId])
+
+    useEffect(() => {
+        if (!conversationId || !activeConversation || activeConversation.type !== 'group') return
+
+        getGroupSettings(conversationId)
+            .then((settings) => {
+                useChatStore.getState().updateConversation(conversationId, {
+                    groupSettings: {
+                        invite: {
+                            code: settings.invite?.code || '',
+                            approvalRequired: Boolean(settings.invite?.approvalRequired),
+                        },
+                        joinRequests: settings.pendingJoinRequests || [],
+                        permissions: {
+                            sendMedia: settings.permissions?.sendMedia || 'all',
+                            pinMessage: settings.permissions?.pinMessage || 'admin_deputy',
+                            sendAnnouncement: settings.permissions?.sendAnnouncement || 'admin_deputy',
+                        },
+                        pinnedMessage: settings.pinnedMessage || null,
+                    }
+                })
+            })
+            .catch((error) => {
+                console.error('Load group settings error:', error)
+            })
+    }, [conversationId, activeConversation?.id, activeConversation?.type])
 
     // ✅ Vào phòng socket + lắng nghe tin nhắn realtime
     useEffect(() => {
@@ -293,14 +314,20 @@ export default function ChatRoom() {
     const handleSendMessage = async (e: FormEvent) => {
         e.preventDefault()
         if (!message.trim() || !conversationId || !user) return
+        if (activeConversation?.type === 'group' && announcementMode && !canSendAnnouncementInGroup) {
+            addToast('Bạn không có quyền gửi thông báo trong nhóm này.', 'error', 4000)
+            return
+        }
 
         // Dừng trạng thái typing ngay khi đã gửi tin nhắn
         clearTimeout(typingTimeoutRef.current)
         socketService.stopTyping(conversationId, user.id)
 
         const messageText = message.trim()
+        const isAnnouncement = activeConversation?.type === 'group' && announcementMode
         setMessage('')
         setReplyTo(null)
+        setAnnouncementMode(false)
 
         // ✅ Optimistic update — hiện tin nhắn ngay lập tức
         const tempId = `temp-${Date.now()}`
@@ -310,6 +337,7 @@ export default function ChatRoom() {
             senderId: user.id,
             type: 'text',
             content: { text: messageText },
+            metadata: isAnnouncement ? { isAnnouncement: true } : null,
             replyTo: replyTo || undefined,
             reactions: [],
             readBy: [],
@@ -322,11 +350,12 @@ export default function ChatRoom() {
         if (!isOnline) {
             // Store offline message for later sync
             try {
-                const offlineMsg = await storeOfflineMessage(
+                await storeOfflineMessage(
                     conversationId,
                     user.id,
                     'text',
                     { text: messageText },
+                    isAnnouncement ? { isAnnouncement: true } : undefined,
                     replyTo || undefined
                 )
                 addToast('Bạn đang offline. Tin nhắn sẽ được gửi khi có kết nối.', 'info', 3000)
@@ -344,6 +373,7 @@ export default function ChatRoom() {
             senderId: user.id,
             type: 'text',
             content: { text: messageText },
+            metadata: isAnnouncement ? { isAnnouncement: true } : undefined,
             replyTo: replyTo || undefined,
         }, (res) => {
             if (res.success) {
@@ -361,7 +391,7 @@ export default function ChatRoom() {
         // Cập nhật lastMessage trong sidebar ngay
         updateConversation(conversationId, {
             lastMessage: {
-                content: messageText,
+                content: isAnnouncement ? `[Thông báo] ${messageText}` : messageText,
                 type: 'text',
                 senderId: user.id,
                 timestamp: new Date().toISOString(),
@@ -381,6 +411,7 @@ export default function ChatRoom() {
                 senderId: user.id,
                 type: forwardMessage.type,
                 content: forwardMessage.content,
+                metadata: forwardMessage.metadata || null,
                 reactions: [],
                 readBy: [],
                 isDeleted: false,
@@ -393,6 +424,7 @@ export default function ChatRoom() {
                 senderId: user.id,
                 type: forwardMessage.type,
                 content: forwardMessage.content,
+                metadata: forwardMessage.metadata || undefined,
             }, (res) => {
                 const store = useChatStore.getState()
                 if (res.success) {
@@ -508,6 +540,10 @@ export default function ChatRoom() {
 
     const sendMediaMessage = async (file: File, type: 'image' | 'video' | 'file' | 'voice', duration?: number) => {
         if (!conversationId || !user) return
+        if (activeConversation?.type === 'group' && !canSendMediaInGroup) {
+            addToast('Bạn không có quyền gửi media trong nhóm này.', 'error', 4000)
+            return
+        }
 
         // Validate file
         const validation = validateFile(file, type)
@@ -595,6 +631,11 @@ export default function ChatRoom() {
     }
 
     const handleToggleRecord = async () => {
+        if (activeConversation?.type === 'group' && !canSendMediaInGroup) {
+            addToast('Bạn không có quyền gửi media trong nhóm này.', 'error', 4000)
+            return
+        }
+
         if (isRecording) {
             setIsRecording(false)
             if (timerRef.current) clearInterval(timerRef.current)
@@ -647,6 +688,10 @@ export default function ChatRoom() {
 
     const handleSendSticker = (stickerUrl: string) => {
         if (!conversationId || !user) return
+        if (activeConversation?.type === 'group' && !canSendMediaInGroup) {
+            addToast('Bạn không có quyền gửi media trong nhóm này.', 'error', 4000)
+            return
+        }
 
         const stickerMsg: Message = {
             id: `temp-sticker-${Date.now()}`,
@@ -689,6 +734,72 @@ export default function ChatRoom() {
         setShowStickerPicker(false)
     }
 
+    const handlePinMessage = async (messageId: string) => {
+        if (!conversationId || !activeConversation || activeConversation.type !== 'group') return
+        if (!canPinInGroup) {
+            addToast('Bạn không có quyền ghim tin nhắn trong nhóm này.', 'error', 4000)
+            return
+        }
+
+        try {
+            setIsPinningMessage(true)
+            const result = await pinGroupMessage(conversationId, messageId)
+            const nextPinned = result.pinnedMessage || result.group?.groupSettings?.pinnedMessage || null
+
+            useChatStore.getState().updateConversation(conversationId, {
+                groupSettings: {
+                    ...(activeConversation.groupSettings || {
+                        invite: { code: '', approvalRequired: true },
+                        joinRequests: [],
+                        permissions: {
+                            sendMedia: 'all',
+                            pinMessage: 'admin_deputy',
+                            sendAnnouncement: 'admin_deputy',
+                        },
+                    }),
+                    pinnedMessage: nextPinned,
+                }
+            })
+            addToast('Đã ghim tin nhắn', 'success', 2000)
+        } catch (error: any) {
+            addToast(error?.message || 'Không thể ghim tin nhắn', 'error', 4000)
+        } finally {
+            setIsPinningMessage(false)
+        }
+    }
+
+    const handleUnpinMessage = async () => {
+        if (!conversationId || !activeConversation || activeConversation.type !== 'group') return
+        if (!canPinInGroup) {
+            addToast('Bạn không có quyền bỏ ghim tin nhắn trong nhóm này.', 'error', 4000)
+            return
+        }
+
+        try {
+            setIsPinningMessage(true)
+            await unpinGroupMessage(conversationId)
+            useChatStore.getState().updateConversation(conversationId, {
+                groupSettings: {
+                    ...(activeConversation.groupSettings || {
+                        invite: { code: '', approvalRequired: true },
+                        joinRequests: [],
+                        permissions: {
+                            sendMedia: 'all',
+                            pinMessage: 'admin_deputy',
+                            sendAnnouncement: 'admin_deputy',
+                        },
+                    }),
+                    pinnedMessage: null,
+                }
+            })
+            addToast('Đã bỏ ghim tin nhắn', 'success', 2000)
+        } catch (error: any) {
+            addToast(error?.message || 'Không thể bỏ ghim tin nhắn', 'error', 4000)
+        } finally {
+            setIsPinningMessage(false)
+        }
+    }
+
     const getOtherParticipant = () => {
         if (!activeConversation || activeConversation.type === 'group') return null
         return activeConversation.participants.find(p => p.userId !== user?.id)
@@ -718,6 +829,29 @@ export default function ChatRoom() {
     const currentP = activeConversation?.participants.find(p => p.userId === user?.id)
     const activeNickname = currentP?.nickname
     const isMuted = currentP?.isMuted
+    const currentGroupRole = currentP?.role
+
+    const canUseGroupScope = useCallback((scope?: GroupPermissionScope) => {
+        if (!scope) return true
+        const roleRank: Record<'member' | 'deputy' | 'admin', number> = {
+            member: 1,
+            deputy: 2,
+            admin: 3,
+        }
+        const scopeRank: Record<GroupPermissionScope, number> = {
+            all: 1,
+            admin_deputy: 2,
+            admin: 3,
+        }
+        const rank = currentGroupRole ? roleRank[currentGroupRole] : 0
+        return rank >= scopeRank[scope]
+    }, [currentGroupRole])
+
+    const groupPermissions = activeConversation?.groupSettings?.permissions
+    const canSendMediaInGroup = activeConversation?.type !== 'group' || canUseGroupScope(groupPermissions?.sendMedia)
+    const canSendAnnouncementInGroup = activeConversation?.type !== 'group' || canUseGroupScope(groupPermissions?.sendAnnouncement)
+    const canPinInGroup = activeConversation?.type === 'group' && canUseGroupScope(groupPermissions?.pinMessage)
+    const pinnedMessage = activeConversation?.groupSettings?.pinnedMessage || null
 
     const handleUpdateNickname = async () => {
         if (!conversationId || !user) return
@@ -958,6 +1092,43 @@ export default function ChatRoom() {
                 </div>
             )}
 
+            {activeConversation?.type === 'group' && pinnedMessage && (
+                <div className="px-4 py-2 border-b border-amber-200 dark:border-amber-800 bg-amber-50/80 dark:bg-amber-900/20 flex items-center justify-between gap-3">
+                    <div className="flex items-start gap-2 min-w-0">
+                        <Pin className="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" />
+                        <div className="min-w-0">
+                            <p className="text-xs font-semibold text-amber-700 dark:text-amber-300">Tin nhắn đã ghim</p>
+                            <p className="text-sm text-amber-900 dark:text-amber-100 truncate">
+                                {pinnedMessage.metadata?.isAnnouncement
+                                    ? `[Thông báo] ${pinnedMessage.content?.text || ''}`.trim()
+                                    : pinnedMessage.content?.text ||
+                                    (pinnedMessage.type === 'image'
+                                        ? '[Hình ảnh]'
+                                        : pinnedMessage.type === 'video'
+                                            ? '[Video]'
+                                            : pinnedMessage.type === 'voice'
+                                                ? '[Tin nhắn thoại]'
+                                                : pinnedMessage.type === 'sticker'
+                                                    ? '[Nhãn dán]'
+                                                    : pinnedMessage.content?.fileName
+                                                        ? `[File] ${pinnedMessage.content.fileName}`
+                                                        : '[Tin nhắn]')}
+                            </p>
+                        </div>
+                    </div>
+
+                    {canPinInGroup && (
+                        <button
+                            onClick={handleUnpinMessage}
+                            disabled={isPinningMessage}
+                            className="text-xs px-3 py-1.5 rounded-lg bg-amber-100 hover:bg-amber-200 dark:bg-amber-900/40 dark:hover:bg-amber-900/60 text-amber-700 dark:text-amber-200 disabled:opacity-50"
+                        >
+                            Bỏ ghim
+                        </button>
+                    )}
+                </div>
+            )}
+
             {/* Messages */}
             <div className="flex-1 relative overflow-hidden flex flex-col">
                 {/* Custom Background */}
@@ -1042,6 +1213,8 @@ export default function ChatRoom() {
                                             onRecall={() => handleRecall(msg.id)}
                                             onReact={(emoji) => handleReact(msg.id, emoji)}
                                             onForward={() => setForwardMessage(msg)}
+                                            onPin={() => handlePinMessage(msg.id)}
+                                            canPin={Boolean(canPinInGroup && !msg.isDeleted)}
                                             participants={activeConversation?.participants?.map(p => ({
                                                 userId: p.userId,
                                                 fullName: p.fullName
@@ -1095,9 +1268,9 @@ export default function ChatRoom() {
                         <button
                             type="button"
                             onClick={() => imageInputRef.current?.click()}
-                            disabled={isSendingMedia}
+                            disabled={isSendingMedia || (activeConversation?.type === 'group' && !canSendMediaInGroup)}
                             className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-600 dark:text-gray-400 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
-                            title={isSendingMedia ? 'Đang gửi...' : 'Gửi hình ảnh/video'}
+                            title={isSendingMedia ? 'Đang gửi...' : activeConversation?.type === 'group' && !canSendMediaInGroup ? 'Bạn không có quyền gửi media' : 'Gửi hình ảnh/video'}
                         >
                             {isSendingMedia ? (
                                 <Loader className="w-5 h-5 animate-spin-fast" />
@@ -1108,9 +1281,9 @@ export default function ChatRoom() {
                         <button
                             type="button"
                             onClick={() => fileInputRef.current?.click()}
-                            disabled={isSendingMedia}
+                            disabled={isSendingMedia || (activeConversation?.type === 'group' && !canSendMediaInGroup)}
                             className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-600 dark:text-gray-400 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
-                            title={isSendingMedia ? 'Đang gửi...' : 'Gửi file'}
+                            title={isSendingMedia ? 'Đang gửi...' : activeConversation?.type === 'group' && !canSendMediaInGroup ? 'Bạn không có quyền gửi media' : 'Gửi file'}
                         >
                             {isSendingMedia ? (
                                 <Loader className="w-5 h-5 animate-spin-fast" />
@@ -1125,14 +1298,14 @@ export default function ChatRoom() {
                         accept="image/*,video/*"
                         className="hidden"
                         onChange={handlePickImage}
-                        disabled={isSendingMedia}
+                        disabled={isSendingMedia || (activeConversation?.type === 'group' && !canSendMediaInGroup)}
                     />
                     <input
                         ref={fileInputRef}
                         type="file"
                         className="hidden"
                         onChange={handlePickFile}
-                        disabled={isSendingMedia}
+                        disabled={isSendingMedia || (activeConversation?.type === 'group' && !canSendMediaInGroup)}
                     />
 
                     <div className="flex-1 relative" ref={emojiPickerRef}>
@@ -1154,18 +1327,38 @@ export default function ChatRoom() {
                                         setMessage(e.target.value)
                                         handleTyping()
                                     }}
-                                    placeholder="Nhập tin nhắn..."
-                                    className="w-full px-4 py-2.5 bg-gray-100 dark:bg-dark-300 rounded-full
+                                    placeholder={announcementMode ? 'Nhập nội dung thông báo...' : 'Nhập tin nhắn...'}
+                                    className={`w-full px-4 py-2.5 bg-gray-100 dark:bg-dark-300 rounded-full
                                         text-gray-900 dark:text-white placeholder-gray-500
-                                        focus:outline-none focus:ring-2 focus:ring-primary-500"
+                                        focus:outline-none focus:ring-2 ${announcementMode ? 'focus:ring-amber-500' : 'focus:ring-primary-500'}`}
                                 />
                                 <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                                    {activeConversation?.type === 'group' && (
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                if (!canSendAnnouncementInGroup) {
+                                                    addToast('Bạn không có quyền gửi thông báo trong nhóm này.', 'error', 3500)
+                                                    return
+                                                }
+                                                setAnnouncementMode((prev) => !prev)
+                                            }}
+                                            disabled={!canSendAnnouncementInGroup}
+                                            className={`p-1 rounded-full transition-colors ${announcementMode ? 'bg-amber-100 text-amber-600' : 'hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500'} disabled:opacity-40 disabled:cursor-not-allowed`}
+                                            title={canSendAnnouncementInGroup ? (announcementMode ? 'Tắt chế độ thông báo' : 'Bật chế độ thông báo') : 'Bạn không có quyền gửi thông báo'}
+                                        >
+                                            <Megaphone className="w-5 h-5" />
+                                        </button>
+                                    )}
+
                                     <div ref={stickerPickerRef} className="relative">
                                         <button
                                             type="button"
                                             onClick={() => setShowStickerPicker(!showStickerPicker)}
+                                            disabled={activeConversation?.type === 'group' && !canSendMediaInGroup}
                                             className={`p-1 rounded-full transition-colors ${showStickerPicker ? 'bg-primary-100 text-primary-500' : 'hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500'
-                                                }`}
+                                                } disabled:opacity-40 disabled:cursor-not-allowed`}
+                                            title={activeConversation?.type === 'group' && !canSendMediaInGroup ? 'Bạn không có quyền gửi media' : 'Nhãn dán'}
                                         >
                                             <Sticker className="w-5 h-5" />
                                         </button>
@@ -1217,8 +1410,9 @@ export default function ChatRoom() {
                         <button
                             type="button"
                             onClick={handleToggleRecord}
+                            disabled={activeConversation?.type === 'group' && !canSendMediaInGroup}
                             className={`p-3 text-white rounded-full transition-all flex-shrink-0
-                                ${isRecording ? 'bg-red-500 hover:bg-red-600 animate-pulse' : 'bg-primary-500 hover:bg-primary-600'}`}
+                                ${isRecording ? 'bg-red-500 hover:bg-red-600 animate-pulse' : 'bg-primary-500 hover:bg-primary-600'} disabled:opacity-50 disabled:cursor-not-allowed`}
                         >
                             {isRecording ? <Square className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
                         </button>

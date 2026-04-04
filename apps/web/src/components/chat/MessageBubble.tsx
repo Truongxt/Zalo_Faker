@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { Message } from '@/stores/chatStore'
 import { formatDistanceToNow } from 'date-fns'
 import { vi } from 'date-fns/locale'
-import { Check, CheckCheck, Reply, SmilePlus, Trash2, Share } from 'lucide-react'
+import { Check, CheckCheck, Reply, SmilePlus, Trash2, Share, Pin } from 'lucide-react'
 import VoicePlayer from './VoicePlayer'
 
 interface MessageBubbleProps {
@@ -17,6 +17,8 @@ interface MessageBubbleProps {
     onRecall?: () => void
     onReact?: (emoji: string) => void
     onForward?: () => void
+    onPin?: () => void
+    canPin?: boolean
     participants?: Array<{ userId: string; fullName?: string }>
     isGroupChat?: boolean
 }
@@ -35,6 +37,8 @@ export default function MessageBubble({
     onRecall,
     onReact,
     onForward,
+    onPin,
+    canPin = false,
     participants = [],
     isGroupChat = false,
 }: MessageBubbleProps) {
@@ -42,6 +46,7 @@ export default function MessageBubble({
     const [showConfirmRecall, setShowConfirmRecall] = useState(false)
     const reactionRef = useRef<HTMLDivElement>(null)
     const confirmRef = useRef<HTMLDivElement>(null)
+    const isAnnouncement = Boolean(message.metadata?.isAnnouncement)
 
     // Format read receipt info for tooltip
     const getReadReceiptInfo = () => {
@@ -174,7 +179,7 @@ export default function MessageBubble({
                 return (
                     <div className="flex flex-col gap-1">
                         <VoicePlayer
-                            src={message.content.mediaUrl}
+                            src={message.content.mediaUrl || ''}
                             duration={message.content.duration}
                         />
                     </div>
@@ -230,7 +235,14 @@ export default function MessageBubble({
                     )}
 
                     {/* Message bubble */}
-                    <div className={`message-bubble ${isSent ? 'message-sent' : 'message-received'}`}>
+                    <div
+                        className={`message-bubble ${isSent ? 'message-sent' : 'message-received'} ${isAnnouncement ? 'border border-amber-300 dark:border-amber-700 bg-amber-50/90 dark:bg-amber-900/20' : ''}`}
+                    >
+                        {isAnnouncement && (
+                            <div className="mb-1.5 inline-flex items-center rounded-full bg-amber-100 dark:bg-amber-900/40 px-2 py-0.5 text-[11px] font-semibold text-amber-700 dark:text-amber-300">
+                                Thông báo
+                            </div>
+                        )}
                         {renderContent()}
                     </div>
 
@@ -254,12 +266,11 @@ export default function MessageBubble({
                             {formatDistanceToNow(new Date(message.createdAt), { addSuffix: false, locale: vi })}
                         </span>
                         {isSent && (
-                            <div className="group/receipt relative">
+                            <div className="group/receipt relative" title={message.readBy.length > 0 ? getReadReceiptInfo() : 'Đã gửi'}>
                                 {message.readBy.length > 0 ? (
                                     <>
                                         <CheckCheck
                                             className="w-3 h-3 text-primary-500 cursor-help"
-                                            title={getReadReceiptInfo()}
                                         />
                                         {/* Tooltip on hover */}
                                         <div className="absolute bottom-full right-0 mb-2 hidden group-hover/receipt:block z-50">
@@ -286,7 +297,6 @@ export default function MessageBubble({
                                 ) : (
                                     <Check
                                         className="w-3 h-3 text-gray-400"
-                                        title="Đã gửi"
                                     />
                                 )}
                             </div>
@@ -311,6 +321,16 @@ export default function MessageBubble({
                             title="Chuyển tiếp"
                         >
                             <Share className="w-4 h-4 text-gray-500" />
+                        </button>
+                    )}
+
+                    {!message.isDeleted && canPin && (
+                        <button
+                            onClick={onPin}
+                            className="p-1.5 hover:bg-yellow-100 dark:hover:bg-yellow-900/30 rounded-full transition-colors"
+                            title="Ghim tin nhắn"
+                        >
+                            <Pin className="w-4 h-4 text-yellow-500" />
                         </button>
                     )}
 

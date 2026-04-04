@@ -13,18 +13,18 @@ import {
     Bot,
     Pin,
     BellOff,
-    MoreHorizontal,
-    Tag
+    Tag,
+    Link2
 } from 'lucide-react'
 import CreateGroupModal from '@/components/chat/CreateGroupModal'
 import LabelManagerModal from '@/components/chat/LabelManagerModal'
 import LabelPickerModal from '@/components/chat/LabelPickerModal'
-import { updateParticipantSetting, getLabels } from '@/services/api'
+import { updateParticipantSetting, getLabels, joinGroupByInviteCode } from '@/services/api'
 
 export default function Sidebar() {
     const navigate = useNavigate()
     const { user } = useAuthStore()
-    const { conversations, activeConversation, setActiveConversation } = useChatStore()
+    const { conversations, activeConversation, setActiveConversation, addConversation } = useChatStore()
 
     const [searchQuery, setSearchQuery] = useState('')
     const [activeTab, setActiveTab] = useState<'all' | 'unread' | 'groups'>('all')
@@ -90,6 +90,33 @@ export default function Sidebar() {
         navigate(`/chat/${conv.id}`)
     }
 
+    const handleJoinByInvite = async () => {
+        const code = prompt('Nhập mã mời nhóm:')
+        if (!code?.trim() || !user) return
+
+        try {
+            const result = await joinGroupByInviteCode(code.trim())
+
+            if (result.status === 'joined' && result.group) {
+                const joinedGroup = { ...result.group, id: result.group._id }
+                addConversation(joinedGroup)
+                setActiveConversation(joinedGroup)
+                navigate(`/chat/${joinedGroup.id}`)
+                alert('Đã tham gia nhóm thành công.')
+                return
+            }
+
+            if (result.status === 'requested' || result.status === 'pending') {
+                alert('Đã gửi yêu cầu tham gia nhóm. Vui lòng chờ duyệt.')
+                return
+            }
+
+            alert(result.message || 'Đã xử lý yêu cầu.')
+        } catch (error: any) {
+            alert(error.message || 'Không thể tham gia nhóm bằng mã mời.')
+        }
+    }
+
     const handleTogglePin = async (e: React.MouseEvent, conv: Conversation) => {
         e.stopPropagation()
         if (!user) return
@@ -143,6 +170,13 @@ export default function Sidebar() {
                 <div className="flex items-center justify-between mb-4">
                     <h1 className="text-xl font-bold text-gray-900 dark:text-white">Tin nhắn</h1>
                     <div className="flex items-center gap-2">
+                        <button
+                            onClick={handleJoinByInvite}
+                            className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-600 dark:text-gray-400"
+                            title="Tham gia nhóm bằng mã mời"
+                        >
+                            <Link2 className="w-5 h-5" />
+                        </button>
                         <button 
                             onClick={() => setShowCreateGroup(true)}
                             className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-600 dark:text-gray-400"
