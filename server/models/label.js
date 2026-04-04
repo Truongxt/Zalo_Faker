@@ -1,7 +1,49 @@
 const { dynamodb } = require("../utils/aws-helper");
+const AWS = require("aws-sdk");
 const { v4: uuidv4 } = require("uuid");
 
 const tableName = "Label";
+const rawDynamo = new AWS.DynamoDB();
+let tableReadyPromise = null;
+
+const createLabelTableIfMissing = async () => {
+  if (!tableReadyPromise) {
+    tableReadyPromise = (async () => {
+      try {
+        await rawDynamo.createTable({
+          TableName: tableName,
+          KeySchema: [{ AttributeName: "_id", KeyType: "HASH" }],
+          AttributeDefinitions: [{ AttributeName: "_id", AttributeType: "S" }],
+          BillingMode: "PAY_PER_REQUEST"
+        }).promise();
+
+        await rawDynamo.waitFor("tableExists", { TableName: tableName }).promise();
+      } catch (error) {
+        if (error.code !== "ResourceInUseException") {
+          throw error;
+        }
+      }
+    })().catch((error) => {
+      tableReadyPromise = null;
+      throw error;
+    });
+  }
+
+  return tableReadyPromise;
+};
+
+const withAutoCreateTable = async (operation) => {
+  try {
+    return await operation();
+  } catch (error) {
+    if (error.code !== "ResourceNotFoundException") {
+      throw error;
+    }
+
+    await createLabelTableIfMissing();
+    return operation();
+  }
+};
 
 const LabelModel = {
   createLabel: async (data) => {
@@ -17,7 +59,7 @@ const LabelModel = {
       TableName: tableName,
       Item: item
     };
-    await dynamodb.put(params).promise();
+    await withAutoCreateTable(() => dynamodb.put(params).promise());
     return item;
   },
 
@@ -27,7 +69,7 @@ const LabelModel = {
       FilterExpression: "userId = :userId",
       ExpressionAttributeValues: { ":userId": userId }
     };
-    const data = await dynamodb.scan(params).promise();
+    const data = await withAutoCreateTable(() => dynamodb.scan(params).promise());
     return data.Items;
   },
 
@@ -58,7 +100,7 @@ const LabelModel = {
       ReturnValues: "ALL_NEW"
     };
 
-    const updated = await dynamodb.update(params).promise();
+    const updated = await withAutoCreateTable(() => dynamodb.update(params).promise());
     return updated.Attributes;
   },
 
@@ -67,7 +109,7 @@ const LabelModel = {
       TableName: tableName,
       Key: { _id: labelId }
     };
-    await dynamodb.delete(params).promise();
+    await withAutoCreateTable(() => dynamodb.delete(params).promise());
     return { _id: labelId };
   }
 };

@@ -7,6 +7,7 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "nodemon index.js",
     "db:create-friends": "node scripts/create-friends-table.js",
+    "db:create-label": "node scripts/create-label-table.js",
     "db:create-participant": "node scripts/create-participant-table.js",
     "db:create-reaction": "node scripts/create-reaction-table.js",
     "db:create-moment": "node scripts/create-moment-table.js",
