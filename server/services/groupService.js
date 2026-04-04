@@ -1,3 +1,4 @@
+const crypto = require("crypto");
 const { createParticipant } = require("../models/participant.js");
 const GroupRepository = require("../repository/groupRepository");
 
@@ -7,7 +8,26 @@ const GROUP_ROLES = {
   MEMBER: "member"
 };
 
+const GROUP_PERMISSION_SCOPES = {
+  ALL: "all",
+  ADMIN_DEPUTY: "admin_deputy",
+  ADMIN: "admin"
+};
+
 const VALID_GROUP_ROLES = Object.values(GROUP_ROLES);
+const VALID_PERMISSION_SCOPES = Object.values(GROUP_PERMISSION_SCOPES);
+
+const ROLE_RANKS = {
+  [GROUP_ROLES.MEMBER]: 1,
+  [GROUP_ROLES.DEPUTY]: 2,
+  [GROUP_ROLES.ADMIN]: 3
+};
+
+const PERMISSION_SCOPE_RANKS = {
+  [GROUP_PERMISSION_SCOPES.ALL]: 1,
+  [GROUP_PERMISSION_SCOPES.ADMIN_DEPUTY]: 2,
+  [GROUP_PERMISSION_SCOPES.ADMIN]: 3
+};
 
 const createError = (message, statusCode) => {
   const error = new Error(message);
@@ -64,6 +84,104 @@ const buildRoleSummary = (participants = []) =>
     }
   );
 
+const generateInviteCode = (length = 8) => {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const bytes = crypto.randomBytes(length);
+  let code = "";
+
+  for (let index = 0; index < length; index += 1) {
+    code += alphabet[bytes[index] % alphabet.length];
+  }
+
+  return code;
+};
+
+const defaultPermissions = () => ({
+  sendMedia: GROUP_PERMISSION_SCOPES.ALL,
+  pinMessage: GROUP_PERMISSION_SCOPES.ADMIN_DEPUTY,
+  sendAnnouncement: GROUP_PERMISSION_SCOPES.ADMIN_DEPUTY
+});
+
+const defaultGroupSettings = () => ({
+  invite: {
+    code: generateInviteCode(),
+    approvalRequired: true
+  },
+  joinRequests: [],
+  permissions: defaultPermissions(),
+  pinnedMessage: null
+});
+
+const normalizePermissionScope = (scope, fallbackScope) =>
+  VALID_PERMISSION_SCOPES.includes(scope) ? scope : fallbackScope;
+
+const normalizeGroupSettings = (groupSettings = {}) => {
+  const defaults = defaultGroupSettings();
+
+  return {
+    invite: {
+      code: groupSettings?.invite?.code || defaults.invite.code,
+      approvalRequired:
+        typeof groupSettings?.invite?.approvalRequired === "boolean"
+          ? groupSettings.invite.approvalRequired
+          : defaults.invite.approvalRequired
+    },
+    joinRequests: Array.isArray(groupSettings?.joinRequests)
+      ? groupSettings.joinRequests
+      : [],
+    permissions: {
+      sendMedia: normalizePermissionScope(
+        groupSettings?.permissions?.sendMedia,
+        defaults.permissions.sendMedia
+      ),
+      pinMessage: normalizePermissionScope(
+        groupSettings?.permissions?.pinMessage,
+        defaults.permissions.pinMessage
+      ),
+      sendAnnouncement: normalizePermissionScope(
+        groupSettings?.permissions?.sendAnnouncement,
+        defaults.permissions.sendAnnouncement
+      )
+    },
+    pinnedMessage: groupSettings?.pinnedMessage || null
+  };
+};
+
+const canUseScopedPermission = (participant, scope) => {
+  const participantRank = ROLE_RANKS[participant.role] || 0;
+  const requiredRank = PERMISSION_SCOPE_RANKS[scope] || Number.MAX_SAFE_INTEGER;
+  return participantRank >= requiredRank;
+};
+
+const requireScopedPermission = (participant, scope, message) => {
+  if (!canUseScopedPermission(participant, scope)) {
+    throw createError(message, 403);
+  }
+};
+
+const groupRoleLabel = (scope) => {
+  if (scope === GROUP_PERMISSION_SCOPES.ADMIN) return "admin";
+  if (scope === GROUP_PERMISSION_SCOPES.ADMIN_DEPUTY) return "admin or deputy";
+  return "member";
+};
+
+const buildInviteUrl = (inviteCode) => {
+  const baseUrl =
+    process.env.WEB_INVITE_BASE_URL ||
+    process.env.WEB_APP_URL ||
+    process.env.CLIENT_URL ||
+    "http://localhost:5173";
+
+  return `${String(baseUrl).replace(/\/$/, "")}/join-group?code=${encodeURIComponent(
+    inviteCode
+  )}`;
+};
+
+const sanitizeJoinRequests = (joinRequests = [], includeResolved = false) =>
+  joinRequests.filter((request) =>
+    includeResolved ? true : request.status === "pending"
+  );
+
 const GroupService = {
   async createGroup({ name, avatar, memberIds = [], createdBy }) {
     if (!createdBy) {
@@ -88,12 +206,364 @@ const GroupService = {
       name,
       avatar,
       participants,
-      createdBy
+      createdBy,
+      groupSettings: defaultGroupSettings()
     });
   },
 
   async getGroups(userId) {
     return GroupRepository.getGroupsByUserId(userId);
+  },
+
+  async getGroupSettings(id, { userId }) {
+    const group = ensureGroup(await GroupRepository.getById(id));
+    const currentUser = requireGroupMember(group, userId);
+    const settings = normalizeGroupSettings(group.groupSettings);
+    const canReviewRequests = [GROUP_ROLES.ADMIN, GROUP_ROLES.DEPUTY].includes(
+      currentUser.role
+    );
+
+    return {
+      groupId: id,
+      invite: {
+        code: settings.invite.code,
+        approvalRequired: settings.invite.approvalRequired,
+        inviteUrl: buildInviteUrl(settings.invite.code)
+      },
+      permissions: settings.permissions,
+      pinnedMessage: settings.pinnedMessage,
+      pendingJoinRequests: canReviewRequests
+        ? sanitizeJoinRequests(settings.joinRequests, false)
+        : [],
+      canReviewRequests
+    };
+  },
+
+  async rotateInviteCode(id, { userId }) {
+    const group = ensureGroup(await GroupRepository.getById(id));
+    const currentUser = requireGroupMember(group, userId);
+
+    if (![GROUP_ROLES.ADMIN, GROUP_ROLES.DEPUTY].includes(currentUser.role)) {
+      throw createError("Only admin or deputy can rotate invite code", 403);
+    }
+
+    const settings = normalizeGroupSettings(group.groupSettings);
+    settings.invite.code = generateInviteCode();
+
+    const updated = await GroupRepository.update(id, { groupSettings: settings });
+
+    return {
+      message: "Invite code rotated successfully",
+      invite: {
+        code: settings.invite.code,
+        approvalRequired: settings.invite.approvalRequired,
+        inviteUrl: buildInviteUrl(settings.invite.code)
+      },
+      group: updated
+    };
+  },
+
+  async updateInviteSettings(id, { userId, approvalRequired }) {
+    if (typeof approvalRequired !== "boolean") {
+      throw createError("approvalRequired must be boolean", 400);
+    }
+
+    const group = ensureGroup(await GroupRepository.getById(id));
+    const currentUser = requireGroupMember(group, userId);
+
+    if (![GROUP_ROLES.ADMIN, GROUP_ROLES.DEPUTY].includes(currentUser.role)) {
+      throw createError("Only admin or deputy can change invite settings", 403);
+    }
+
+    const settings = normalizeGroupSettings(group.groupSettings);
+    settings.invite.approvalRequired = approvalRequired;
+
+    const updated = await GroupRepository.update(id, { groupSettings: settings });
+
+    return {
+      message: "Invite settings updated",
+      invite: {
+        code: settings.invite.code,
+        approvalRequired: settings.invite.approvalRequired,
+        inviteUrl: buildInviteUrl(settings.invite.code)
+      },
+      group: updated
+    };
+  },
+
+  async requestJoinByInviteCode({ inviteCode, userId }) {
+    if (!userId) {
+      throw createError("Unauthorized", 401);
+    }
+
+    if (!inviteCode || !String(inviteCode).trim()) {
+      throw createError("inviteCode is required", 400);
+    }
+
+    const group = ensureGroup(await GroupRepository.findByInviteCode(String(inviteCode).trim()));
+
+    if (findParticipant(group, userId)) {
+      throw createError("You are already in this group", 400);
+    }
+
+    const settings = normalizeGroupSettings(group.groupSettings);
+
+    if (!settings.invite.approvalRequired) {
+      const newParticipant = createParticipant({
+        userId,
+        role: GROUP_ROLES.MEMBER
+      });
+      const updated = await GroupRepository.update(group._id, {
+        participants: [...group.participants, newParticipant]
+      });
+
+      return {
+        status: "joined",
+        message: "Joined group successfully",
+        group: updated
+      };
+    }
+
+    const existingPendingRequest = settings.joinRequests.find(
+      (request) => request.userId === userId && request.status === "pending"
+    );
+
+    if (existingPendingRequest) {
+      return {
+        status: "pending",
+        message: "Your join request is already pending approval",
+        requestId: existingPendingRequest.requestId,
+        groupId: group._id
+      };
+    }
+
+    const joinRequest = {
+      requestId: crypto.randomUUID(),
+      userId,
+      requestedAt: new Date().toISOString(),
+      status: "pending"
+    };
+
+    settings.joinRequests = [...settings.joinRequests, joinRequest];
+
+    await GroupRepository.update(group._id, { groupSettings: settings });
+
+    return {
+      status: "requested",
+      message: "Join request sent successfully",
+      requestId: joinRequest.requestId,
+      groupId: group._id
+    };
+  },
+
+  async getJoinRequests(id, { userId, includeResolved = false }) {
+    const group = ensureGroup(await GroupRepository.getById(id));
+    const currentUser = requireGroupMember(group, userId);
+
+    if (![GROUP_ROLES.ADMIN, GROUP_ROLES.DEPUTY].includes(currentUser.role)) {
+      throw createError("Only admin or deputy can review join requests", 403);
+    }
+
+    const settings = normalizeGroupSettings(group.groupSettings);
+
+    return {
+      groupId: id,
+      totalRequests: settings.joinRequests.length,
+      requests: sanitizeJoinRequests(settings.joinRequests, includeResolved)
+    };
+  },
+
+  async reviewJoinRequest(id, { requestId, action, userId }) {
+    if (!requestId) {
+      throw createError("requestId is required", 400);
+    }
+
+    if (!["approve", "reject"].includes(action)) {
+      throw createError("action must be approve or reject", 400);
+    }
+
+    const group = ensureGroup(await GroupRepository.getById(id));
+    const currentUser = requireGroupMember(group, userId);
+
+    if (![GROUP_ROLES.ADMIN, GROUP_ROLES.DEPUTY].includes(currentUser.role)) {
+      throw createError("Only admin or deputy can review join requests", 403);
+    }
+
+    const settings = normalizeGroupSettings(group.groupSettings);
+    const requestIndex = settings.joinRequests.findIndex(
+      (request) => request.requestId === requestId
+    );
+
+    if (requestIndex === -1) {
+      throw createError("Join request not found", 404);
+    }
+
+    if (settings.joinRequests[requestIndex].status !== "pending") {
+      throw createError("Join request has already been reviewed", 400);
+    }
+
+    const request = settings.joinRequests[requestIndex];
+    const reviewedRequest = {
+      ...request,
+      status: action === "approve" ? "approved" : "rejected",
+      reviewedAt: new Date().toISOString(),
+      reviewedBy: userId
+    };
+
+    settings.joinRequests[requestIndex] = reviewedRequest;
+
+    let nextParticipants = group.participants;
+    if (action === "approve" && !findParticipant(group, request.userId)) {
+      nextParticipants = [
+        ...group.participants,
+        createParticipant({
+          userId: request.userId,
+          role: GROUP_ROLES.MEMBER
+        })
+      ];
+    }
+
+    const updated = await GroupRepository.update(id, {
+      participants: nextParticipants,
+      groupSettings: settings
+    });
+
+    return {
+      message:
+        action === "approve"
+          ? "Join request approved successfully"
+          : "Join request rejected successfully",
+      request: reviewedRequest,
+      group: updated
+    };
+  },
+
+  async updateGroupPermissions(id, { userId, permissions = {} }) {
+    const group = ensureGroup(await GroupRepository.getById(id));
+    const currentUser = requireGroupMember(group, userId);
+    requireAdmin(currentUser, "Only admin can update group permissions");
+
+    const settings = normalizeGroupSettings(group.groupSettings);
+    const nextPermissions = { ...settings.permissions };
+    let hasChanges = false;
+
+    ["sendMedia", "pinMessage", "sendAnnouncement"].forEach((key) => {
+      if (permissions[key] !== undefined) {
+        if (!VALID_PERMISSION_SCOPES.includes(permissions[key])) {
+          throw createError(`Invalid permission scope for ${key}`, 400);
+        }
+        nextPermissions[key] = permissions[key];
+        hasChanges = true;
+      }
+    });
+
+    if (!hasChanges) {
+      throw createError("No valid permission changes provided", 400);
+    }
+
+    settings.permissions = nextPermissions;
+
+    const updated = await GroupRepository.update(id, { groupSettings: settings });
+
+    return {
+      message: "Group permissions updated successfully",
+      permissions: nextPermissions,
+      group: updated
+    };
+  },
+
+  ensureCanSendMessage(group, { userId, type, metadata }) {
+    if (!group || group.type !== "group") {
+      return;
+    }
+
+    const participant = requireGroupMember(group, userId);
+    const settings = normalizeGroupSettings(group.groupSettings);
+    const isMediaMessage = ["image", "video", "file", "voice", "sticker"].includes(type);
+
+    if (isMediaMessage) {
+      const scope = settings.permissions.sendMedia;
+      requireScopedPermission(
+        participant,
+        scope,
+        `Only ${groupRoleLabel(scope)} can send media in this group`
+      );
+    }
+
+    if (metadata?.isAnnouncement) {
+      const scope = settings.permissions.sendAnnouncement;
+      requireScopedPermission(
+        participant,
+        scope,
+        `Only ${groupRoleLabel(scope)} can send announcements in this group`
+      );
+    }
+  },
+
+  async pinMessage(id, { messageId, userId }) {
+    if (!messageId) {
+      throw createError("messageId is required", 400);
+    }
+
+    const group = ensureGroup(await GroupRepository.getById(id));
+    const participant = requireGroupMember(group, userId);
+    const settings = normalizeGroupSettings(group.groupSettings);
+    const pinScope = settings.permissions.pinMessage;
+
+    requireScopedPermission(
+      participant,
+      pinScope,
+      `Only ${groupRoleLabel(pinScope)} can pin messages in this group`
+    );
+
+    const message = await GroupRepository.getMessageById(messageId);
+    if (!message || message.conversationId !== id) {
+      throw createError("Message not found in this group", 404);
+    }
+
+    if (message.isDeleted) {
+      throw createError("Cannot pin a deleted message", 400);
+    }
+
+    settings.pinnedMessage = {
+      messageId: message._id,
+      senderId: message.senderId,
+      type: message.type,
+      content: message.content,
+      metadata: message.metadata || null,
+      pinnedAt: new Date().toISOString(),
+      pinnedBy: userId
+    };
+
+    const updated = await GroupRepository.update(id, { groupSettings: settings });
+
+    return {
+      message: "Message pinned successfully",
+      pinnedMessage: settings.pinnedMessage,
+      group: updated
+    };
+  },
+
+  async unpinMessage(id, { userId }) {
+    const group = ensureGroup(await GroupRepository.getById(id));
+    const participant = requireGroupMember(group, userId);
+    const settings = normalizeGroupSettings(group.groupSettings);
+    const pinScope = settings.permissions.pinMessage;
+
+    requireScopedPermission(
+      participant,
+      pinScope,
+      `Only ${groupRoleLabel(pinScope)} can unpin messages in this group`
+    );
+
+    settings.pinnedMessage = null;
+
+    const updated = await GroupRepository.update(id, { groupSettings: settings });
+
+    return {
+      message: "Pinned message cleared",
+      group: updated
+    };
   },
 
   async renameGroup(id, { name, userId }) {
@@ -134,9 +604,21 @@ const GroupService = {
       userId: newUserId,
       role: GROUP_ROLES.MEMBER
     });
+    const settings = normalizeGroupSettings(group.groupSettings);
+    settings.joinRequests = settings.joinRequests.map((request) =>
+      request.userId === newUserId && request.status === "pending"
+        ? {
+            ...request,
+            status: "approved",
+            reviewedAt: new Date().toISOString(),
+            reviewedBy: userId
+          }
+        : request
+    );
 
     return GroupRepository.update(id, {
-      participants: [...group.participants, newParticipant]
+      participants: [...group.participants, newParticipant],
+      groupSettings: settings
     });
   },
 

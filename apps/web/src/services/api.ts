@@ -204,6 +204,79 @@ const addGroupMember = async (groupId: string, data: any) => {
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     return await response.json();
 }
+
+const getGroupSettings = async (groupId: string) => {
+    const response = await fetchWithAuth(`/groups/${groupId}/settings`);
+    return response.json();
+}
+
+const rotateGroupInviteCode = async (groupId: string) => {
+    const response = await fetchWithAuth(`/groups/${groupId}/invite/rotate`, {
+        method: "POST",
+    });
+    return response.json();
+}
+
+const updateGroupInviteSettings = async (groupId: string, data: { approvalRequired: boolean }) => {
+    const response = await fetchWithAuth(`/groups/${groupId}/settings/invite`, {
+        method: "PATCH",
+        body: JSON.stringify(data)
+    });
+    return response.json();
+}
+
+const joinGroupByInviteCode = async (inviteCode: string) => {
+    const response = await fetchWithAuth(`/groups/join-by-invite`, {
+        method: "POST",
+        body: JSON.stringify({ inviteCode })
+    });
+    return response.json();
+}
+
+const getGroupJoinRequests = async (groupId: string, includeResolved = false) => {
+    const response = await fetchWithAuth(
+        `/groups/${groupId}/join-requests${includeResolved ? "?includeResolved=true" : ""}`
+    );
+    return response.json();
+}
+
+const reviewGroupJoinRequest = async (
+    groupId: string,
+    requestId: string,
+    action: "approve" | "reject"
+) => {
+    const response = await fetchWithAuth(`/groups/${groupId}/join-requests/${requestId}/review`, {
+        method: "POST",
+        body: JSON.stringify({ action })
+    });
+    return response.json();
+}
+
+const updateGroupPermissions = async (
+    groupId: string,
+    data: { sendMedia?: string; pinMessage?: string; sendAnnouncement?: string }
+) => {
+    const response = await fetchWithAuth(`/groups/${groupId}/settings/permissions`, {
+        method: "PATCH",
+        body: JSON.stringify(data)
+    });
+    return response.json();
+}
+
+const pinGroupMessage = async (groupId: string, messageId: string) => {
+    const response = await fetchWithAuth(`/groups/${groupId}/pin-message`, {
+        method: "PUT",
+        body: JSON.stringify({ messageId })
+    });
+    return response.json();
+}
+
+const unpinGroupMessage = async (groupId: string) => {
+    const response = await fetchWithAuth(`/groups/${groupId}/pin-message`, {
+        method: "DELETE"
+    });
+    return response.json();
+}
 export {
     getConversation,
     getMessages,
@@ -215,6 +288,15 @@ export {
     addGroupMember,
     removeGroupMember,
     leaveGroup,
+    getGroupSettings,
+    rotateGroupInviteCode,
+    updateGroupInviteSettings,
+    joinGroupByInviteCode,
+    getGroupJoinRequests,
+    reviewGroupJoinRequest,
+    updateGroupPermissions,
+    pinGroupMessage,
+    unpinGroupMessage,
     getStickers,
     updateConversationBackground,
     uploadMedia,

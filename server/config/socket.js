@@ -1,6 +1,7 @@
 const { Server } = require("socket.io");
 const messageService = require("../services/messageService");
 const conversationModel = require("../models/conversation");
+const GroupService = require("../services/groupService");
 
 module.exports = (socketConfig) => {
   const io = new Server(socketConfig, {
@@ -37,7 +38,7 @@ module.exports = (socketConfig) => {
     // ── 3. Gửi tin nhắn ────────────────────────────────────
     socket.on("chat:send", async (data, callback) => {
       try {
-        const { conversationId, type, content, replyTo } = data;
+        const { conversationId, type, content, replyTo, metadata } = data;
         const actualSenderId = socket.userId || data.senderId; // Dự phòng data.senderId nếu socket chưa store auth kịp
 
         if (!actualSenderId) {
@@ -54,12 +55,21 @@ module.exports = (socketConfig) => {
           return callback && callback({ success: false, error: "Not a member of this conversation" });
         }
 
+        if (conv.type === "group") {
+          GroupService.ensureCanSendMessage(conv, {
+            userId: actualSenderId,
+            type: type || "text",
+            metadata
+          });
+        }
+
         // Lưu vào DynamoDB
         const saved = await messageService.createMessage({
           conversationId,
           senderId: actualSenderId,
           type: type || "text",
           content,
+          metadata: metadata || null,
           replyTo: replyTo || null,
           reactions: [],
           readBy: [],
@@ -69,7 +79,9 @@ module.exports = (socketConfig) => {
         // Cập nhật lastMessage của conversation
         await conversationModel.updateConversation(conversationId, {
           lastMessage: {
-            content: content.text || (type === 'image' ? '[Hình ảnh]' : type === 'video' ? '[Video]' : type === 'voice' ? '[Tin nhắn thoại]' : '[File]'),
+            content: metadata?.isAnnouncement
+              ? `[Thông báo] ${content.text || ""}`.trim()
+              : content.text || (type === 'image' ? '[Hình ảnh]' : type === 'video' ? '[Video]' : type === 'voice' ? '[Tin nhắn thoại]' : type === 'sticker' ? '[Nhãn dán]' : '[File]'),
             type: type || "text",
             senderId: actualSenderId,
             timestamp: saved.createdAt,

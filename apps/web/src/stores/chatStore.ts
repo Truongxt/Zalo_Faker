@@ -20,6 +20,9 @@ export interface Message {
         fileSize?: number
         duration?: number
     }
+    metadata?: {
+        isAnnouncement?: boolean
+    } | null
     replyTo?: string
     reactions: { userId: string; emoji: string }[]
     readBy: { userId: string; readAt: string }[]
@@ -29,7 +32,7 @@ export interface Message {
 
 export interface Participant {
     userId: string
-    role: 'admin' | 'member'
+    role: 'admin' | 'deputy' | 'member'
     joinedAt: string
     lastRead?: string
     // User info (populated)
@@ -42,6 +45,41 @@ export interface Participant {
     labelIds?: string[]
 }
 
+export type GroupPermissionScope = 'all' | 'admin_deputy' | 'admin'
+
+export interface GroupJoinRequest {
+    requestId: string
+    userId: string
+    requestedAt: string
+    status: 'pending' | 'approved' | 'rejected'
+    reviewedAt?: string
+    reviewedBy?: string
+}
+
+export interface GroupPinnedMessage {
+    messageId: string
+    senderId: string
+    type: Message['type']
+    content: Message['content']
+    metadata?: Message['metadata']
+    pinnedAt: string
+    pinnedBy: string
+}
+
+export interface GroupSettings {
+    invite: {
+        code: string
+        approvalRequired: boolean
+    }
+    joinRequests: GroupJoinRequest[]
+    permissions: {
+        sendMedia: GroupPermissionScope
+        pinMessage: GroupPermissionScope
+        sendAnnouncement: GroupPermissionScope
+    }
+    pinnedMessage: GroupPinnedMessage | null
+}
+
 export interface Conversation {
     id: string
     type: 'private' | 'group'
@@ -49,6 +87,7 @@ export interface Conversation {
     avatar?: string
     background?: string
     participants: Participant[]
+    groupSettings?: GroupSettings
     lastMessage?: {
         content: string
         type: string

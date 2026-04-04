@@ -70,6 +70,121 @@ const GroupController = {
     }
   },
 
+  getGroupSettings: async (req, res) => {
+    try {
+      const result = await GroupService.getGroupSettings(req.params.id, {
+        userId: getRequesterId(req)
+      });
+
+      return res.json(result);
+    } catch (error) {
+      return handleError(res, error);
+    }
+  },
+
+  rotateInviteCode: async (req, res) => {
+    try {
+      const result = await GroupService.rotateInviteCode(req.params.id, {
+        userId: getRequesterId(req)
+      });
+
+      return res.json(result);
+    } catch (error) {
+      return handleError(res, error);
+    }
+  },
+
+  updateInviteSettings: async (req, res) => {
+    try {
+      const result = await GroupService.updateInviteSettings(req.params.id, {
+        userId: getRequesterId(req),
+        approvalRequired: req.body.approvalRequired
+      });
+
+      return res.json(result);
+    } catch (error) {
+      return handleError(res, error);
+    }
+  },
+
+  requestJoinByInviteCode: async (req, res) => {
+    try {
+      const result = await GroupService.requestJoinByInviteCode({
+        inviteCode: req.body.inviteCode,
+        userId: getRequesterId(req)
+      });
+
+      return res.json(result);
+    } catch (error) {
+      return handleError(res, error);
+    }
+  },
+
+  getJoinRequests: async (req, res) => {
+    try {
+      const result = await GroupService.getJoinRequests(req.params.id, {
+        userId: getRequesterId(req),
+        includeResolved: req.query.includeResolved === "true"
+      });
+
+      return res.json(result);
+    } catch (error) {
+      return handleError(res, error);
+    }
+  },
+
+  reviewJoinRequest: async (req, res) => {
+    try {
+      const result = await GroupService.reviewJoinRequest(req.params.id, {
+        requestId: req.params.requestId,
+        action: req.body.action,
+        userId: getRequesterId(req)
+      });
+
+      return res.json(result);
+    } catch (error) {
+      return handleError(res, error);
+    }
+  },
+
+  updateGroupPermissions: async (req, res) => {
+    try {
+      const result = await GroupService.updateGroupPermissions(req.params.id, {
+        userId: getRequesterId(req),
+        permissions: req.body
+      });
+
+      return res.json(result);
+    } catch (error) {
+      return handleError(res, error);
+    }
+  },
+
+  pinMessage: async (req, res) => {
+    try {
+      const result = await GroupService.pinMessage(req.params.id, {
+        messageId: req.body.messageId,
+        userId: getRequesterId(req)
+      });
+
+      return res.json(result);
+    } catch (error) {
+      return handleError(res, error);
+    }
+  },
+
+  unpinMessage: async (req, res) => {
+    try {
+      const result = await GroupService.unpinMessage(req.params.id, {
+        userId: getRequesterId(req)
+      });
+
+      return res.json(result);
+    } catch (error) {
+      return handleError(res, error);
+    }
+  },
+
   removeMember: async (req, res) => {
     try {
       const result = await GroupService.removeMember(req.params.id, {

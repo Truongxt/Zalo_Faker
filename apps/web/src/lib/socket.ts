@@ -72,7 +72,8 @@ class SocketService {
         conversationId: string
         senderId: string
         type: string
-        content: { text?: string; mediaUrl?: string; fileName?: string; fileSize?: number }
+        content: { text?: string; mediaUrl?: string; fileName?: string; fileSize?: number; duration?: number }
+        metadata?: { isAnnouncement?: boolean }
         replyTo?: string
     }, callback?: (res: { success: boolean; message?: any; error?: string }) => void) {
         this.socket?.emit('chat:send', data, callback)

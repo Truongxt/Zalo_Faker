@@ -1,11 +1,41 @@
 const messageService = require("../services/messageService")
+const conversationService = require("../services/conversationService")
+const GroupService = require("../services/groupService")
 
 const createMessage = async (req, res) => {
     try {
-        const message = await messageService.createMessage(req.body)
+        const senderId = req.user?.userId
+        const payload = {
+            ...req.body,
+            senderId
+        }
+
+        if (!senderId) {
+            return res.status(401).json({ message: "Unauthorized" })
+        }
+
+        if (!payload.conversationId) {
+            return res.status(400).json({ message: "conversationId is required" })
+        }
+
+        const conversation = await conversationService.getConversation(payload.conversationId)
+
+        if (!conversation) {
+            return res.status(404).json({ message: "Conversation not found" })
+        }
+
+        if (conversation.type === "group") {
+            GroupService.ensureCanSendMessage(conversation, {
+                userId: senderId,
+                type: payload.type,
+                metadata: payload.metadata
+            })
+        }
+
+        const message = await messageService.createMessage(payload)
         res.json(message)
     } catch (error) {
-        res.status(500).json({ message: error.message })
+        res.status(error.statusCode || 500).json({ message: error.message })
     }
 }
 
