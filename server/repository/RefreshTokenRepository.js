@@ -35,6 +35,32 @@ const refreshTokenRepository = {
     };
 
     await dynamodb.delete(params).promise();
+  },
+
+  deleteByUserId: async (userId) => {
+    const params = {
+      TableName: tableName,
+      FilterExpression: "#userId = :userId",
+      ExpressionAttributeNames: {
+        "#userId": "userId"
+      },
+      ExpressionAttributeValues: {
+        ":userId": userId
+      },
+      ProjectionExpression: "refreshToken"
+    };
+
+    const result = await dynamodb.scan(params).promise();
+    const items = result.Items || [];
+
+    for (const item of items) {
+      await dynamodb.delete({
+        TableName: tableName,
+        Key: {
+          refreshToken: item.refreshToken
+        }
+      }).promise();
+    }
   }
 
 };

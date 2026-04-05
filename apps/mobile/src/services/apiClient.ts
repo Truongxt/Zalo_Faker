@@ -7,8 +7,20 @@ const apiClient = axios.create({
   baseURL: API_URL,
 });
 
+console.log("[apiClient] baseURL:", API_URL);
+
 apiClient.interceptors.request.use(async (config) => {
+  const finalUrl = `${config.baseURL || API_URL}${config.url || ""}`;
   console.log("[apiClient] interceptor running for:", config.url);
+  console.log("[apiClient] final url:", finalUrl);
+  const url = config.url || "";
+  const isPublicAuthRequest =
+    url.includes("/login") ||
+    url.includes("/register") ||
+    url.includes("/refresh-token") ||
+    url.includes("/forgot-password") ||
+    url.includes("/logout");
+
   const isFormData =
     typeof FormData !== "undefined" && config.data instanceof FormData;
 
@@ -25,6 +37,10 @@ apiClient.interceptors.request.use(async (config) => {
     if (!config.headers["Content-Type"] && !config.headers["content-type"]) {
       config.headers["Content-Type"] = "application/json";
     }
+  }
+
+  if (isPublicAuthRequest) {
+    return config;
   }
 
   let token: string | null = null;
@@ -84,6 +100,15 @@ const processQueue = (error: unknown, token: string | null) => {
 apiClient.interceptors.response.use(
   (response) => response,
   async (error) => {
+    if (!error?.response) {
+      console.log("[apiClient] network failure", {
+        baseURL: error?.config?.baseURL || API_URL,
+        url: error?.config?.url,
+        message: error?.message,
+        code: error?.code,
+      });
+    }
+
     const originalRequest = error.config;
 
     // Only attempt refresh for 401 and not already retried
@@ -93,7 +118,12 @@ apiClient.interceptors.response.use(
 
     // Don't try to refresh for auth endpoints themselves
     const url = originalRequest.url || "";
-    if (url.includes("/login") || url.includes("/register") || url.includes("/refresh-token")) {
+    if (
+      url.includes("/login") ||
+      url.includes("/register") ||
+      url.includes("/refresh-token") ||
+      url.includes("/logout")
+    ) {
       return Promise.reject(error);
     }
 

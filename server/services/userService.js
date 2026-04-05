@@ -8,7 +8,17 @@ const {
 
 const userRepository = require("../repository/userRepository");
 const refreshTokenRepository = require("../repository/RefreshTokenRepository");
+const { redisClient } = require("../utils/redisClient");
+const { sendOTPEmail } = require("../utils/sendEmail");
 const tableName = "User";
+
+const FORGOT_OTP_TTL_SECONDS = 300;
+const FORGOT_VERIFY_TTL_SECONDS = 600;
+const FORGOT_RESEND_LIMIT_SECONDS = 60;
+
+const normalizeEmail = (email) => String(email || "").trim().toLowerCase();
+
+const generateOtp = () => String(Math.floor(100000 + Math.random() * 900000));
 
 const UserService = {
 
@@ -24,7 +34,7 @@ const UserService = {
       throw new Error("Email already exists");
     }
 
-     const hashedPassword = await bcrypt.hash(password, 10);
+     const hashedPassword = await bcrypt.hash(password+"nhan123@@", 10);
 
     const user = {
       userId: await generateId("user"),
@@ -69,7 +79,7 @@ updateUser: async (userId, userData) => {
 
         // 👉 nếu update password thì hash
         if (field === "password") {
-          value = await bcrypt.hash(value, 10);
+          value = await bcrypt.hash(value+"nhan123@@", 10);
         }
 
         updateFields.push(`#${field} = :${field}`);
@@ -102,7 +112,7 @@ updateUser: async (userId, userData) => {
   const user = users.find(u => u.email === email);
   if (!user) throw new Error("User not found");
 
-  const isMatch = await bcrypt.compare(password, user.password);
+  const isMatch = await bcrypt.compare(password+"nhan123@@", user.password);
   if (!isMatch) throw new Error("Invalid password");
 
   const payload = {
@@ -113,7 +123,7 @@ updateUser: async (userId, userData) => {
   const accessToken = signAccessToken(payload);
   const refreshToken = signRefreshToken(payload);
 
-  // 👉 lưu refresh token DB
+  await refreshTokenRepository.deleteByUserId(user.userId);
   await refreshTokenRepository.create({
     refreshToken,
     userId: user.userId,
@@ -152,6 +162,88 @@ refreshToken: async (refreshToken) => {
   const newAccessToken = signAccessToken(payload);
 
   return { accessToken: newAccessToken };
+},
+
+forgotPasswordRequestOtp: async (email) => {
+  const normalizedEmail = normalizeEmail(email);
+  if (!normalizedEmail) {
+    throw new Error("Email is required");
+  }
+
+  const user = await userRepository.getByEmail(normalizedEmail);
+  if (!user) {
+    throw new Error("Email not found");
+  }
+
+  const limitKey = `forgot:limit:${normalizedEmail}`;
+  const isLimited = await redisClient.get(limitKey);
+  if (isLimited) {
+    throw new Error("Please wait before requesting a new OTP");
+  }
+
+  const otp = generateOtp();
+  const otpKey = `forgot:otp:${normalizedEmail}`;
+
+  await redisClient.set(otpKey, otp, { EX: FORGOT_OTP_TTL_SECONDS });
+  await redisClient.set(limitKey, "1", { EX: FORGOT_RESEND_LIMIT_SECONDS });
+
+  await sendOTPEmail({
+    to: normalizedEmail,
+    otp,
+  });
+
+  return { message: "OTP sent", expiresIn: FORGOT_OTP_TTL_SECONDS };
+},
+
+forgotPasswordVerifyOtp: async (email, otp) => {
+  const normalizedEmail = normalizeEmail(email);
+  const normalizedOtp = String(otp || "").trim();
+
+  if (!normalizedEmail || !normalizedOtp) {
+    throw new Error("Email and OTP are required");
+  }
+
+  const otpKey = `forgot:otp:${normalizedEmail}`;
+  const savedOtp = await redisClient.get(otpKey);
+
+  if (!savedOtp) {
+    throw new Error("OTP expired or not found");
+  }
+
+  if (savedOtp !== normalizedOtp) {
+    throw new Error("Invalid OTP");
+  }
+
+  const verifiedKey = `forgot:verified:${normalizedEmail}`;
+  await redisClient.del(otpKey);
+  await redisClient.set(verifiedKey, "1", { EX: FORGOT_VERIFY_TTL_SECONDS });
+
+  return { message: "OTP verified", expiresIn: FORGOT_VERIFY_TTL_SECONDS };
+},
+
+forgotPasswordReset: async (email, newPassword) => {
+  const normalizedEmail = normalizeEmail(email);
+  const password = String(newPassword || "");
+
+  if (!normalizedEmail || !password) {
+    throw new Error("Email and newPassword are required");
+  }
+
+  const user = await userRepository.getByEmail(normalizedEmail);
+  if (!user) {
+    throw new Error("Email not found");
+  }
+
+  const verifiedKey = `forgot:verified:${normalizedEmail}`;
+  const isVerified = await redisClient.get(verifiedKey);
+  if (!isVerified) {
+    throw new Error("OTP verification required");
+  }
+
+  await UserService.updateUser(user.userId, { password });
+  await redisClient.del(verifiedKey);
+
+  return { message: "Password reset successful" };
 }
 
 };

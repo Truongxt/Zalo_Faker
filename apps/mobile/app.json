@@ -25,7 +25,8 @@
           "cameraPermission": "Cho phép Zalo Faker sử dụng camera"
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      "@react-native-community/datetimepicker"
     ],
     "experiments": {
       "typedRoutes": true

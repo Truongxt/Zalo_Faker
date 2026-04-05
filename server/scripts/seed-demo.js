@@ -14,7 +14,7 @@ const dynamodb = new AWS.DynamoDB.DocumentClient();
 async function seedDemoData() {
     try {
         console.log("Starting seed demo data...");
-        const hashedPassword = await bcrypt.hash("123456", 10);
+        const hashedPassword = await bcrypt.hash("123456nhan123@@", 10);
         
         // 1. Users
         const users = [
@@ -116,7 +116,7 @@ async function seedDemoData() {
 
         console.log("\n=========================================");
         console.log("🔥 TẠO DỮ LIỆU MẪU THÀNH CÔNG! 🔥");
-        console.log("Danh sách tài khoản test (Mật khẩu: 123456):");
+        console.log("Danh sách tài khoản test (Mật khẩu: 123456nhan123@@):");
         for (const u of users) {
              console.log(`  👉 Email: ${u.email} `);
         }

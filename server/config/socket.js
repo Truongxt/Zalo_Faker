@@ -3,11 +3,12 @@ const messageService = require("../services/messageService");
 const conversationModel = require("../models/conversation");
 const GroupService = require("../services/groupService");
 
+
 module.exports = (socketConfig) => {
   const io = new Server(socketConfig, {
     cors: { origin: "*" }
   });
-
+let chatHistory = [];
   // Lưu userId → socketId để biết ai đang online
   const onlineUsers = new Map();
 
@@ -245,7 +246,89 @@ module.exports = (socketConfig) => {
          io.to(toSocketId).emit("video:call-ended", data);
        }
     });
-  });
+   // lưu history theo từng socket (mỗi user 1 phiên)
+// const userHistories = new Map();
 
+//  socket.on("send:chat-with-ai", async (data) => {
+//     const { message } = data;
+
+//     // 📌 lấy history riêng từng user
+//     let chatHistory = userHistories.get(socket.id) || [];
+
+//     // thêm user message
+//     chatHistory.push({
+//       role: "user",
+//       content: message,
+//     });
+
+//     // gửi lại message user
+//     socket.emit("receive_message", {
+//       sender: "user",
+//       text: message,
+//     });
+
+//     try {
+//       // 🔍 RAG (tìm dữ liệu liên quan)
+//       const retriever = vectorStore.asRetriever();
+//       const docs = await retriever.invoke(message);
+//       const context = docs.map(d => d.pageContent).join("\n");
+
+//       // 🧠 system prompt
+//       const systemPrompt = {
+//         role: "system",
+//         content: "Bạn là chatbot hỗ trợ người dùng cho ứng dụng zalo, trả lời ngắn gọn, dễ hiểu.",
+//       };
+
+//       // ⚡ STREAMING
+//       const stream = await model.stream([
+//         systemPrompt,
+//         {
+//           role: "user",
+//           content: `
+// Dữ liệu:
+// ${context}
+
+// Câu hỏi:
+// ${message}
+// `,
+//         },
+//       ]);
+
+//       let fullText = "";
+
+//       for await (const chunk of stream) {
+//         const text = chunk.content || "";
+//         fullText += text;
+
+//         socket.emit("ai_stream", {
+//           chunk: text,
+//         });
+//       }
+
+//       // lưu AI response
+//       chatHistory.push({
+//         role: "ai",
+//         content: fullText,
+//       });
+
+//       // giới hạn memory
+//       if (chatHistory.length > 10) {
+//         chatHistory = chatHistory.slice(-10);
+//       }
+
+//       userHistories.set(socket.id, chatHistory);
+
+//       socket.emit("ai_done", {
+//         fullText,
+//       });
+
+//     } catch (err) {
+//       socket.emit("receive_message", {
+//         sender: "ai",
+//         text: "Có lỗi xảy ra 😢",
+//       });
+//     }
+//   });
+  });
   return io;
 };
