@@ -1,5 +1,5 @@
 require("dotenv").config();
-
+const swaggerUi = require("swagger-ui-express");
 const express = require("express");
 const cors = require("cors");
 const http = require("http");
@@ -25,8 +25,7 @@ app.use(express.json());
 // ===== Routes =====
 const conversationRoutes = require("./routes/conversationRoutes");
 const messageRoutes = require("./routes/messageRoutes");
-const uploadRoutes = require("./routes/uploadRoutes");
-const labelRoutes = require("./routes/labelRoutes");
+const swaggerSpec = require("./config/swagger");
 
 app.use("/api/users", userRoutes);
 app.use("/api/conversations", conversationRoutes);
@@ -42,6 +41,8 @@ app.use("/api/labels", labelRoutes);
 app.get("/", (req, res) => {
   res.send("API is running...");
 });
+
+app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 // ===== Create HTTP server =====
 const server = http.createServer(app);

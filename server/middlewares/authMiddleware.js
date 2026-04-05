@@ -1,5 +1,21 @@
 const { verifyAccessToken } = require("../utils/jwt.js");
 
+const normalizeUserPayload = (decoded = {}) => {
+  const rawUserId = decoded.userId ?? decoded.id ?? decoded.sub;
+
+  if (!rawUserId) {
+    return null;
+  }
+
+  const userId = String(rawUserId);
+
+  return {
+    ...decoded,
+    userId,
+    id: userId
+  };
+};
+
 const authMiddleware = (req, res, next) => {
   try {
     const header = req.headers.authorization;
@@ -15,13 +31,18 @@ const authMiddleware = (req, res, next) => {
     }
 
     if (token.startsWith("mock-access-token")) {
-      req.user = { id: "user-me" };
+      req.user = { userId: "user-me", id: "user-me" };
       return next();
     }
 
     const decoded = verifyAccessToken(token);
+    const normalizedUser = normalizeUserPayload(decoded);
 
-    req.user = decoded;
+    if (!normalizedUser) {
+      return res.status(401).json({ message: "Invalid token payload" });
+    }
+
+    req.user = normalizedUser;
 
     next();
   } catch (err) {

@@ -50,7 +50,7 @@ const ConversationModel = {
     const updateFields = [];
     const ExpressionAttributeNames = {};
     const ExpressionAttributeValues = {};
-    const allowedFields = ["type", "name", "avatar", "participants", "lastMessage", "createdBy", "background"];
+    const allowedFields = ["type", "name", "avatar", "participants", "lastMessage", "createdBy", "background", "groupSettings"];
     allowedFields.forEach(field => {
       if (conversationData[field] !== undefined) {
         updateFields.push(`#${field} = :${field}`);
