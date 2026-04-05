@@ -3,7 +3,7 @@ const swaggerUi = require("swagger-ui-express");
 const express = require("express");
 const cors = require("cors");
 const http = require("http");
-
+const { connectRedis } = require("./utils/redisClient");
 const socketConfig = require("./config/socket");
 
 
@@ -15,6 +15,8 @@ const momentRoutes = require("./routes/momentRoutes");
 
 const friendRoutes = require("./routes/friendRoutes");
 const aiRoutes = require("./routes/aiRoutes");
+const uploadRoutes = require("./routes/uploadRoutes");
+const labelRoutes = require("./routes/labelRoutes");
 const app = express();
 
 // ===== Middleware =====
@@ -54,7 +56,10 @@ const io = socketConfig(server);
 
 // ===== Start server =====
 const PORT = process.env.PORT || 3000;
-
-server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+const HOST = process.env.HOST || "0.0.0.0";
+(async () => {
+  await connectRedis();
+})();
+server.listen(PORT, HOST, () => {
+  console.log(`Server running on http://${HOST}:${PORT}`);
 });

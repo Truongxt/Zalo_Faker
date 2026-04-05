@@ -7,6 +7,8 @@ export interface User {
   phone: string | null;
   fullName: string;
   avatarUrl: string | null;
+  birthday?: string | null;
+  gender?: string | null;
   bio: string | null;
   status: "online" | "offline" | "away" | "busy";
   lastSeen: string | null;

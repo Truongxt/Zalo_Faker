@@ -30,6 +30,29 @@ interface UpdateUserData {
   status?: string;
 }
 
+interface ForgotPasswordResponse {
+  message: string;
+  expiresIn: number;
+}
+
+interface RegisterData {
+  email: string;
+  password: string;
+  userName: string;
+  phone: string;
+  gender: string;
+  birthday: string;
+  avartarUrl: string;
+  status?: string;
+}
+
+interface UploadResponse {
+  url: string;
+  fileName: string;
+  fileSize: number;
+  mimetype: string;
+}
+
 // Map server user shape to mobile User type
 const mapServerUser = (u: ServerUser): User => ({
   id: u.userId,
@@ -37,6 +60,8 @@ const mapServerUser = (u: ServerUser): User => ({
   phone: u.phone,
   fullName: u.userName,
   avatarUrl: u.avartarUrl,
+  birthday: u.birthday,
+  gender: u.gender,
   bio: null,
   status: u.status === "active" ? "online" : "offline",
   lastSeen: null,
@@ -46,16 +71,18 @@ const mapServerUser = (u: ServerUser): User => ({
 class UserService {
   // POST /api/users/login - đăng nhập
   async login(email: string, password: string): Promise<LoginResponse> {
+      console.log(email, password);
     const response = await apiClient.post<{ user: ServerUser; accessToken: string; refreshToken: string }>(
       "/api/users/login",
       { email, password },
     );
     const { user, accessToken, refreshToken } = response.data;
+    console.log(email, password);
     return { user: mapServerUser(user), accessToken, refreshToken };
   }
 
   // POST /api/users/register - đăng ký
-  async register(data: { email: string; password: string; userName: string; phone?: string }): Promise<User> {
+  async register(data: RegisterData): Promise<User> {
     const response = await apiClient.post<ServerUser>("/api/users/register", data);
     return mapServerUser(response.data);
   }
@@ -78,6 +105,32 @@ class UserService {
     return mapServerUser(response.data);
   }
 
+  async uploadAvatar(fileUri: string): Promise<string> {
+    const formData = new FormData();
+    const fileName = fileUri.split("/").pop() || `avatar-${Date.now()}.jpg`;
+    const fileExtension = fileName.split(".").pop()?.toLowerCase();
+    const mimeType =
+      fileExtension === "png"
+        ? "image/png"
+        : fileExtension === "gif"
+          ? "image/gif"
+          : "image/jpeg";
+
+    formData.append("file", {
+      uri: fileUri,
+      name: fileName,
+      type: mimeType,
+    } as any);
+
+    const response = await apiClient.post<UploadResponse>("/api/upload", formData, {
+      headers: {
+        "Content-Type": "multipart/form-data",
+      },
+    });
+
+    return response.data.url;
+  }
+
   // DELETE /api/users/:userId - xóa user (cần auth)
   async deleteUser(userId: string): Promise<{ userId: string }> {
     const response = await apiClient.delete<{ userId: string }>(`/api/users/${userId}`);
@@ -92,6 +145,30 @@ class UserService {
   async getUserById(id: string): Promise<User> {
     const response = await apiClient.get<ServerUser>(`/api/users/id/${id}`);
     return mapServerUser(response.data);
+  }
+
+  async requestForgotPasswordOtp(email: string): Promise<ForgotPasswordResponse> {
+    const response = await apiClient.post<ForgotPasswordResponse>(
+      "/api/users/forgot-password/request-otp",
+      { email },
+    );
+    return response.data;
+  }
+
+  async verifyForgotPasswordOtp(email: string, otp: string): Promise<ForgotPasswordResponse> {
+    const response = await apiClient.post<ForgotPasswordResponse>(
+      "/api/users/forgot-password/verify-otp",
+      { email, otp },
+    );
+    return response.data;
+  }
+
+  async resetForgotPassword(email: string, newPassword: string): Promise<{ message: string }> {
+    const response = await apiClient.post<{ message: string }>(
+      "/api/users/forgot-password/reset",
+      { email, newPassword },
+    );
+    return response.data;
   }
 }
 

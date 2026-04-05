@@ -10,14 +10,21 @@ import {
 import { useAuthStore } from "@/stores/authStore";
 import FlashMessage from "react-native-flash-message";
 // Giữ splash screen
-SplashScreen.preventAutoHideAsync();
+SplashScreen.preventAutoHideAsync().catch((error) => {
+  console.warn(
+    "[splash] preventAutoHideAsync failed:",
+    error?.message || error,
+  );
+});
 
 export default function RootLayout() {
   const { initialized, initialize, isAuthenticated } = useAuthStore();
 
   useEffect(() => {
     initialize().finally(() => {
-      SplashScreen.hideAsync();
+      SplashScreen.hideAsync().catch((error) => {
+        console.warn("[splash] hideAsync failed:", error?.message || error);
+      });
     });
   }, []);
   if (!initialized) {

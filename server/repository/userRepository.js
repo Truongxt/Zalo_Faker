@@ -43,6 +43,10 @@ const userRepository={
 
     return result.Item;
   },
+        async update(params) {
+                const result = await dynamodb.update(params).promise();
+                return result.Attributes;
+        },
     async updateUser(userId, userData) {
         const user=await dynamodb.get({
             TableName:tableName,

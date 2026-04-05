@@ -10,7 +10,7 @@ AWS.config.update({
 
 const dynamodb = new AWS.DynamoDB.DocumentClient();
 const TABLE_NAME = "User";
-const DEFAULT_PASSWORD = "123456";
+const DEFAULT_PASSWORD = "123456nhan123@@";
 
 async function getExistingEmails() {
   const emails = new Set();
@@ -84,7 +84,7 @@ async function seedUsers() {
     }
 
     console.log(`Seed completed. Created: ${createdCount}, Skipped: ${skippedCount}`);
-    console.log("Default password for created users: 123456");
+    console.log("Default password for created users: 123456nhan123@@");
   } catch (error) {
     console.error("Failed to seed users:", error.message);
     process.exitCode = 1;
