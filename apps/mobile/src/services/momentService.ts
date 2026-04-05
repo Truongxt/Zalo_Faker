@@ -75,9 +75,26 @@ class MomentService {
   }
 
   async commentMoment(momentId: string, content: string): Promise<MomentComment> {
+    return this.replyToComment(momentId, content, null);
+  }
+
+  async replyToComment(
+    momentId: string,
+    content: string,
+    replyToCommentId: string | null,
+  ): Promise<MomentComment> {
     const response = await apiClient.post<MomentComment>(
       `/api/moments/${momentId}/comments`,
-      { content },
+      { content, replyToCommentId },
+    );
+
+    return response.data;
+  }
+
+  async reactToComment(momentId: string, commentId: string, emoji: string) {
+    const response = await apiClient.put<MomentComment>(
+      `/api/moments/${momentId}/comments/${commentId}/reaction`,
+      { emoji },
     );
 
     return response.data;

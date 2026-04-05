@@ -6,11 +6,9 @@ const DEFAULT_API_URL = Platform.select({
   default: "http://localhost:3000",
 });
 
-export const API_URL =
-  process.env.EXPO_PUBLIC_API_URL || DEFAULT_API_URL;
+export const API_URL = process.env.EXPO_PUBLIC_API_URL || DEFAULT_API_URL;
 
-export const SOCKET_URL =
-  process.env.EXPO_PUBLIC_API_URL || DEFAULT_API_URL;
+export const SOCKET_URL = process.env.EXPO_PUBLIC_API_URL || DEFAULT_API_URL;
 
 export const APP_CONFIG = {
   name: "Zalo Faker",

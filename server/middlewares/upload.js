@@ -1,20 +1,33 @@
 const multer = require("multer");
 
-// Set up Multer storage options
-// Sử dụng memoryStorage sẽ giúp chúng ta thao tác với các tập tin trước khi lưu 
-// vào bộ nhớ hoặc database
-const storage = multer.memoryStorage({
-  destination: function (req, file, cb) {
-    cb(null, "/"); // Specify the destination directory where uploaded files will be stored
+const storage = multer.memoryStorage();
+
+const uploader = multer({
+  storage,
+  limits: {
+    fileSize: 1024 * 1024 * 50,
   },
 });
 
-// Create Multer middleware instance for single file upload
-const upload = multer({
-  storage: storage,
-  limits: {
-    fileSize: 1024 * 1024 * 50, // Nâng giới hạn lên 50MB cho video
-  },
-}).single("file"); // Đổi thành 'file' để hỗ trợ mọi định dạng
+const upload = (req, res, next) => {
+  uploader.fields([
+    { name: "file", maxCount: 1 },
+    { name: "image", maxCount: 1 },
+    { name: "avatar", maxCount: 1 },
+  ])(req, res, (error) => {
+    if (error) {
+      return next(error);
+    }
+
+    const files = req.files || {};
+    req.file =
+      files.file?.[0] ||
+      files.image?.[0] ||
+      files.avatar?.[0] ||
+      null;
+
+    return next();
+  });
+};
 
 module.exports = upload;
