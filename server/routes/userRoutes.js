@@ -51,8 +51,10 @@ router.post("/register", userController.register);
  *             properties:
  *               email:
  *                 type: string
+ *                 example: user1@zalo-faker.com
  *               password:
  *                 type: string
+ *                 example: 123456
  *     responses:
  *       200:
  *         description: Login thành công
@@ -102,6 +104,9 @@ router.post("/logout", userController.logout);
  *         description: Thành công
  */
 router.post("/refresh-token", userController.refreshToken);
+router.post("/forgot-password/request-otp", userController.forgotPasswordRequestOtp);
+router.post("/forgot-password/verify-otp", userController.forgotPasswordVerifyOtp);
+router.post("/forgot-password/reset", userController.forgotPasswordReset);
 
 
 /**

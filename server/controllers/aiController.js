@@ -1,28 +1,43 @@
-const aiService = require("../services/aiService");
+const { askAI } = require("../services/aiService");
 
 const askAssistant = async (req, res) => {
   try {
     const { question, conversationId } = req.body || {};
     const userId = req.user?.userId;
 
+    // ✅ check auth
     if (!userId) {
-      return res.status(401).json({ message: "Unauthorized" });
+      return res.status(401).json({
+        message: "Unauthorized",
+      });
     }
 
+    // ✅ validate input
     if (!question || typeof question !== "string") {
-      return res.status(400).json({ message: "question is required" });
+      return res.status(400).json({
+        message: "question is required",
+      });
     }
 
-    const result = await aiService.askAssistant({
+    // 🔥 gọi AI (truyền thêm context nếu có)
+    const reply = await askAI({
       question,
-      userId: String(userId),
-      conversationId: conversationId ? String(conversationId) : undefined,
+      userId,
+      conversationId,
     });
 
-    return res.status(200).json(result);
+    return res.status(200).json({
+      success: true,
+      data: {
+        reply,
+      },
+    });
+
   } catch (error) {
-    const statusCode = error.statusCode || 500;
-    return res.status(statusCode).json({
+    console.error("AI ERROR:", error);
+
+    return res.status(error.statusCode || 500).json({
+      success: false,
       message: error.message || "Failed to generate AI response",
     });
   }

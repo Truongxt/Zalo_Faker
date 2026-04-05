@@ -103,6 +103,42 @@ getUserById: async (req, res) => {
     } catch (err) {
       res.status(401).json({ message: err.message });
     }
+  },
+
+  forgotPasswordRequestOtp: async (req, res) => {
+    try {
+      const { email } = req.body || {};
+      const result = await userService.forgotPasswordRequestOtp(email);
+      res.json(result);
+    } catch (err) {
+      const message = err.message || "Failed to send OTP";
+      const status = /wait|required|not found/i.test(message) ? 400 : 500;
+      res.status(status).json({ message });
+    }
+  },
+
+  forgotPasswordVerifyOtp: async (req, res) => {
+    try {
+      const { email, otp } = req.body || {};
+      const result = await userService.forgotPasswordVerifyOtp(email, otp);
+      res.json(result);
+    } catch (err) {
+      const message = err.message || "Failed to verify OTP";
+      const status = /required|expired|invalid|not found/i.test(message) ? 400 : 500;
+      res.status(status).json({ message });
+    }
+  },
+
+  forgotPasswordReset: async (req, res) => {
+    try {
+      const { email, newPassword } = req.body || {};
+      const result = await userService.forgotPasswordReset(email, newPassword);
+      res.json(result);
+    } catch (err) {
+      const message = err.message || "Failed to reset password";
+      const status = /required|not found|verification/i.test(message) ? 400 : 500;
+      res.status(status).json({ message });
+    }
   }
 
 }
