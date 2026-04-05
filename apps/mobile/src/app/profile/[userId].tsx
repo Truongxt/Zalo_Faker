@@ -15,7 +15,10 @@ import DateTimePicker, {
   DateTimePickerEvent,
 } from "@react-native-community/datetimepicker";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 import { Avatar } from "@/components/ui/Avatar";
 import { useAuthStore } from "@/stores/authStore";
 import { userService } from "@/services";
@@ -298,7 +301,7 @@ export default function UserProfileScreen() {
   }
 
   return (
-    <SafeAreaView className="flex-1 bg-gray-50" edges={['top', 'bottom']}>
+    <SafeAreaView className="flex-1 bg-gray-50" edges={["top", "bottom"]}>
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         className="flex-1 bg-gray-50"
@@ -307,213 +310,219 @@ export default function UserProfileScreen() {
           className="flex-1 bg-gray-50"
           keyboardShouldPersistTaps="handled"
         >
-        <View className="flex-row items-center justify-between px-4 h-12">
-          <TouchableOpacity onPress={() => router.back()}>
-            <Text className="text-[#0068FF] text-base">← Quay lại</Text>
-          </TouchableOpacity>
-
-          {isOwnProfile && !isEditing ? (
-            <TouchableOpacity onPress={startEdit}>
-              <Text className="text-[#0068FF] text-base font-medium">
-                Chỉnh sửa
-              </Text>
+          <View className="flex-row items-center justify-between px-4 h-12">
+            <TouchableOpacity onPress={() => router.back()}>
+              <Text className="text-[#0068FF] text-base">← Quay lại</Text>
             </TouchableOpacity>
-          ) : null}
-        </View>
 
-        <View className="items-center py-8 bg-white mb-2">
-          <Avatar
-            name={profile.fullName || "User"}
-            uri={profile.avatarUrl}
-            size={80}
-          />
-          <Text className="text-xl font-bold text-gray-900 mt-4">
-            {profile.fullName}
-          </Text>
-          <Text className="text-gray-500 mt-1">{profile.email}</Text>
-          <Text className="text-gray-400 mt-1 text-xs">ID: {profile.id}</Text>
-        </View>
-
-        {isEditing ? (
-          <View className="bg-white px-4 py-5 mb-2 gap-4">
-            <View>
-              <Text className="text-sm font-medium text-gray-700 mb-1.5">
-                Họ và tên
-              </Text>
-              <TextInput
-                value={form.fullName}
-                onChangeText={(value) =>
-                  setForm((prev) => ({ ...prev, fullName: value }))
-                }
-                placeholder="Nhập họ và tên"
-                className="h-12 px-4 bg-gray-100 rounded-xl text-gray-900"
-              />
-            </View>
-
-            <View>
-              <Text className="text-sm font-medium text-gray-700 mb-1.5">
-                Số điện thoại
-              </Text>
-              <TextInput
-                value={form.phone}
-                onChangeText={(value) =>
-                  setForm((prev) => ({ ...prev, phone: value }))
-                }
-                placeholder="Nhập số điện thoại"
-                keyboardType="phone-pad"
-                className="h-12 px-4 bg-gray-100 rounded-xl text-gray-900"
-              />
-            </View>
-
-            <View>
-              <Text className="text-sm font-medium text-gray-700 mb-1.5">
-                Ngày sinh
-              </Text>
-              <TouchableOpacity
-                onPress={() => setShowBirthdayPicker((current) => !current)}
-                className="h-12 px-4 bg-gray-100 rounded-xl justify-center"
-                activeOpacity={0.8}
-              >
-                <Text
-                  className={form.birthday ? "text-gray-900" : "text-gray-400"}
-                >
-                  {form.birthday || "Chọn ngày sinh"}
+            {isOwnProfile && !isEditing ? (
+              <TouchableOpacity onPress={startEdit}>
+                <Text className="text-[#0068FF] text-base font-medium">
+                  Chỉnh sửa
                 </Text>
               </TouchableOpacity>
+            ) : null}
+          </View>
 
-              {showBirthdayPicker ? (
-                <View className="mt-2 rounded-xl bg-gray-50 border border-gray-200 overflow-hidden">
-                  <DateTimePicker
-                    value={parseBirthday(form.birthday)}
-                    mode="date"
-                    display={Platform.OS === "ios" ? "spinner" : "default"}
-                    onChange={onBirthdayChange}
-                  />
-                </View>
-              ) : null}
-            </View>
+          <View className="items-center py-8 bg-white mb-2">
+            <Avatar
+              name={profile.fullName || "User"}
+              uri={profile.avatarUrl}
+              size={80}
+            />
+            <Text className="text-xl font-bold text-gray-900 mt-4">
+              {profile.fullName}
+            </Text>
+            <Text className="text-gray-500 mt-1">{profile.email}</Text>
+            <Text className="text-gray-400 mt-1 text-xs">ID: {profile.id}</Text>
+          </View>
 
-            <View>
-              <Text className="text-sm font-medium text-gray-700 mb-2">
-                Giới tính
-              </Text>
-              <View className="flex-row gap-2">
-                {GENDER_OPTIONS.map((option) => {
-                  const active = form.gender === option.value;
+          {isEditing ? (
+            <View className="bg-white px-4 py-5 mb-2 gap-4">
+              <View>
+                <Text className="text-sm font-medium text-gray-700 mb-1.5">
+                  Họ và tên
+                </Text>
+                <TextInput
+                  value={form.fullName}
+                  onChangeText={(value) =>
+                    setForm((prev) => ({ ...prev, fullName: value }))
+                  }
+                  placeholder="Nhập họ và tên"
+                  className="h-12 px-4 bg-gray-100 rounded-xl text-gray-900"
+                />
+              </View>
 
-                  return (
-                    <TouchableOpacity
-                      key={option.value}
-                      onPress={() =>
-                        setForm((prev) => ({ ...prev, gender: option.value }))
-                      }
-                      className="flex-1 h-11 rounded-xl items-center justify-center border"
-                      style={{
-                        borderColor: active ? "#0068FF" : "#D1D5DB",
-                        backgroundColor: active ? "#EFF6FF" : "#F9FAFB",
-                      }}
-                    >
-                      <Text
-                        className="font-semibold"
-                        style={{ color: active ? "#0068FF" : "#374151" }}
+              <View>
+                <Text className="text-sm font-medium text-gray-700 mb-1.5">
+                  Số điện thoại
+                </Text>
+                <TextInput
+                  value={form.phone}
+                  onChangeText={(value) =>
+                    setForm((prev) => ({ ...prev, phone: value }))
+                  }
+                  placeholder="Nhập số điện thoại"
+                  keyboardType="phone-pad"
+                  className="h-12 px-4 bg-gray-100 rounded-xl text-gray-900"
+                />
+              </View>
+
+              <View>
+                <Text className="text-sm font-medium text-gray-700 mb-1.5">
+                  Ngày sinh
+                </Text>
+                <TouchableOpacity
+                  onPress={() => setShowBirthdayPicker((current) => !current)}
+                  className="h-12 px-4 bg-gray-100 rounded-xl justify-center"
+                  activeOpacity={0.8}
+                >
+                  <Text
+                    className={
+                      form.birthday ? "text-gray-900" : "text-gray-400"
+                    }
+                  >
+                    {form.birthday || "Chọn ngày sinh"}
+                  </Text>
+                </TouchableOpacity>
+
+                {showBirthdayPicker ? (
+                  <View className="mt-2 rounded-xl bg-gray-50 border border-gray-200 overflow-hidden">
+                    <DateTimePicker
+                      value={parseBirthday(form.birthday)}
+                      mode="date"
+                      display={Platform.OS === "ios" ? "spinner" : "default"}
+                      onChange={onBirthdayChange}
+                    />
+                  </View>
+                ) : null}
+              </View>
+
+              <View>
+                <Text className="text-sm font-medium text-gray-700 mb-2">
+                  Giới tính
+                </Text>
+                <View className="flex-row gap-2">
+                  {GENDER_OPTIONS.map((option) => {
+                    const active = form.gender === option.value;
+
+                    return (
+                      <TouchableOpacity
+                        key={option.value}
+                        onPress={() =>
+                          setForm((prev) => ({ ...prev, gender: option.value }))
+                        }
+                        className="flex-1 h-11 rounded-xl items-center justify-center border"
+                        style={{
+                          borderColor: active ? "#0068FF" : "#D1D5DB",
+                          backgroundColor: active ? "#EFF6FF" : "#F9FAFB",
+                        }}
                       >
-                        {option.label}
+                        <Text
+                          className="font-semibold"
+                          style={{ color: active ? "#0068FF" : "#374151" }}
+                        >
+                          {option.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+
+              <View className="gap-3">
+                <Text className="text-sm font-medium text-gray-700 mb-1.5">
+                  Avatar
+                </Text>
+
+                <View className="flex-row items-center gap-3">
+                  <Avatar
+                    name={form.fullName || profile.fullName || "User"}
+                    uri={form.avatarUrl || profile.avatarUrl}
+                    size={72}
+                  />
+
+                  <View className="flex-1 gap-2">
+                    <TouchableOpacity
+                      onPress={() => void pickAvatarFromLibrary()}
+                      className="h-11 rounded-xl bg-[#0068FF] items-center justify-center"
+                    >
+                      <Text className="text-white font-semibold">
+                        Chọn ảnh từ thư viện
                       </Text>
                     </TouchableOpacity>
-                  );
-                })}
-              </View>
-            </View>
 
-            <View className="gap-3">
-              <Text className="text-sm font-medium text-gray-700 mb-1.5">
-                Avatar
-              </Text>
-
-              <View className="flex-row items-center gap-3">
-                <Avatar
-                  name={form.fullName || profile.fullName || "User"}
-                  uri={form.avatarUrl || profile.avatarUrl}
-                  size={72}
-                />
-
-                <View className="flex-1 gap-2">
-                  <TouchableOpacity
-                    onPress={() => void pickAvatarFromLibrary()}
-                    className="h-11 rounded-xl bg-[#0068FF] items-center justify-center"
-                  >
-                    <Text className="text-white font-semibold">
-                      Chọn ảnh từ thư viện
-                    </Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    onPress={() =>
-                      setForm((prev) => ({ ...prev, avatarUrl: "" }))
-                    }
-                    className="h-11 rounded-xl border border-gray-300 items-center justify-center"
-                  >
-                    <Text className="text-gray-700 font-semibold">Xóa ảnh</Text>
-                  </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() =>
+                        setForm((prev) => ({ ...prev, avatarUrl: "" }))
+                      }
+                      className="h-11 rounded-xl border border-gray-300 items-center justify-center"
+                    >
+                      <Text className="text-gray-700 font-semibold">
+                        Xóa ảnh
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
+
+                <Text className="text-xs text-gray-500 leading-4">
+                  Ảnh chọn từ thư viện sẽ được upload lên server trước khi lưu.
+                </Text>
               </View>
 
-              <Text className="text-xs text-gray-500 leading-4">
-                Ảnh chọn từ thư viện sẽ được upload lên server trước khi lưu.
-              </Text>
-            </View>
+              <View className="flex-row gap-3 mt-2">
+                <TouchableOpacity
+                  onPress={cancelEdit}
+                  disabled={isSaving}
+                  className="flex-1 h-12 items-center justify-center rounded-xl border border-gray-300"
+                >
+                  <Text className="text-gray-700 font-semibold">Hủy</Text>
+                </TouchableOpacity>
 
-            <View className="flex-row gap-3 mt-2">
-              <TouchableOpacity
-                onPress={cancelEdit}
-                disabled={isSaving}
-                className="flex-1 h-12 items-center justify-center rounded-xl border border-gray-300"
-              >
-                <Text className="text-gray-700 font-semibold">Hủy</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                onPress={onSave}
-                disabled={isSaving}
-                className="flex-1 h-12 items-center justify-center rounded-xl bg-[#0068FF]"
-                style={{ opacity: isSaving ? 0.7 : 1 }}
-              >
-                {isSaving ? (
-                  <ActivityIndicator color="white" />
-                ) : (
-                  <Text className="text-white font-semibold">Lưu thay đổi</Text>
-                )}
-              </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={onSave}
+                  disabled={isSaving}
+                  className="flex-1 h-12 items-center justify-center rounded-xl bg-[#0068FF]"
+                  style={{ opacity: isSaving ? 0.7 : 1 }}
+                >
+                  {isSaving ? (
+                    <ActivityIndicator color="white" />
+                  ) : (
+                    <Text className="text-white font-semibold">
+                      Lưu thay đổi
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              </View>
             </View>
-          </View>
-        ) : (
-          <View className="bg-white px-4 py-5 mb-2 gap-4">
-            <View>
-              <Text className="text-xs text-gray-500">Họ và tên</Text>
-              <Text className="text-base text-gray-900 mt-1">
-                {profile.fullName || "-"}
-              </Text>
+          ) : (
+            <View className="bg-white px-4 py-5 mb-2 gap-4">
+              <View>
+                <Text className="text-xs text-gray-500">Họ và tên</Text>
+                <Text className="text-base text-gray-900 mt-1">
+                  {profile.fullName || "-"}
+                </Text>
+              </View>
+              <View>
+                <Text className="text-xs text-gray-500">Email</Text>
+                <Text className="text-base text-gray-900 mt-1">
+                  {profile.email || "-"}
+                </Text>
+              </View>
+              <View>
+                <Text className="text-xs text-gray-500">Số điện thoại</Text>
+                <Text className="text-base text-gray-900 mt-1">
+                  {profile.phone || "-"}
+                </Text>
+              </View>
+              <View>
+                <Text className="text-xs text-gray-500">Trạng thái</Text>
+                <Text className="text-base text-gray-900 mt-1">
+                  {profile.status || "-"}
+                </Text>
+              </View>
             </View>
-            <View>
-              <Text className="text-xs text-gray-500">Email</Text>
-              <Text className="text-base text-gray-900 mt-1">
-                {profile.email || "-"}
-              </Text>
-            </View>
-            <View>
-              <Text className="text-xs text-gray-500">Số điện thoại</Text>
-              <Text className="text-base text-gray-900 mt-1">
-                {profile.phone || "-"}
-              </Text>
-            </View>
-            <View>
-              <Text className="text-xs text-gray-500">Trạng thái</Text>
-              <Text className="text-base text-gray-900 mt-1">
-                {profile.status || "-"}
-              </Text>
-            </View>
-          </View>
-        )}
+          )}
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
