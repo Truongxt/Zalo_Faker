@@ -1,6 +1,6 @@
 const { ulid } = require("ulid");
 
-function createMomentComment({ momentId, userId, content }) {
+function createMomentComment({ momentId, userId, content, replyTo = null }) {
   const now = new Date().toISOString();
 
   return {
@@ -8,6 +8,8 @@ function createMomentComment({ momentId, userId, content }) {
     commentId: ulid(),
     userId: String(userId),
     content,
+    replyTo,
+    reactions: [],
     createdAt: now,
     updatedAt: now
   };

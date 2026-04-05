@@ -106,9 +106,25 @@ const MomentController = {
       const result = await momentService.commentMoment(
         req.params.momentId,
         getRequesterId(req),
-        body.content
+        body.content,
+        body.replyToCommentId
       );
       return res.status(201).json(result);
+    } catch (error) {
+      return handleError(res, error);
+    }
+  },
+
+  reactToComment: async (req, res) => {
+    try {
+      const body = req.body || {};
+      const result = await momentService.reactToComment(
+        req.params.momentId,
+        req.params.commentId,
+        getRequesterId(req),
+        body.emoji
+      );
+      return res.json(result);
     } catch (error) {
       return handleError(res, error);
     }

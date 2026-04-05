@@ -209,6 +209,20 @@ export interface MomentComment {
   commentId: string;
   userId: string;
   content: string;
+  replyTo: {
+    commentId: string;
+    userId: string;
+    content: string;
+    author?: MomentAuthor | null;
+  } | null;
+  reactions: Array<{
+    userId: string;
+    userName: string;
+    emoji: string;
+    updatedAt?: string;
+  }>;
+  reactionCount: number;
+  currentUserReaction: string | null;
   createdAt: string;
   updatedAt: string;
   author: MomentAuthor | null;
