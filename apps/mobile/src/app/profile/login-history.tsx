@@ -60,7 +60,10 @@ export default function LoginHistoryScreen() {
       setHistory(data);
     } catch (err: any) {
       const status = err?.response?.status;
-      const message = err?.response?.data?.message || err?.message || "Không tải được lịch sử đăng nhập";
+      const message =
+        err?.response?.data?.message ||
+        err?.message ||
+        "Không tải được lịch sử đăng nhập";
 
       console.error("Failed to load login history:", message);
 
@@ -78,7 +81,10 @@ export default function LoginHistoryScreen() {
       }
 
       if (status === 403) {
-        Alert.alert("Không có quyền", "Bạn chỉ có thể xem lịch sử đăng nhập của chính mình");
+        Alert.alert(
+          "Không có quyền",
+          "Bạn chỉ có thể xem lịch sử đăng nhập của chính mình",
+        );
         return;
       }
 
@@ -177,7 +183,10 @@ export default function LoginHistoryScreen() {
                 {/* Device info */}
                 <View className="flex-row items-center gap-2 mb-1.5">
                   <Text className="text-gray-400 text-xs">🖥️</Text>
-                  <Text className="text-gray-600 text-sm flex-1" numberOfLines={2}>
+                  <Text
+                    className="text-gray-600 text-sm flex-1"
+                    numberOfLines={2}
+                  >
                     {item.deviceInfo}
                   </Text>
                 </View>
