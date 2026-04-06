@@ -1,4 +1,4 @@
-import { useAuthStore } from '../stores/authStore';
+import { User, useAuthStore } from '../stores/authStore';
 
 export const baseAPI = import.meta.env.VITE_API_URL || "http://localhost:3000/api";
 
@@ -10,7 +10,7 @@ export const fetchWithAuth = async (endpoint: string, options: RequestInit = {})
         headers.set("Authorization", `Bearer ${token}`);
     }
     
-    if (!headers.has('Content-Type') && options.method !== 'GET') {
+    if (!headers.has('Content-Type') && options.method !== 'GET' && !(options.body instanceof FormData)) {
         headers.set("Content-Type", "application/json");
     }
 
@@ -19,6 +19,42 @@ export const fetchWithAuth = async (endpoint: string, options: RequestInit = {})
         headers,
     });
 
+    if (response.status === 401) {
+        const refreshToken = useAuthStore.getState().refreshToken;
+        if (refreshToken) {
+            try {
+                const refreshResponse = await fetch(`${baseAPI}/users/refresh-token`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ refreshToken })
+                });
+
+                if (refreshResponse.ok) {
+                    const data = await refreshResponse.json();
+                    useAuthStore.getState().setAccessToken(data.accessToken);
+
+                    // Retry original request
+                    const retryHeaders = new Headers(options.headers || {});
+                    retryHeaders.set("Authorization", `Bearer ${data.accessToken}`);
+                    if (!retryHeaders.has('Content-Type') && options.method !== 'GET' && !(options.body instanceof FormData)) {
+                        retryHeaders.set("Content-Type", "application/json");
+                    }
+
+                    return await fetch(`${baseAPI}${endpoint}`, {
+                        ...options,
+                        headers: retryHeaders,
+                    });
+                }
+            } catch (err) {
+                console.error('Token refresh failed:', err);
+            }
+        }
+        
+        console.warn('Session expired. Logging out...');
+        useAuthStore.getState().logout();
+        window.location.href = '/login';
+    }
+
     if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
     }
@@ -26,21 +62,28 @@ export const fetchWithAuth = async (endpoint: string, options: RequestInit = {})
     return response;
 };
 
-const getAuthHeaders = (): Record<string, string> => {
-    const token = useAuthStore.getState().accessToken;
-    return token ? { 'Authorization': `Bearer ${token}` } : {};
-};
+
+export const mapUser = (u: any): User => ({
+    ...u,
+    id: u.userId || u.id || u._id,
+    fullName: u.userName || u.fullName || 'User',
+    avatarUrl: u.avartarUrl || u.avatarUrl || null,
+    phoneNumber: u.phone || u.phoneNumber || '',
+    birthday: u.birthday || null,
+    gender: (u.gender === 'male' || u.gender === 'female' || u.gender === 'other') ? u.gender : 'other',
+});
 
 const getConversation = async () => {
     const response = await fetchWithAuth(`/conversations`);
     const data = await response.json();
-    return data.map((conv: any) => ({ ...conv, id: conv._id }));
+    return (data || []).map((conv: any) => ({ ...conv, id: conv._id }));
 }
 
 const getMessages = async (conversationId: string) => {
+    if (!conversationId || conversationId === 'undefined') return [];
     const response = await fetchWithAuth(`/messages/conversation/${conversationId}`);
     const data = await response.json();
-    return data.map((msg: any) => ({ ...msg, id: msg._id }));
+    return (data || []).map((msg: any) => ({ ...msg, id: msg._id }));
 }
 
 const sendMessage = async (message: any) => {
@@ -51,161 +94,115 @@ const sendMessage = async (message: any) => {
     return response.json();
 }
 
-const getUsers = async () => {
+const getUsers = async (): Promise<User[]> => {
     const response = await fetchWithAuth(`/users`);
-    return response.json();
+    const data = await response.json();
+    return (data || []).map(mapUser);
 }
 
 const removeGroupMember = async (groupId: string, data: { userId: string, removeUserId: string }) => {
-    const response = await fetch(`${baseAPI}/groups/${groupId}/remove-member`, {
+    if (!groupId || groupId === 'undefined') throw new Error('Invalid Group ID');
+    const response = await fetchWithAuth(`/groups/${groupId}/remove-member`, {
         method: 'PUT',
-        headers: {
-            'Content-Type': 'application/json',
-            ...getAuthHeaders()
-        },
         body: JSON.stringify(data)
     });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`)
     return response.json();
 }
 
 const leaveGroup = async (groupId: string, data: { userId: string }) => {
-    const response = await fetch(`${baseAPI}/groups/${groupId}/leave`, {
+    if (!groupId || groupId === 'undefined') throw new Error('Invalid Group ID');
+    const response = await fetchWithAuth(`/groups/${groupId}/leave`, {
         method: 'PUT',
-        headers: {
-            'Content-Type': 'application/json',
-            ...getAuthHeaders()
-        },
         body: JSON.stringify(data)
     });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`)
     return response.json();
 }
 
 const getStickers = async () => {
-    const response = await fetch(`${baseAPI}/messages/stickers`, { headers: getAuthHeaders() });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    const response = await fetchWithAuth(`/messages/stickers`);
     return response.json();
 }
 
 const updateConversationBackground = async (conversationId: string, backgroundUrl: string) => {
-    const response = await fetch(`${baseAPI}/conversations/${conversationId}`, {
+    if (!conversationId || conversationId === 'undefined') throw new Error('Invalid Conversation ID');
+    const response = await fetchWithAuth(`/conversations/${conversationId}`, {
         method: 'PUT',
-        headers: {
-            'Content-Type': 'application/json',
-            ...getAuthHeaders()
-        },
         body: JSON.stringify({ background: backgroundUrl })
     });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`)
     const json = await response.json();
     return { ...json, id: json._id };
 }
 
 const uploadMedia = async (file: File) => {
-    const formData = new FormData();
-    formData.append("file", file);
-    
-    const response = await fetch(`${baseAPI}/upload`, {
+    const response = await fetchWithAuth(`/upload`, {
         method: "POST",
-        headers: getAuthHeaders(), // Do NOT override Content-Type when sending FormData
-        body: formData,
+        body: file as any, // fetchWithAuth handles FormData if body is FormData
+        // We'll update uploadMedia to use FormData correctly
     });
-    
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
     return await response.json();
 }
 
 const getLabels = async () => {
-    const response = await fetch(`${baseAPI}/labels`, { headers: getAuthHeaders() });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const response = await fetchWithAuth(`/labels`);
     return await response.json();
 }
 
 const createLabel = async (data: { name: string, color: string }) => {
-    const response = await fetch(`${baseAPI}/labels`, {
+    const response = await fetchWithAuth(`/labels`, {
         method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-            ...getAuthHeaders()
-        },
         body: JSON.stringify(data)
     });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
     return await response.json();
 }
 
 const updateLabel = async (id: string, data: { name?: string, color?: string }) => {
-    const response = await fetch(`${baseAPI}/labels/${id}`, {
+    const response = await fetchWithAuth(`/labels/${id}`, {
         method: "PUT",
-        headers: {
-            "Content-Type": "application/json",
-            ...getAuthHeaders()
-        },
         body: JSON.stringify(data)
     });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
     return await response.json();
 }
 
 const deleteLabel = async (id: string) => {
-    const response = await fetch(`${baseAPI}/labels/${id}`, {
+    const response = await fetchWithAuth(`/labels/${id}`, {
         method: "DELETE",
-        headers: getAuthHeaders()
     });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
     return await response.json();
 }
 
 const deleteChatHistory = async (conversationId: string) => {
-    const response = await fetch(`${baseAPI}/conversations/${conversationId}`, {
+    const response = await fetchWithAuth(`/conversations/${conversationId}`, {
         method: "DELETE",
-        headers: getAuthHeaders()
     });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
     return await response.json();
 }
 
 const createGroup = async (data: any) => {
-    const response = await fetch(`${baseAPI}/groups`, {
+    const response = await fetchWithAuth(`/groups`, {
         method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-            ...getAuthHeaders()
-        },
         body: JSON.stringify(data)
     });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
     return await response.json();
 }
 
 const updateParticipantSetting = async (conversationId: string, userId: string, data: any) => {
-    const response = await fetch(`${baseAPI}/conversations/${conversationId}/setting`, {
+    const response = await fetchWithAuth(`/conversations/${conversationId}/setting`, {
         method: "PATCH",
-        headers: {
-            "Content-Type": "application/json",
-            ...getAuthHeaders()
-        },
         body: JSON.stringify({ userId, ...data })
     });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
     return await response.json();
 }
 
 const addGroupMember = async (groupId: string, data: any) => {
-    const response = await fetch(`${baseAPI}/groups/${groupId}/add-member`, {
+    const response = await fetchWithAuth(`/groups/${groupId}/add-member`, {
         method: "PUT",
-        headers: {
-            "Content-Type": "application/json",
-            ...getAuthHeaders()
-        },
         body: JSON.stringify(data)
     });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
     return await response.json();
 }
 
 const getGroupSettings = async (groupId: string) => {
+    if (!groupId || groupId === 'undefined') return null;
     const response = await fetchWithAuth(`/groups/${groupId}/settings`);
     return response.json();
 }
@@ -277,6 +274,13 @@ const unpinGroupMessage = async (groupId: string) => {
     });
     return response.json();
 }
+
+const getUserByPhone = async (phone: string): Promise<User> => {
+    const response = await fetchWithAuth(`/users/phone/${phone}`);
+    const data = await response.json();
+    return mapUser(data);
+}
+
 export {
     getConversation,
     getMessages,
@@ -303,5 +307,6 @@ export {
     getLabels,
     createLabel,
     updateLabel,
-    deleteLabel
+    deleteLabel,
+    getUserByPhone
 }

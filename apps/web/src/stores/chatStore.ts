@@ -38,7 +38,7 @@ export interface Participant {
     // User info (populated)
     fullName?: string
     avatarUrl?: string
-    status?: 'online' | 'offline'
+    status?: 'online' | 'offline' | 'away' | 'busy' | string
     nickname?: string
     isPinned?: boolean
     isMuted?: boolean

@@ -5,14 +5,13 @@ const {
   signAccessToken,
   signRefreshToken
 } = require("../utils/jwt");
-const { s3 } = require("../utils/aws-helper");
-const { v4: uuidv4 } = require("uuid");
 
 const userRepository = require("../repository/userRepository");
 const refreshTokenRepository = require("../repository/RefreshTokenRepository");
 const loginHistoryRepository = require("../repository/loginHistoryRepository");
 const { redisClient } = require("../utils/redisClient");
 const { sendOTPEmail } = require("../utils/sendEmail");
+const { uploadFile } = require("./file.service");
 const tableName = "User";
 
 const FORGOT_OTP_TTL_SECONDS = 300;
@@ -102,7 +101,10 @@ const UserService = {
   updateUser: async (userId, userData, avatarFile) => {
 
     if (avatarFile) {
-      const avatarUrl = await uploadAvatarToS3(userId, avatarFile);
+      const avatarUrl = await uploadFile(avatarFile, {
+        folder: "users",
+        subfolder: `${userId}/avatars`
+      });
       userData.avartarUrl = avatarUrl;
     }
 

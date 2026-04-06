@@ -1,19 +1,23 @@
 require("dotenv").config();
+const path = require("path");
+const heicConvert = require("heic-convert");
 const { s3 } = require("../utils/aws-helper");
 
-const randomString = (numberCharacter) => {
-  return `${Math.random()
-    .toString(36)
-    .substring(2, numberCharacter + 2)}`;
-};
+const randomString = (numberCharacter) =>
+  `${Math.random().toString(36).substring(2, numberCharacter + 2)}`;
 
-const FILE_TYPE_MATCH = [
+const FILE_TYPE_MATCH = new Set([
   "image/png",
   "image/jpeg",
   "image/jpg",
   "image/gif",
+  "image/webp",
+  "image/heic",
+  "image/heif",
   "video/mp3",
   "video/mp4",
+  "video/quicktime",
+  "video/webm",
   "application/pdf",
   "application/msword",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -21,7 +25,67 @@ const FILE_TYPE_MATCH = [
   "application/vnd.openxmlformats-officedocument.presentationml.presentation",
   "application/vnd.rar",
   "application/zip",
-];
+]);
+
+const MIME_EXTENSION_MAP = {
+  "image/png": ".png",
+  "image/jpeg": ".jpg",
+  "image/jpg": ".jpg",
+  "image/gif": ".gif",
+  "image/webp": ".webp",
+  "image/heic": ".heic",
+  "image/heif": ".heif",
+  "video/mp3": ".mp3",
+  "video/mp4": ".mp4",
+  "video/quicktime": ".mov",
+  "video/webm": ".webm",
+  "application/pdf": ".pdf",
+  "application/msword": ".doc",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
+  "application/vnd.ms-powerpoint": ".ppt",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation": ".pptx",
+  "application/vnd.rar": ".rar",
+  "application/zip": ".zip",
+};
+
+const HEIC_MIME_TYPES = new Set(["image/heic", "image/heif"]);
+
+const sanitizePathSegment = (value, fallback = "file") => {
+  const normalized = String(value || "").trim();
+  if (!normalized) {
+    return fallback;
+  }
+
+  const sanitized = normalized.replace(/[^a-zA-Z0-9-_]/g, "_");
+  return sanitized || fallback;
+};
+
+const normalizePathParts = (...parts) =>
+  parts
+    .flatMap((part) => String(part || "").split("/"))
+    .map((part) => sanitizePathSegment(part, "folder"))
+    .filter(Boolean);
+
+const getFileExtension = (file = {}) => {
+  const originalExtension = path.extname(file.originalname || "");
+  if (originalExtension) {
+    return originalExtension.toLowerCase();
+  }
+
+  return MIME_EXTENSION_MAP[file.mimetype] || ".bin";
+};
+
+const getFileBaseName = (file = {}) => {
+  const originalName = path.basename(file.originalname || "file", path.extname(file.originalname || ""));
+  return sanitizePathSegment(originalName, "file");
+};
+
+const buildObjectKey = (file, { folder = "uploads", subfolder = "" } = {}) => {
+  const extension = getFileExtension(file);
+  const baseName = getFileBaseName(file);
+  const uniqueName = `${randomString(6)}-${Date.now()}-${baseName}${extension}`;
+  return [...normalizePathParts(folder), ...normalizePathParts(subfolder), uniqueName].join("/");
+};
 
 const buildPublicFileUrl = ({ key, location }) => {
   const cloudfrontUrl = (process.env.CLOUDFRONT_URL || "").trim();
@@ -140,24 +204,62 @@ const deleteFiles = async (fileRefs = []) => {
   return { deletedCount: uniqueKeys.length };
 };
 
-const uploadFile = async (file) => {
-  const filePath = `${randomString(4)}-${new Date().getTime()}-${file?.originalname}`;
+const replaceExtension = (fileName = "file", nextExtension = ".jpg") => {
+  const baseName = path.basename(fileName, path.extname(fileName));
+  return `${baseName}${nextExtension}`;
+};
+
+const normalizeUploadFile = async (file) => {
+  if (!file) {
+    return file;
+  }
+
+  if (!HEIC_MIME_TYPES.has(file.mimetype)) {
+    return file;
+  }
+
+  try {
+    const converted = await heicConvert({
+      buffer: file.buffer,
+      format: "JPEG",
+      quality: 0.92,
+    });
+
+    const convertedBuffer = Buffer.isBuffer(converted)
+      ? converted
+      : Buffer.from(converted);
+
+    return {
+      ...file,
+      buffer: convertedBuffer,
+      mimetype: "image/jpeg",
+      originalname: replaceExtension(file.originalname, ".jpg"),
+    };
+  } catch (error) {
+    console.error("Failed to convert HEIC/HEIF to JPEG:", error);
+    throw new Error("Convert HEIC/HEIF to JPEG failed");
+  }
+};
+
+const uploadFile = async (file, options = {}) => {
   const bucketName = (process.env.BUCKET_NAME || "").trim();
   const objectAcl = (process.env.S3_OBJECT_ACL || "").trim();
 
-  if (FILE_TYPE_MATCH.indexOf(file.mimetype) === -1) {
-    throw new Error(`${file?.originalname} is invalid!`);
+  if (!file || !FILE_TYPE_MATCH.has(file.mimetype)) {
+    throw new Error(`${file?.originalname || "file"} is invalid!`);
   }
 
   if (!bucketName) {
     throw new Error("BUCKET_NAME is not configured");
   }
 
+  const normalizedFile = await normalizeUploadFile(file);
+  const objectKey = buildObjectKey(normalizedFile, options);
   const uploadParams = {
     Bucket: bucketName,
-    Body: file?.buffer,
-    Key: filePath,
-    ContentType: file?.mimetype,
+    Body: normalizedFile.buffer,
+    Key: objectKey,
+    ContentType: normalizedFile.mimetype,
   };
 
   if (objectAcl) {
@@ -173,15 +275,19 @@ const uploadFile = async (file) => {
       key: data.Key,
       location: data.Location,
     });
-  } catch (err) {
-    console.error("Error uploading file to AWS S3:", err);
-    throw new Error(`Upload file to AWS S3 failed: ${err.message}`);
+  } catch (error) {
+    console.error("Error uploading file to AWS S3:", error);
+    throw new Error(`Upload file to AWS S3 failed: ${error.message}`);
   }
 };
+
+const uploadFiles = async (files = [], options = {}) =>
+  Promise.all((Array.isArray(files) ? files : []).map((file) => uploadFile(file, options)));
 
 module.exports = {
   deleteFiles,
   getAccessibleFileUrl,
   getAccessibleFileUrls,
   uploadFile,
+  uploadFiles,
 };

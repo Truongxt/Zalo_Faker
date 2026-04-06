@@ -41,10 +41,12 @@ export default function CreateGroupModal({ isOpen, onClose }: CreateGroupModalPr
         }
     }, [isOpen, user?.id])
 
-    const filteredContacts = contacts.filter(c => 
-        c.fullName.toLowerCase().includes(searchQuery.toLowerCase()) || 
-        c.phoneNumber.includes(searchQuery)
-    )
+    const filteredContacts = contacts.filter(c => {
+        const name = (c.fullName || c.userName || '').toLowerCase()
+        const query = searchQuery.toLowerCase()
+        const phone = (c.phoneNumber || c.phone || '')
+        return name.includes(query) || phone.includes(searchQuery)
+    })
 
     const handleToggleSelect = (id: string) => {
         setSelectedIds(prev => 
@@ -168,14 +170,14 @@ export default function CreateGroupModal({ isOpen, onClose }: CreateGroupModalPr
                                             ) : (
                                                 <div className="w-10 h-10 rounded-full bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center">
                                                     <span className="text-primary-600 dark:text-primary-400 font-medium">
-                                                        {contact.fullName.charAt(0).toUpperCase()}
+                                                        {(contact.fullName || contact.userName || 'U').charAt(0).toUpperCase()}
                                                     </span>
                                                 </div>
                                             )}
                                             
                                             <div className="flex-1 min-w-0">
                                                 <p className="font-medium text-gray-900 dark:text-white truncate">
-                                                    {contact.fullName}
+                                                    {contact.fullName || contact.userName}
                                                 </p>
                                             </div>
                                         </button>

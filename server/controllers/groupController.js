@@ -16,7 +16,12 @@ const GroupController = {
         typeof req.body.memberIds === "string"
           ? JSON.parse(req.body.memberIds)
           : req.body.memberIds;
-      const avatar = req.file ? await uploadFile(req.file) : req.body.avatar;
+      const avatar = req.file
+        ? await uploadFile(req.file, {
+            folder: "groups",
+            subfolder: getRequesterId(req),
+          })
+        : req.body.avatar;
 
       const group = await GroupService.createGroup({
         ...req.body,

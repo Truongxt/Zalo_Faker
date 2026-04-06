@@ -2,7 +2,7 @@ import { socketService } from '@/lib/socket'
 import { useChatStore, Message, Conversation } from '@/stores/chatStore'
 import { useAuthStore } from '@/stores/authStore'
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000/api'
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api'
 
 export const chatService = {
     // Initialize socket listeners

@@ -13,6 +13,8 @@ export const mockCurrentUser: User = {
     bio: 'Đang học CNTT tại UIT',
     status: 'online',
     lastSeen: null,
+    birthday: '2000-01-01',
+    gender: 'male',
     createdAt: '2025-09-01T08:00:00.000Z'
 }
 
@@ -29,6 +31,8 @@ export const mockUsers: User[] = [
         bio: 'Yêu thương là sức mạnh',
         status: 'online',
         lastSeen: null,
+        birthday: '2001-05-15',
+        gender: 'female',
         createdAt: '2025-08-15T10:00:00.000Z'
     },
     {
@@ -40,6 +44,8 @@ export const mockUsers: User[] = [
         bio: 'Backend developer',
         status: 'offline',
         lastSeen: '2026-03-06T08:30:00.000Z',
+        birthday: '1999-11-20',
+        gender: 'male',
         createdAt: '2025-09-10T14:00:00.000Z'
     },
     {
@@ -51,6 +57,8 @@ export const mockUsers: User[] = [
         bio: 'UI/UX Designer',
         status: 'online',
         lastSeen: null,
+        birthday: '2002-02-14',
+        gender: 'female',
         createdAt: '2025-07-20T09:00:00.000Z'
     },
     {
@@ -62,6 +70,8 @@ export const mockUsers: User[] = [
         bio: 'Full-stack developer',
         status: 'offline',
         lastSeen: '2026-03-05T22:15:00.000Z',
+        birthday: '1998-08-08',
+        gender: 'male',
         createdAt: '2025-10-01T11:00:00.000Z'
     },
     {
@@ -73,6 +83,8 @@ export const mockUsers: User[] = [
         bio: 'Quản trị kinh doanh',
         status: 'online',
         lastSeen: null,
+        birthday: '2000-12-25',
+        gender: 'female',
         createdAt: '2025-11-05T16:00:00.000Z'
     },
     {
@@ -84,6 +96,8 @@ export const mockUsers: User[] = [
         bio: 'Mobile developer',
         status: 'offline',
         lastSeen: '2026-03-04T18:00:00.000Z',
+        birthday: '1997-03-30',
+        gender: 'male',
         createdAt: '2025-08-25T13:00:00.000Z'
     },
     {
@@ -95,6 +109,8 @@ export const mockUsers: User[] = [
         bio: 'Data Scientist',
         status: 'online',
         lastSeen: null,
+        birthday: '2001-09-09',
+        gender: 'female',
         createdAt: '2025-12-10T07:00:00.000Z'
     },
     {
@@ -106,6 +122,8 @@ export const mockUsers: User[] = [
         bio: 'DevOps Engineer',
         status: 'offline',
         lastSeen: '2026-03-03T20:00:00.000Z',
+        birthday: '1996-10-10',
+        gender: 'male',
         createdAt: '2025-06-15T12:00:00.000Z'
     },
 ]

@@ -154,9 +154,9 @@ export default function Login() {
                                     <input type="checkbox" className="w-4 h-4 rounded border-gray-300 text-primary-500 focus:ring-primary-500" />
                                     <span className="text-sm text-gray-600 dark:text-gray-400">Ghi nhớ đăng nhập</span>
                                 </label>
-                                <a href="#" className="text-sm text-primary-500 hover:text-primary-600 font-medium">
+                                <Link to="/forgot-password" className="text-sm text-primary-500 hover:text-primary-600 font-medium">
                                     Quên mật khẩu?
-                                </a>
+                                </Link>
                             </div>
 
                             <button
