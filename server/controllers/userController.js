@@ -139,7 +139,55 @@ getUserById: async (req, res) => {
       const status = /required|not found|verification/i.test(message) ? 400 : 500;
       res.status(status).json({ message });
     }
-  }
+  },
+
+  // ===== CHANGE PASSWORD =====
+  changePassword: async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const { oldPassword, newPassword } = req.body || {};
+      const result = await userService.changePassword(userId, oldPassword, newPassword);
+      res.json(result);
+    } catch (err) {
+      const message = err.message || "Failed to change password";
+      const status = /required|not found|incorrect/i.test(message) ? 400 : 500;
+      res.status(status).json({ message });
+    }  },
+
+  // ===== REGISTRATION WITH OTP =====
+  registerRequestOtp: async (req, res) => {
+    try {
+      const { email } = req.body || {};
+      const result = await userService.registerRequestOtp(email);
+      res.json(result);
+    } catch (err) {
+      const message = err.message || "Failed to send OTP";
+      const status = /required|exists|already|wait/i.test(message) ? 400 : 500;
+      res.status(status).json({ message });
+    }
+  },
+
+  registerVerifyOtp: async (req, res) => {
+    try {
+      const { email, otp } = req.body || {};
+      const result = await userService.registerVerifyOtp(email, otp);
+      res.json(result);
+    } catch (err) {
+      const message = err.message || "Failed to verify OTP";
+      const status = /required|expired|invalid|not found/i.test(message) ? 400 : 500;
+      res.status(status).json({ message });
+    }
+  },
+
+  registerComplete: async (req, res) => {
+    try {
+      const result = await userService.registerComplete(req.body);
+      res.status(201).json(result);
+    } catch (err) {
+      const message = err.message || "Failed to complete registration";
+      const status = /required|verification|expired|exists|already/i.test(message) ? 400 : 500;
+      res.status(status).json({ message });
+    }  }
 
 }
 module.exports = userController;

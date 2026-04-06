@@ -162,7 +162,7 @@ export default function LoginScreen() {
           {/* Register link */}
           <View className="flex-row justify-center mt-8">
             <Text className="text-gray-500 text-sm">Chưa có tài khoản? </Text>
-            <Link href="/(auth)/register" asChild>
+            <Link href="/(auth)/register-otp" asChild>
               <TouchableOpacity>
                 <Text className="text-[#0068FF] text-sm font-semibold">
                   Đăng ký ngay

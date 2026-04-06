@@ -202,6 +202,42 @@ class UserService {
     return response.data;
   }
 
+  // POST /api/users/:userId/change-password - đổi mật khẩu
+  async changePassword(userId: string, oldPassword: string, newPassword: string): Promise<{ message: string; user: User }> {
+    const response = await apiClient.post<{ message: string; user: ServerUser }>(
+      `/api/users/${userId}/change-password`,
+      { oldPassword, newPassword },
+    );
+    return { message: response.data.message, user: mapServerUser(response.data.user) };
+  }
+
+  // POST /api/users/register/request-otp - gửi OTP khi đăng ký
+  async registerRequestOtp(email: string): Promise<{ message: string; expiresIn: number }> {
+    const response = await apiClient.post<{ message: string; expiresIn: number }>(
+      "/api/users/register/request-otp",
+      { email },
+    );
+    return response.data;
+  }
+
+  // POST /api/users/register/verify-otp - xác thực OTP đăng ký
+  async registerVerifyOtp(email: string, otp: string): Promise<{ message: string; expiresIn: number }> {
+    const response = await apiClient.post<{ message: string; expiresIn: number }>(
+      "/api/users/register/verify-otp",
+      { email, otp },
+    );
+    return response.data;
+  }
+
+  // POST /api/users/register/complete - hoàn tất đăng ký sau xác thực OTP
+  async registerComplete(data: RegisterData): Promise<{ message: string; user: User }> {
+    const response = await apiClient.post<{ message: string; user: ServerUser }>(
+      "/api/users/register/complete",
+      data,
+    );
+    return { message: response.data.message, user: mapServerUser(response.data.user) };
+  }
+
 }
 
 

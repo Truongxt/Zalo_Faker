@@ -10,7 +10,7 @@ import {
   ActivityIndicator,
   Alert,
 } from "react-native";
-import { Link, useRouter } from "expo-router";
+import { Link, useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { userService } from "@/services";
 
@@ -40,10 +40,12 @@ const getErrorMessage = (error: unknown, fallback: string) => {
 
 export default function RegisterScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams();
   const insets = useSafeAreaInsets();
 
   const [fullName, setFullName] = useState("");
-  const [email, setEmail] = useState("");
+  const verifiedEmail =
+    typeof params.email === "string" ? params.email.trim().toLowerCase() : "";
   const [phone, setPhone] = useState("");
   const [birthday, setBirthday] = useState("");
   const [gender, setGender] =
@@ -59,8 +61,9 @@ export default function RegisterScreen() {
       Alert.alert("Lỗi", "Vui lòng nhập họ và tên");
       return;
     }
-    if (!email.trim()) {
-      Alert.alert("Lỗi", "Vui lòng nhập email");
+    if (!verifiedEmail) {
+      Alert.alert("Lỗi", "Email chưa được xác thực. Vui lòng xác thực lại.");
+      router.replace("/(auth)/register-otp");
       return;
     }
     if (!phone.trim()) {
@@ -86,17 +89,18 @@ export default function RegisterScreen() {
 
     setIsLoading(true);
     try {
-      await userService.register({
+      const registerData = {
         userName: fullName.trim(),
-        email: email.trim().toLowerCase(),
+        email: verifiedEmail,
         phone: phone.trim(),
         birthday: birthday.trim(),
         gender,
         password,
         avartarUrl: DEFAULT_AVATAR_URL,
         status: "active",
-      });
+      };
 
+      await userService.registerComplete(registerData);
       Alert.alert("Thành công", "Đăng ký tài khoản thành công");
       router.replace("/(auth)/login");
     } catch (error) {
@@ -163,18 +167,13 @@ export default function RegisterScreen() {
 
               <View>
                 <Text className="text-sm font-medium text-gray-700 mb-1.5">
-                  Email
+                  Email đã xác thực
                 </Text>
-                <TextInput
-                  value={email}
-                  onChangeText={setEmail}
-                  placeholder="example@email.com"
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  className="h-12 px-4 bg-gray-100 rounded-2xl text-gray-900"
-                  placeholderTextColor="#9CA3AF"
-                />
+                <View className="h-12 px-4 bg-blue-50 rounded-2xl border border-blue-100 items-start justify-center">
+                  <Text className="text-gray-900">
+                    {verifiedEmail || "Chưa có email"}
+                  </Text>
+                </View>
               </View>
 
               <View>

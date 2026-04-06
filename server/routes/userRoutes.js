@@ -108,6 +108,10 @@ router.post("/refresh-token", userController.refreshToken);
 router.post("/forgot-password/request-otp", userController.forgotPasswordRequestOtp);
 router.post("/forgot-password/verify-otp", userController.forgotPasswordVerifyOtp);
 router.post("/forgot-password/reset", userController.forgotPasswordReset);
+router.post("/register/request-otp", userController.registerRequestOtp);
+router.post("/register/verify-otp", userController.registerVerifyOtp);
+router.post("/register/complete", userController.registerComplete);
+router.post("/:userId/change-password", auth, userController.changePassword);
 
 
 /**
