@@ -11,6 +11,7 @@ import {
   Platform,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
+import * as FileSystem from "expo-file-system";
 import DateTimePicker, {
   DateTimePickerEvent,
 } from "@react-native-community/datetimepicker";
@@ -83,6 +84,27 @@ const parseBirthday = (value: string) => {
 const isLocalImageUri = (value: string) =>
   value.startsWith("file://") || value.startsWith("content://");
 
+const cachePickedAvatar = async (uri: string) => {
+  if (!uri || !FileSystem.cacheDirectory) {
+    return uri;
+  }
+
+  const extFromUri = uri.split("?")[0].split(".").pop()?.toLowerCase();
+  const ext = extFromUri || "jpg";
+  const destination = `${FileSystem.cacheDirectory}avatar-preview-${Date.now()}.${ext}`;
+
+  try {
+    await FileSystem.copyAsync({
+      from: uri,
+      to: destination,
+    });
+    return destination;
+  } catch {
+    // Fallback to original URI if cache copy fails on some providers.
+    return uri;
+  }
+};
+
 export default function UserProfileScreen() {
   const { userId } = useLocalSearchParams<{ userId?: string }>();
   const router = useRouter();
@@ -95,6 +117,9 @@ export default function UserProfileScreen() {
   const [isSaving, setIsSaving] = useState(false);
   const [showBirthdayPicker, setShowBirthdayPicker] = useState(false);
   const [form, setForm] = useState<ProfileForm>(emptyForm);
+
+  const previewName = isEditing ? form.fullName : profile?.fullName;
+  const previewAvatarUri = isEditing ? form.avatarUrl : profile?.avatarUrl;
 
   const targetUserId = useMemo(() => String(userId || ""), [userId]);
   const isOwnProfile = !!currentUser?.id && currentUser.id === targetUserId;
@@ -211,9 +236,11 @@ export default function UserProfileScreen() {
       return;
     }
 
+    const cachedUri = await cachePickedAvatar(asset.uri);
+
     setForm((prev) => ({
       ...prev,
-      avatarUrl: asset.uri,
+      avatarUrl: cachedUri,
     }));
   };
 
@@ -234,19 +261,23 @@ export default function UserProfileScreen() {
 
     setIsSaving(true);
     try {
-      let avatarUrl = form.avatarUrl.trim();
+      const avatarValue = form.avatarUrl.trim();
+      const avatarFileUri =
+        avatarValue && isLocalImageUri(avatarValue) ? avatarValue : undefined;
+      const avatarUrlForUpdate =
+        avatarValue && !avatarFileUri ? avatarValue : undefined;
 
-      if (avatarUrl && isLocalImageUri(avatarUrl)) {
-        avatarUrl = await userService.uploadAvatar(avatarUrl);
-      }
-
-      const updated = await userService.updateUser(profile.id, {
-        userName: form.fullName.trim(),
-        phone: form.phone.trim(),
-        birthday: form.birthday.trim() || undefined,
-        gender: form.gender.trim() || undefined,
-        avartarUrl: avatarUrl || undefined,
-      });
+      const updated = await userService.updateUser(
+        profile.id,
+        {
+          userName: form.fullName.trim(),
+          phone: form.phone.trim(),
+          birthday: form.birthday.trim() || undefined,
+          gender: form.gender.trim() || undefined,
+          avartarUrl: avatarUrlForUpdate,
+        },
+        avatarFileUri,
+      );
 
       setProfile(updated);
       setForm(buildForm(updated));
@@ -326,12 +357,12 @@ export default function UserProfileScreen() {
 
           <View className="items-center py-8 bg-white mb-2">
             <Avatar
-              name={profile.fullName || "User"}
-              uri={profile.avatarUrl}
+              name={previewName || "User"}
+              uri={previewAvatarUri}
               size={80}
             />
             <Text className="text-xl font-bold text-gray-900 mt-4">
-              {profile.fullName}
+              {previewName || "-"}
             </Text>
             <Text className="text-gray-500 mt-1">{profile.email}</Text>
             <Text className="text-gray-400 mt-1 text-xs">ID: {profile.id}</Text>
@@ -438,7 +469,7 @@ export default function UserProfileScreen() {
                 <View className="flex-row items-center gap-3">
                   <Avatar
                     name={form.fullName || profile.fullName || "User"}
-                    uri={form.avatarUrl || profile.avatarUrl}
+                    uri={form.avatarUrl}
                     size={72}
                   />
 

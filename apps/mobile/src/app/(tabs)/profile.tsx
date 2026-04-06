@@ -33,7 +33,11 @@ export default function ProfileScreen() {
   const menuItems = [
     { icon: "🔔", title: "Thông báo", onPress: () => {} },
     { icon: "🌙", title: "Giao diện", onPress: () => {} },
-    { icon: "🔒", title: "Bảo mật", onPress: () => {} },
+    {
+      icon: "🔒",
+      title: "Bảo mật",
+      onPress: () => router.push("../profile/security"),
+    },
     { icon: "💾", title: "Dữ liệu & Lưu trữ", onPress: () => {} },
     { icon: "❓", title: "Trợ giúp", onPress: () => {} },
     { icon: "ℹ️", title: "Về ứng dụng", onPress: () => {} },

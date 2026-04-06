@@ -5,6 +5,8 @@ const {
   signAccessToken,
   signRefreshToken
 } = require("../utils/jwt");
+const { s3 } = require("../utils/aws-helper");
+const { v4: uuidv4 } = require("uuid");
 
 const userRepository = require("../repository/userRepository");
 const refreshTokenRepository = require("../repository/RefreshTokenRepository");
@@ -20,6 +22,35 @@ const normalizeEmail = (email) => String(email || "").trim().toLowerCase();
 
 const generateOtp = () => String(Math.floor(100000 + Math.random() * 900000));
 
+const sanitizePathSegment = (value, fallback) => {
+  const normalized = String(value || "").trim();
+  if (!normalized) {
+    return fallback;
+  }
+
+  return normalized.replace(/[^a-zA-Z0-9-_]/g, "_");
+};
+
+const uploadAvatarToS3 = async (userId, file) => {
+  const safeUserId = sanitizePathSegment(userId, "anonymous");
+  const originalName = file.originalname || "avatar.jpg";
+  const extension = originalName.includes(".")
+    ? originalName.split(".").pop()
+    : "jpg";
+  const fileName = `${uuidv4()}.${extension}`;
+
+  const params = {
+    Bucket: process.env.BUCKET_NAME,
+    Key: `avatars/${safeUserId}/${fileName}`,
+    Body: file.buffer,
+    ContentType: file.mimetype,
+   
+  };
+
+  const data = await s3.upload(params).promise();
+  return data.Location;
+};
+
 const UserService = {
 
   register: async userData => {
@@ -29,9 +60,13 @@ const UserService = {
     if (!email || !password || !userName||!gender||!phone||!status||!avartarUrl||!birthday) {
       throw new Error("Email, password, and userName are required");
     }
-    const existingUser = await userRepository.getByEmail(email);
-    if (existingUser) {
+    const existingUserEmail = await userRepository.getByEmail(email);
+    if (existingUserEmail) {
       throw new Error("Email already exists");
+    }
+     const existingUserPhone = await userRepository.getByPhone(phone);
+    if (existingUserPhone) {
+      throw new Error("Phone number already exists");
     }
 
      const hashedPassword = await bcrypt.hash(password+"nhan123@@", 10);
@@ -55,7 +90,12 @@ const UserService = {
   getUsers: async () => {
     return await userRepository.getAll();
   },
-updateUser: async (userId, userData) => {
+updateUser: async (userId, userData, avatarFile) => {
+
+    if (avatarFile) {
+      const avatarUrl = await uploadAvatarToS3(userId, avatarFile);
+      userData.avartarUrl = avatarUrl;
+    }
 
     const updateFields = [];
     const ExpressionAttributeNames = {};
@@ -244,6 +284,162 @@ forgotPasswordReset: async (email, newPassword) => {
   await redisClient.del(verifiedKey);
 
   return { message: "Password reset successful" };
+},
+
+uploadAvatar: async (userId, file) => {
+  if (!file) {
+    throw new Error("No file uploaded");
+  }
+
+  const fileUrl = await uploadAvatarToS3(userId, file);
+
+  return {
+    url: fileUrl,
+    fileName: file.originalname,
+    fileSize: file.size,
+    mimetype: file.mimetype
+  };
+},
+
+changePassword: async (userId, oldPassword, newPassword) => {
+  if (!userId || !oldPassword || !newPassword) {
+    throw new Error("userId, oldPassword, and newPassword are required");
+  }
+
+  // 1. Lấy user từ database
+  const user = await userRepository.getById(userId);
+  if (!user) {
+    throw new Error("User not found");
+  }
+
+  // 2. Xác thực mật khẩu cũ
+  const isMatch = await bcrypt.compare(oldPassword + "nhan123@@", user.password);
+  if (!isMatch) {
+    throw new Error("Old password is incorrect");
+  }
+
+  // 3. Hash mật khẩu mới
+  const hashedNewPassword = await bcrypt.hash(newPassword + "nhan123@@", 10);
+
+  // 4. Update password
+  const params = {
+    TableName: tableName,
+    Key: { userId },
+    UpdateExpression: "set password = :password",
+    ExpressionAttributeValues: {
+      ":password": hashedNewPassword
+    },
+    ReturnValues: "ALL_NEW"
+  };
+
+  const result = await userRepository.update(params);
+  const { password: _, ...safeUser } = result;
+
+  return {
+    message: "Password changed successfully",
+    user: safeUser
+  };
+},
+
+// ===== REGISTRATION WITH OTP =====
+registerRequestOtp: async (email) => {
+  const normalizedEmail = normalizeEmail(email);
+  if (!normalizedEmail) {
+    throw new Error("Email is required");
+  }
+
+  const existingUserEmail = await userRepository.getByEmail(normalizedEmail);
+  if (existingUserEmail) {
+    throw new Error("Email already exists");
+  }
+
+  const limitKey = `register:limit:${normalizedEmail}`;
+  const isLimited = await redisClient.get(limitKey);
+  if (isLimited) {
+    throw new Error("Please wait before requesting a new OTP");
+  }
+
+  const otp = generateOtp();
+  const otpKey = `register:otp:${normalizedEmail}`;
+  await redisClient.set(otpKey, otp, { EX: FORGOT_OTP_TTL_SECONDS });
+  await redisClient.set(limitKey, "1", { EX: FORGOT_RESEND_LIMIT_SECONDS });
+
+  await sendOTPEmail({
+    to: normalizedEmail,
+    otp,
+  });
+
+  return { message: "OTP sent to email", expiresIn: FORGOT_OTP_TTL_SECONDS };
+},
+
+registerVerifyOtp: async (email, otp) => {
+  const normalizedEmail = normalizeEmail(email);
+  const normalizedOtp = String(otp || "").trim();
+
+  if (!normalizedEmail || !normalizedOtp) {
+    throw new Error("Email and OTP are required");
+  }
+
+  const otpKey = `register:otp:${normalizedEmail}`;
+  const savedOtp = await redisClient.get(otpKey);
+
+  if (!savedOtp) {
+    throw new Error("OTP expired or not found");
+  }
+
+  if (savedOtp !== normalizedOtp) {
+    throw new Error("Invalid OTP");
+  }
+
+  const verifiedKey = `register:verified:${normalizedEmail}`;
+  await redisClient.del(otpKey);
+  await redisClient.set(verifiedKey, "1", { EX: FORGOT_VERIFY_TTL_SECONDS });
+
+  return { message: "OTP verified", expiresIn: FORGOT_VERIFY_TTL_SECONDS };
+},
+
+registerComplete: async (registerData) => {
+  const { avartarUrl, birthday, email, gender, password, phone, status, userName } = registerData || {};
+
+  if (!email || !password || !userName || !gender || !phone || !status || !avartarUrl || !birthday) {
+    throw new Error("All fields are required");
+  }
+
+  const normalizedEmail = normalizeEmail(email);
+  const verifiedKey = `register:verified:${normalizedEmail}`;
+  const isVerified = await redisClient.get(verifiedKey);
+  if (!isVerified) {
+    throw new Error("Email verification required");
+  }
+
+  const existingUserEmail = await userRepository.getByEmail(normalizedEmail);
+  if (existingUserEmail) {
+    throw new Error("Email already exists");
+  }
+
+  const existingUserPhone = await userRepository.getByPhone(phone);
+  if (existingUserPhone) {
+    throw new Error("Phone number already exists");
+  }
+
+  const hashedPassword = await bcrypt.hash(password + "nhan123@@", 10);
+  const user = {
+    userId: await generateId("user"),
+    avartarUrl,
+    birthday,
+    createdAt: new Date().toISOString(),
+    email: normalizedEmail,
+    gender,
+    password: hashedPassword,
+    phone,
+    status: status || "active",
+    userName,
+  };
+
+  const createdUser = await userRepository.register(user);
+  await redisClient.del(verifiedKey);
+
+  return { message: "Registration completed", user: createdUser };
 }
 
 };
