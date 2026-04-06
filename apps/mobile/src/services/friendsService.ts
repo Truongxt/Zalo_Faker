@@ -1,7 +1,7 @@
 import { Friends } from "@/types";
 import apiClient from "./apiClient";
 
- class FriendsService {
+class FriendsService {
     async sendFriendRequests(fromUserId: string, toUserId: string, message: string): Promise<Friends[]> {
         const response = await apiClient.post<{ data: Friends[] }>("/api/friends/requests", { fromUserId, toUserId, message });
         return response.data.data;
@@ -21,6 +21,7 @@ import apiClient from "./apiClient";
         const response = await apiClient.get<{ data: Friends[] }>(`/api/friends/requests/pending/${userId}`);
         return response.data.data;
     }
+
     async getExitingFriend(userId1: string, userId2: string): Promise<Friends | null> {
         try {
             const response = await apiClient.get<{ data: Friends }>(`/api/friends/check?userId1=${userId1}&userId2=${userId2}`);
@@ -32,5 +33,10 @@ import apiClient from "./apiClient";
             throw error;
         }
     }
+
+    async rejectFriendRequest(fromUserId: string, toUserId: string): Promise<void> {
+        await apiClient.post('/api/friends/requests/reject', { fromUserId, toUserId });
+    }
 }
+
 export const friendsService = new FriendsService();

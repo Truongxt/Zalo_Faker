@@ -46,6 +46,7 @@ export interface UpdateUserData {
   gender?: string;
   password?: string;
   status?: string;
+  bio?: string;
 }
 
 export interface RegisterData {

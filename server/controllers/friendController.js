@@ -116,6 +116,23 @@ async getExitingFriend(req, res) {
         message: error.message
       });
     }
+  },
+
+  // từ chối lời mời kết bạn
+  async rejectFriendRequest(req, res) {
+    try {
+      const { fromUserId, toUserId } = req.body;
+
+      if (!fromUserId || !toUserId) {
+        return res.status(400).json({ message: "fromUserId và toUserId là bắt buộc" });
+      }
+
+      await friendService.rejectFriendRequest(fromUserId, toUserId);
+
+      res.status(200).json({ message: "Đã từ chối lời mời kết bạn" });
+    } catch (error) {
+      res.status(500).json({ message: error.message });
+    }
   }
 
 }

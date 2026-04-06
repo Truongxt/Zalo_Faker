@@ -31,6 +31,7 @@ type ProfileForm = {
   birthday: string;
   gender: string;
   avatarUrl: string;
+  bio: string;
 };
 
 const GENDER_OPTIONS = [
@@ -45,6 +46,7 @@ const emptyForm: ProfileForm = {
   birthday: "",
   gender: "male",
   avatarUrl: "",
+  bio: "",
 };
 
 const getErrorMessage = (error: unknown, fallback: string) => {
@@ -68,6 +70,7 @@ const buildForm = (user: User): ProfileForm => ({
   birthday: user.birthday || "",
   gender: user.gender || "male",
   avatarUrl: user.avatarUrl || "",
+  bio: user.bio || "",
 });
 
 const formatDate = (date: Date) => date.toISOString().slice(0, 10);
@@ -275,6 +278,7 @@ export default function UserProfileScreen() {
           birthday: form.birthday.trim() || undefined,
           gender: form.gender.trim() || undefined,
           avartarUrl: avatarUrlForUpdate,
+          bio: form.bio.trim() || undefined,
         },
         avatarFileUri,
       );
@@ -459,6 +463,25 @@ export default function UserProfileScreen() {
                     );
                   })}
                 </View>
+              </View>
+
+              {/* Bio */}
+              <View>
+                <Text className="text-sm font-medium text-gray-700 mb-1.5">
+                  Giới thiệu
+                </Text>
+                <TextInput
+                  value={form.bio}
+                  onChangeText={(value) =>
+                    setForm((prev) => ({ ...prev, bio: value }))
+                  }
+                  placeholder="Viết vài dòng về bản thân..."
+                  multiline
+                  numberOfLines={3}
+                  className="px-4 py-3 bg-gray-100 rounded-xl text-gray-900"
+                  textAlignVertical="top"
+                  style={{ minHeight: 80 }}
+                />
               </View>
 
               <View className="gap-3">
