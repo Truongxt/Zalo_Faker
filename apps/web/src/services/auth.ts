@@ -11,7 +11,7 @@ export const authService = {
         gender: string;
         avatarUrl?: string;
     }): Promise<{ user: User; accessToken: string }> {
-        const response = await fetch(`${baseAPI}/users/register`, {
+        const response = await fetch(`${baseAPI}/users/register/complete`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -172,11 +172,37 @@ export const authService = {
         return response.json();
     },
 
+    async registerRequestOtp(email: string): Promise<{ message: string; expiresIn: number }> {
+        const response = await fetch(`${baseAPI}/users/register/request-otp`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email })
+        });
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.message || 'Không thể gửi OTP');
+        }
+        return response.json();
+    },
+
+    async registerVerifyOtp(email: string, otp: string): Promise<{ message: string; expiresIn: number }> {
+        const response = await fetch(`${baseAPI}/users/register/verify-otp`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, otp })
+        });
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.message || 'Xác thực OTP thất bại');
+        }
+        return response.json();
+    },
+
     async getSession() {
         return null;
     },
 
-    onAuthStateChange(callback: (event: string, session: any) => void) {
+    onAuthStateChange(_callback: (event: string, session: any) => void) {
         return { data: { subscription: { unsubscribe: () => {} } } };
     }
 }

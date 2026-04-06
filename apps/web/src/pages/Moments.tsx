@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { momentService } from '@/services/momentService';
-import { MomentAction, Moment } from '@/types/moment';
+import { Moment } from '@/types/moment';
 import MomentComposer from '@/components/moments/MomentComposer';
 import MomentCard from '@/components/moments/MomentCard';
 import { Sparkles, Users, User as UserIcon, Heart, Loader2 } from 'lucide-react';

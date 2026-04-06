@@ -275,6 +275,12 @@ const unpinGroupMessage = async (groupId: string) => {
     return response.json();
 }
 
+const getUserByPhone = async (phone: string): Promise<User> => {
+    const response = await fetchWithAuth(`/users/phone/${phone}`);
+    const data = await response.json();
+    return mapUser(data);
+}
+
 export {
     getConversation,
     getMessages,
@@ -301,5 +307,6 @@ export {
     getLabels,
     createLabel,
     updateLabel,
-    deleteLabel
+    deleteLabel,
+    getUserByPhone
 }

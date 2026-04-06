@@ -3,15 +3,18 @@ import { useAuthStore } from '@/stores/authStore'
 import { ToastProvider } from '@/contexts/ToastContext'
 
 // Pages
-import Landing from '@/pages/Landing'
-import Login from '@/pages/Login'
-import Register from '@/pages/Register'
-import ForgotPassword from '@/pages/ForgotPassword'
-import ChatLayout from '@/pages/ChatLayout'
-import ChatRoom from '@/pages/ChatRoom'
-import Moments from '@/pages/Moments'
-import Profile from '@/pages/Profile'
-import Settings from '@/pages/Settings'
+import {
+    Landing,
+    Login,
+    Register,
+    ForgotPassword,
+    ChatLayout,
+    ChatRoom,
+    Moments,
+    Contacts,
+    Profile,
+    Settings
+} from '@/pages'
 
 // Loading component
 function LoadingScreen() {
@@ -114,6 +117,7 @@ export default function App() {
                             </div>
                         } />
                         <Route path="moments" element={<Moments />} />
+                        <Route path="contacts" element={<Contacts />} />
                         <Route path=":conversationId" element={<ChatRoom />} />
                     </Route>
 
