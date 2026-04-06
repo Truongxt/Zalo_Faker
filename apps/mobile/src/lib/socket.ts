@@ -13,7 +13,7 @@ class SocketService {
     if (this.socket?.connected) return;
 
     this.socket = io(SOCKET_URL, {
-      auth: { token: accessToken },
+      auth: { token: accessToken, platform: "mobile" },
       transports: ["websocket"],
       reconnection: true,
       reconnectionAttempts: this.maxReconnectAttempts,

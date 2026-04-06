@@ -71,6 +71,43 @@ export const chatService = {
         updateMessage(conversationId, messageId, { isDeleted: true });
       },
     );
+
+    // ── Recalled messages ──────────────────────────────────────────
+    socket.on(
+      "chat:recalled",
+      ({
+        conversationId,
+        messageId,
+      }: {
+        conversationId: string;
+        messageId: string;
+      }) => {
+        const { updateMessage } = useChatStore.getState();
+        updateMessage(conversationId, messageId, { isDeleted: true });
+      },
+    );
+
+    // ── Reactions ──────────────────────────────────────────────────
+    socket.on(
+      "chat:reaction",
+      ({
+        messageId,
+        reactions,
+      }: {
+        messageId: string;
+        reactions: any[];
+      }) => {
+        // Find the conversationId from stored messages and update
+        const state = useChatStore.getState();
+        for (const [convId, messages] of Object.entries(state.messages)) {
+          const msg = (messages as Message[]).find((m) => m.id === messageId);
+          if (msg) {
+            state.updateMessage(convId, messageId, { reactions });
+            break;
+          }
+        }
+      },
+    );
   },
 
   /** Load all conversations */

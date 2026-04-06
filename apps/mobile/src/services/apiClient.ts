@@ -9,17 +9,26 @@ const apiClient = axios.create({
 
 console.log("[apiClient] baseURL:", API_URL);
 
+const isAuthEndpoint = (rawUrl: string) => {
+  const cleanUrl = (rawUrl || "").split("?")[0];
+
+  return (
+    cleanUrl.endsWith("/login") ||
+    cleanUrl.endsWith("/register") ||
+    cleanUrl.endsWith("/refresh-token") ||
+    cleanUrl.endsWith("/logout") ||
+    cleanUrl.endsWith("/unlock-account") ||
+    cleanUrl.includes("/forgot-password/") ||
+    cleanUrl.includes("/register/")
+  );
+};
+
 apiClient.interceptors.request.use(async (config) => {
   const finalUrl = `${config.baseURL || API_URL}${config.url || ""}`;
   console.log("[apiClient] interceptor running for:", config.url);
   console.log("[apiClient] final url:", finalUrl);
   const url = config.url || "";
-  const isPublicAuthRequest =
-    url.includes("/login") ||
-    url.includes("/register") ||
-    url.includes("/refresh-token") ||
-    url.includes("/forgot-password") ||
-    url.includes("/logout");
+  const isPublicAuthRequest = isAuthEndpoint(url);
 
   const isFormData =
     typeof FormData !== "undefined" && config.data instanceof FormData;
@@ -118,12 +127,7 @@ apiClient.interceptors.response.use(
 
     // Don't try to refresh for auth endpoints themselves
     const url = originalRequest.url || "";
-    if (
-      url.includes("/login") ||
-      url.includes("/register") ||
-      url.includes("/refresh-token") ||
-      url.includes("/logout")
-    ) {
+    if (isAuthEndpoint(url)) {
       return Promise.reject(error);
     }
 

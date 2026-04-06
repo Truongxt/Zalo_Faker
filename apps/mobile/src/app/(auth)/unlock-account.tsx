@@ -10,22 +10,28 @@ import {
   ActivityIndicator,
   Alert,
 } from "react-native";
-import { Link, useRouter } from "expo-router";
+import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useAuthStore } from "@/stores/authStore";
 import { userService } from "@/services";
 
-export default function LoginScreen() {
+export default function UnlockAccountScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { login } = useAuthStore();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleLogin = async () => {
+  const goBackSafe = () => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+    router.replace("/(auth)/login");
+  };
+
+  const handleUnlock = async () => {
     if (!email.trim()) {
       Alert.alert("Lỗi", "Vui lòng nhập email");
       return;
@@ -37,32 +43,23 @@ export default function LoginScreen() {
 
     setIsLoading(true);
     try {
-      const { user, accessToken, refreshToken } = await userService.login(
+      const result = await userService.unlockAccount(
         email.trim().toLowerCase(),
         password,
       );
-      login(user, accessToken, refreshToken);
-      router.replace("/(tabs)/chat/chats");
+
+      Alert.alert("Thành công", result.message, [
+        {
+          text: "Đăng nhập",
+          onPress: () => router.replace("/(auth)/login"),
+        },
+      ]);
     } catch (error: any) {
       const message =
         error?.response?.data?.message ||
         error?.message ||
-        "Đăng nhập thất bại";
-      if (/locked/i.test(message)) {
-        Alert.alert(
-          "Tài khoản bị khóa",
-          "Bạn có muốn mở khóa tài khoản ngay không?",
-          [
-            { text: "Hủy", style: "cancel" },
-            {
-              text: "Mở khóa",
-              onPress: () => router.push("/(auth)/unlock-account"),
-            },
-          ],
-        );
-      } else {
-        Alert.alert("Đăng nhập thất bại", message);
-      }
+        "Mở khóa tài khoản thất bại";
+      Alert.alert("Lỗi", message);
     } finally {
       setIsLoading(false);
     }
@@ -85,20 +82,25 @@ export default function LoginScreen() {
             paddingBottom: insets.bottom + 20,
           }}
         >
-          {/* Logo */}
-          <View className="items-center mb-12">
-            <View className="w-20 h-20 rounded-2xl bg-[#0068FF] items-center justify-center mb-4 shadow-lg">
-              <Text className="text-white text-3xl font-bold">UIA</Text>
+          <View className="mb-8">
+            <TouchableOpacity onPress={goBackSafe}>
+              <Text className="text-[#0068FF] text-base">‹ Quay lại</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View className="items-center mb-10">
+            <View className="w-20 h-20 rounded-2xl bg-amber-500 items-center justify-center mb-4 shadow-lg">
+              <Text className="text-white text-3xl font-bold">🔓</Text>
             </View>
-            <Text className="text-2xl font-bold text-gray-900">Hehe Haha</Text>
-            <Text className="text-gray-500 mt-1 text-sm">
-              Đăng nhập để tiếp tục
+            <Text className="text-2xl font-bold text-gray-900">
+              Mở khóa tài khoản
+            </Text>
+            <Text className="text-gray-500 mt-1 text-sm text-center">
+              Nhập đúng email và mật khẩu để mở khóa
             </Text>
           </View>
 
-          {/* Form */}
           <View className="gap-4">
-            {/* Email */}
             <View>
               <Text className="text-sm font-medium text-gray-700 mb-1.5">
                 Email
@@ -116,7 +118,6 @@ export default function LoginScreen() {
               />
             </View>
 
-            {/* Password */}
             <View>
               <Text className="text-sm font-medium text-gray-700 mb-1.5">
                 Mật khẩu
@@ -128,14 +129,13 @@ export default function LoginScreen() {
                   placeholder="••••••••"
                   secureTextEntry={!showPassword}
                   returnKeyType="done"
-                  onSubmitEditing={handleLogin}
+                  onSubmitEditing={handleUnlock}
                   className="flex-1 h-12 px-4 text-gray-900 text-base"
                   placeholderTextColor="#9CA3AF"
                 />
                 <TouchableOpacity
                   onPress={() => setShowPassword(!showPassword)}
                   className="px-4 h-12 justify-center"
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 >
                   <Text className="text-[#0068FF] text-sm font-medium">
                     {showPassword ? "Ẩn" : "Hiện"}
@@ -144,29 +144,10 @@ export default function LoginScreen() {
               </View>
             </View>
 
-            {/* Forgot password */}
-            <View className="items-end">
-              <Link href="/(auth)/forgot-password" asChild>
-                <TouchableOpacity>
-                  <Text className="text-[#0068FF] text-sm font-medium">
-                    Quên mật khẩu?
-                  </Text>
-                </TouchableOpacity>
-              </Link>
-              <Link href="/(auth)/unlock-account" asChild>
-                <TouchableOpacity className="mt-2">
-                  <Text className="text-amber-600 text-sm font-medium">
-                    Mở khóa tài khoản
-                  </Text>
-                </TouchableOpacity>
-              </Link>
-            </View>
-
-            {/* Login button */}
             <TouchableOpacity
-              onPress={handleLogin}
+              onPress={handleUnlock}
               disabled={isLoading}
-              className="h-12 bg-[#0068FF] rounded-xl items-center justify-center mt-2"
+              className="h-12 bg-amber-500 rounded-xl items-center justify-center mt-2"
               activeOpacity={0.85}
               style={{ opacity: isLoading ? 0.7 : 1 }}
             >
@@ -174,22 +155,10 @@ export default function LoginScreen() {
                 <ActivityIndicator color="white" />
               ) : (
                 <Text className="text-white font-semibold text-base">
-                  Đăng nhập
+                  Mở khóa tài khoản
                 </Text>
               )}
             </TouchableOpacity>
-          </View>
-
-          {/* Register link */}
-          <View className="flex-row justify-center mt-8">
-            <Text className="text-gray-500 text-sm">Chưa có tài khoản? </Text>
-            <Link href="/(auth)/register-otp" asChild>
-              <TouchableOpacity>
-                <Text className="text-[#0068FF] text-sm font-semibold">
-                  Đăng ký ngay
-                </Text>
-              </TouchableOpacity>
-            </Link>
           </View>
         </View>
       </ScrollView>
