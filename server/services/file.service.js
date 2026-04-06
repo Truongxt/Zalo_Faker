@@ -1,5 +1,6 @@
 require("dotenv").config();
 const path = require("path");
+const heicConvert = require("heic-convert");
 const { s3 } = require("../utils/aws-helper");
 
 const randomString = (numberCharacter) =>
@@ -46,6 +47,8 @@ const MIME_EXTENSION_MAP = {
   "application/vnd.rar": ".rar",
   "application/zip": ".zip",
 };
+
+const HEIC_MIME_TYPES = new Set(["image/heic", "image/heif"]);
 
 const sanitizePathSegment = (value, fallback = "file") => {
   const normalized = String(value || "").trim();
@@ -201,6 +204,43 @@ const deleteFiles = async (fileRefs = []) => {
   return { deletedCount: uniqueKeys.length };
 };
 
+const replaceExtension = (fileName = "file", nextExtension = ".jpg") => {
+  const baseName = path.basename(fileName, path.extname(fileName));
+  return `${baseName}${nextExtension}`;
+};
+
+const normalizeUploadFile = async (file) => {
+  if (!file) {
+    return file;
+  }
+
+  if (!HEIC_MIME_TYPES.has(file.mimetype)) {
+    return file;
+  }
+
+  try {
+    const converted = await heicConvert({
+      buffer: file.buffer,
+      format: "JPEG",
+      quality: 0.92,
+    });
+
+    const convertedBuffer = Buffer.isBuffer(converted)
+      ? converted
+      : Buffer.from(converted);
+
+    return {
+      ...file,
+      buffer: convertedBuffer,
+      mimetype: "image/jpeg",
+      originalname: replaceExtension(file.originalname, ".jpg"),
+    };
+  } catch (error) {
+    console.error("Failed to convert HEIC/HEIF to JPEG:", error);
+    throw new Error("Convert HEIC/HEIF to JPEG failed");
+  }
+};
+
 const uploadFile = async (file, options = {}) => {
   const bucketName = (process.env.BUCKET_NAME || "").trim();
   const objectAcl = (process.env.S3_OBJECT_ACL || "").trim();
@@ -213,12 +253,13 @@ const uploadFile = async (file, options = {}) => {
     throw new Error("BUCKET_NAME is not configured");
   }
 
-  const objectKey = buildObjectKey(file, options);
+  const normalizedFile = await normalizeUploadFile(file);
+  const objectKey = buildObjectKey(normalizedFile, options);
   const uploadParams = {
     Bucket: bucketName,
-    Body: file.buffer,
+    Body: normalizedFile.buffer,
     Key: objectKey,
-    ContentType: file.mimetype,
+    ContentType: normalizedFile.mimetype,
   };
 
   if (objectAcl) {
