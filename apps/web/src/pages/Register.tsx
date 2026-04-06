@@ -1,7 +1,8 @@
-import { useState, FormEvent } from 'react'
+import { useState, FormEvent, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '@/stores/authStore'
 import { authService } from '@/services/auth'
+import { useToast } from '@/contexts/ToastContext'
 import { Eye, EyeOff, MessageCircle, Loader2, Check } from 'lucide-react'
 
 const GENDERS = [
@@ -10,9 +11,18 @@ const GENDERS = [
     { label: 'Khác', value: 'other' },
 ] as const;
 
+type RegisterStep = 'info' | 'otp'
+const RESEND_COOLDOWN_SECONDS = 60;
+
 export default function Register() {
     const navigate = useNavigate()
-    const { setUser, setAccessToken, setError } = useAuthStore()
+    const { addToast } = useToast()
+    const { setUser, setAccessToken } = useAuthStore()
+
+    const [step, setStep] = useState<RegisterStep>('info')
+    const [otp, setOtp] = useState('')
+    const [resendCountdown, setResendCountdown] = useState(0)
+    const [otpExpiresIn, setOtpExpiresIn] = useState<number | null>(null)
 
     const [fullName, setFullName] = useState('')
     const [email, setEmail] = useState('')
@@ -21,6 +31,7 @@ export default function Register() {
     const [gender, setGender] = useState<(typeof GENDERS)[number]['value']>('male')
     const [password, setPassword] = useState('')
     const [confirmPassword, setConfirmPassword] = useState('')
+    
     const [showPassword, setShowPassword] = useState(false)
     const [showConfirmPassword, setShowConfirmPassword] = useState(false)
     const [isLoading, setIsLoading] = useState(false)
@@ -36,8 +47,15 @@ export default function Register() {
 
     const isPasswordValid = passwordRequirements.every(req => req.met)
 
-    const handleSubmit = async (e: FormEvent) => {
-        e.preventDefault()
+    useEffect(() => {
+        if (resendCountdown <= 0) return
+        const timer = setTimeout(() => {
+            setResendCountdown((current) => Math.max(0, current - 1))
+        }, 1000)
+        return () => clearTimeout(timer)
+    }, [resendCountdown])
+
+    const requestOtp = async () => {
         setLocalError('')
 
         if (!fullName.trim() || !email.trim() || !phone.trim() || !birthday.trim()) {
@@ -56,8 +74,32 @@ export default function Register() {
         }
 
         setIsLoading(true)
+        try {
+            const result = await authService.registerRequestOtp(email.trim().toLowerCase())
+            setStep('otp')
+            setResendCountdown(RESEND_COOLDOWN_SECONDS)
+            setOtpExpiresIn(result.expiresIn)
+            addToast('Mã xác thực OTP đã được gửi đến email của bạn', 'success')
+        } catch (err: any) {
+            setLocalError(err.message || 'Không thể gửi OTP đăng ký')
+        } finally {
+            setIsLoading(false)
+        }
+    }
+
+    const verifyAndRegister = async () => {
+        if (!otp.trim()) {
+            setLocalError('Vui lòng nhập mã OTP')
+            return
+        }
+
+        setIsLoading(true)
+        setLocalError('')
 
         try {
+            await authService.registerVerifyOtp(email.trim().toLowerCase(), otp.trim())
+            
+            // Nếu xác thực thành công, lập tức hoàn tất đăng ký
             const { user, accessToken } = await authService.register({
                 fullName: fullName.trim(),
                 email: email.trim().toLowerCase(),
@@ -68,13 +110,21 @@ export default function Register() {
             })
             setUser(user)
             setAccessToken(accessToken)
+            addToast('Đăng ký tài khoản thành công!', 'success')
             navigate('/chat')
         } catch (err: any) {
-            const message = err.message || 'Đăng ký thất bại. Vui lòng thử lại.'
-            setLocalError(message)
-            setError(message)
+            setLocalError(err.message || 'Xác thực rớt. Đăng ký thất bại.')
         } finally {
             setIsLoading(false)
+        }
+    }
+
+    const handleSubmit = async (e: FormEvent) => {
+        e.preventDefault()
+        if (step === 'info') {
+            await requestOtp()
+        } else {
+            await verifyAndRegister()
         }
     }
 
@@ -139,10 +189,13 @@ export default function Register() {
 
                     <div className="card p-8">
                         <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
-                            Tạo tài khoản
+                            {step === 'info' ? 'Tạo tài khoản' : 'Xác thực Email'}
                         </h2>
                         <p className="text-gray-600 dark:text-gray-400 mb-6">
-                            Điền đầy đủ thông tin để bắt đầu sử dụng
+                            {step === 'info' 
+                                ? 'Điền đầy đủ thông tin để bắt đầu sử dụng' 
+                                : 'Mã đã được gửi để đảm bảo tài khoản thuộc về bạn'
+                            }
                         </p>
 
                         {error && (
@@ -152,181 +205,234 @@ export default function Register() {
                         )}
 
                         <form onSubmit={handleSubmit} className="space-y-4">
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                    Họ và tên
-                                </label>
-                                <input
-                                    type="text"
-                                    value={fullName}
-                                    onChange={(e) => setFullName(e.target.value)}
-                                    className="input"
-                                    placeholder="Nguyễn Văn A"
-                                    required
-                                    autoComplete="name"
-                                />
-                            </div>
-
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                    Email
-                                </label>
-                                <input
-                                    type="email"
-                                    value={email}
-                                    onChange={(e) => setEmail(e.target.value)}
-                                    className="input"
-                                    placeholder="example@email.com"
-                                    required
-                                    autoComplete="email"
-                                />
-                            </div>
-
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                    Số điện thoại
-                                </label>
-                                <input
-                                    type="tel"
-                                    value={phone}
-                                    onChange={(e) => setPhone(e.target.value)}
-                                    className="input"
-                                    placeholder="0912345678"
-                                    required
-                                />
-                            </div>
-
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                    Ngày sinh
-                                </label>
-                                <input
-                                    type="date"
-                                    value={birthday}
-                                    onChange={(e) => setBirthday(e.target.value)}
-                                    className="input"
-                                    required
-                                />
-                                <p className="text-xs text-gray-500 mt-1">
-                                    Định dạng: YYYY-MM-DD
-                                </p>
-                            </div>
-
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                    Giới tính
-                                </label>
-                                <div className="flex gap-2">
-                                    {GENDERS.map((item) => {
-                                        const active = gender === item.value;
-                                        return (
-                                            <button
-                                                key={item.value}
-                                                type="button"
-                                                onClick={() => setGender(item.value)}
-                                                className={`flex-1 h-11 rounded-xl items-center justify-center border transition-colors ${
-                                                    active 
-                                                        ? 'border-primary-500 bg-primary-50 text-primary-600 dark:bg-primary-900/20 dark:text-primary-400' 
-                                                        : 'border-gray-200 bg-gray-50 text-gray-700 dark:border-gray-700 dark:bg-dark-200 dark:text-gray-300'
-                                                }`}
-                                            >
-                                                <span className="font-medium text-sm">{item.label}</span>
-                                            </button>
-                                        )
-                                    })}
-                                </div>
-                            </div>
-
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                    Mật khẩu
-                                </label>
-                                <div className="relative">
-                                    <input
-                                        type={showPassword ? 'text' : 'password'}
-                                        value={password}
-                                        onChange={(e) => setPassword(e.target.value)}
-                                        className="input pr-12"
-                                        placeholder="••••••••"
-                                        required
-                                        autoComplete="new-password"
-                                    />
-                                    <button
-                                        type="button"
-                                        onClick={() => setShowPassword(!showPassword)}
-                                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
-                                    >
-                                        {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                                    </button>
-                                </div>
-                            </div>
-
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                    Xác nhận mật khẩu
-                                </label>
-                                <div className="relative">
-                                    <input
-                                        type={showConfirmPassword ? 'text' : 'password'}
-                                        value={confirmPassword}
-                                        onChange={(e) => setConfirmPassword(e.target.value)}
-                                        className="input pr-12"
-                                        placeholder="••••••••"
-                                        required
-                                        autoComplete="new-password"
-                                    />
-                                    <button
-                                        type="button"
-                                        onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
-                                    >
-                                        {showConfirmPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                                    </button>
-                                </div>
-                            </div>
-
-                            {/* Password requirements */}
-                            <div className="grid grid-cols-2 gap-2 mt-3 mb-4">
-                                {passwordRequirements.map((req, index) => (
-                                    <div key={index} className="flex items-center gap-2">
-                                        <div className={`w-4 h-4 rounded-full flex items-center justify-center ${req.met ? 'bg-green-500' : 'bg-gray-200 dark:bg-gray-700'
-                                            }`}>
-                                            {req.met && <Check className="w-3 h-3 text-white" />}
-                                        </div>
-                                        <span className={`text-xs ${req.met ? 'text-green-600 dark:text-green-400' : 'text-gray-500 dark:text-gray-400'
-                                            }`}>
-                                            {req.text}
-                                        </span>
+                            {step === 'info' ? (
+                                <>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                            Họ và tên
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={fullName}
+                                            onChange={(e) => setFullName(e.target.value)}
+                                            className="input"
+                                            placeholder="Nguyễn Văn A"
+                                            required
+                                            autoComplete="name"
+                                        />
                                     </div>
-                                ))}
-                            </div>
 
-                            <label className="flex items-start gap-2 cursor-pointer mt-4">
-                                <input
-                                    type="checkbox"
-                                    checked={agreed}
-                                    onChange={(e) => setAgreed(e.target.checked)}
-                                    className="w-4 h-4 mt-1 rounded border-gray-300 text-primary-500 focus:ring-primary-500"
-                                />
-                                <span className="text-sm text-gray-600 dark:text-gray-400">
-                                    Tôi đồng ý với{' '}
-                                    <a href="#" className="text-primary-500 hover:underline">Điều khoản sử dụng</a>
-                                    {' '}và{' '}
-                                    <a href="#" className="text-primary-500 hover:underline">Chính sách bảo mật</a>
-                                </span>
-                            </label>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                            Email
+                                        </label>
+                                        <input
+                                            type="email"
+                                            value={email}
+                                            onChange={(e) => setEmail(e.target.value)}
+                                            className="input"
+                                            placeholder="example@email.com"
+                                            required
+                                            autoComplete="email"
+                                        />
+                                    </div>
 
-                            <button
-                                type="submit"
-                                disabled={isLoading || !isPasswordValid || !agreed}
-                                className="btn-primary w-full h-12 text-base mt-4"
-                            >
-                                {isLoading ? (
-                                    <Loader2 className="w-5 h-5 animate-spin" />
-                                ) : (
-                                    'Đăng ký'
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                            Số điện thoại
+                                        </label>
+                                        <input
+                                            type="tel"
+                                            value={phone}
+                                            onChange={(e) => setPhone(e.target.value)}
+                                            className="input"
+                                            placeholder="0912345678"
+                                            required
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                            Ngày sinh
+                                        </label>
+                                        <input
+                                            type="date"
+                                            value={birthday}
+                                            onChange={(e) => setBirthday(e.target.value)}
+                                            className="input"
+                                            required
+                                        />
+                                        <p className="text-xs text-gray-500 mt-1">
+                                            Định dạng: YYYY-MM-DD
+                                        </p>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                            Giới tính
+                                        </label>
+                                        <div className="flex gap-2">
+                                            {GENDERS.map((item) => {
+                                                const active = gender === item.value;
+                                                return (
+                                                    <button
+                                                        key={item.value}
+                                                        type="button"
+                                                        onClick={() => setGender(item.value)}
+                                                        className={`flex-1 h-11 rounded-xl items-center justify-center border transition-colors ${
+                                                            active 
+                                                                ? 'border-primary-500 bg-primary-50 text-primary-600 dark:bg-primary-900/20 dark:text-primary-400' 
+                                                                : 'border-gray-200 bg-gray-50 text-gray-700 dark:border-gray-700 dark:bg-dark-200 dark:text-gray-300'
+                                                        }`}
+                                                    >
+                                                        <span className="font-medium text-sm">{item.label}</span>
+                                                    </button>
+                                                )
+                                            })}
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                            Mật khẩu
+                                        </label>
+                                        <div className="relative">
+                                            <input
+                                                type={showPassword ? 'text' : 'password'}
+                                                value={password}
+                                                onChange={(e) => setPassword(e.target.value)}
+                                                className="input pr-12"
+                                                placeholder="••••••••"
+                                                required
+                                                autoComplete="new-password"
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowPassword(!showPassword)}
+                                                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+                                            >
+                                                {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                            Xác nhận mật khẩu
+                                        </label>
+                                        <div className="relative">
+                                            <input
+                                                type={showConfirmPassword ? 'text' : 'password'}
+                                                value={confirmPassword}
+                                                onChange={(e) => setConfirmPassword(e.target.value)}
+                                                className="input pr-12"
+                                                placeholder="••••••••"
+                                                required
+                                                autoComplete="new-password"
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                                                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+                                            >
+                                                {showConfirmPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {/* Password requirements */}
+                                    <div className="grid grid-cols-2 gap-2 mt-3 mb-4">
+                                        {passwordRequirements.map((req, index) => (
+                                            <div key={index} className="flex items-center gap-2">
+                                                <div className={`w-4 h-4 rounded-full flex items-center justify-center ${req.met ? 'bg-green-500' : 'bg-gray-200 dark:bg-gray-700'
+                                                    }`}>
+                                                    {req.met && <Check className="w-3 h-3 text-white" />}
+                                                </div>
+                                                <span className={`text-xs ${req.met ? 'text-green-600 dark:text-green-400' : 'text-gray-500 dark:text-gray-400'
+                                                    }`}>
+                                                    {req.text}
+                                                </span>
+                                            </div>
+                                        ))}
+                                    </div>
+
+                                    <label className="flex items-start gap-2 cursor-pointer mt-4">
+                                        <input
+                                            type="checkbox"
+                                            checked={agreed}
+                                            onChange={(e) => setAgreed(e.target.checked)}
+                                            className="w-4 h-4 mt-1 rounded border-gray-300 text-primary-500 focus:ring-primary-500"
+                                        />
+                                        <span className="text-sm text-gray-600 dark:text-gray-400">
+                                            Tôi đồng ý với{' '}
+                                            <a href="#" className="text-primary-500 hover:underline">Điều khoản sử dụng</a>
+                                            {' '}và{' '}
+                                            <a href="#" className="text-primary-500 hover:underline">Chính sách bảo mật</a>
+                                        </span>
+                                    </label>
+                                </>
+                            ) : (
+                                <div className="space-y-4 animate-fade-in">
+                                    <div className="bg-blue-50 dark:bg-blue-900/20 text-blue-800 dark:text-blue-300 p-4 rounded-xl text-sm mb-6 border border-blue-100 dark:border-blue-800">
+                                        Mã xác thực đã được gửi đến email <strong>{email}</strong>. Vui lòng kiểm tra hộp thư (bao gồm cả thư rác).
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                            Mã OTP
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={otp}
+                                            onChange={(e) => setOtp(e.target.value)}
+                                            className="input tracking-[0.5em] text-center text-xl font-mono"
+                                            placeholder="••••••"
+                                            maxLength={6}
+                                            required
+                                        />
+                                        <div className="flex justify-between mt-3">
+                                            {otpExpiresIn ? (
+                                                <span className="text-xs text-primary-600 dark:text-primary-400">
+                                                    Còn {Math.floor(otpExpiresIn / 60)}:{(otpExpiresIn % 60).toString().padStart(2, '0')}
+                                                </span>
+                                            ) : <span />}
+                                            
+                                            <button 
+                                                type="button" 
+                                                onClick={() => { if (resendCountdown === 0) requestOtp() }}
+                                                disabled={isLoading || resendCountdown > 0}
+                                                className={`text-xs font-medium ${resendCountdown > 0 ? 'text-gray-400' : 'text-primary-500 hover:text-primary-600 cursor-pointer'}`}
+                                            >
+                                                {resendCountdown > 0 ? `Gửi lại sau ${resendCountdown}s` : 'Gửi lại mã OTP'}
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            <div className="pt-2">
+                                <button
+                                    type="submit"
+                                    disabled={isLoading || (step === 'info' && (!isPasswordValid || !agreed))}
+                                    className="btn-primary w-full h-12 text-base"
+                                >
+                                    {isLoading ? (
+                                        <Loader2 className="w-5 h-5 animate-spin" />
+                                    ) : (
+                                        step === 'info' ? 'Đăng ký' : 'Xác thực & Hoàn tất'
+                                    )}
+                                </button>
+                                
+                                {step === 'otp' && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setStep('info')}
+                                        disabled={isLoading}
+                                        className="w-full h-12 text-base mt-3 font-medium text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"
+                                    >
+                                        Quay lại chỉnh sửa thông tin
+                                    </button>
                                 )}
-                            </button>
+                            </div>
                         </form>
                     </div>
 

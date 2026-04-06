@@ -126,7 +126,7 @@ export default function MessageBubble({
                             className="max-w-[300px] rounded-lg cursor-pointer hover:opacity-95 transition-opacity"
                         />
                         {message.content.text && (
-                            <p className="mt-2">{message.content.text}</p>
+                            <p className="mt-2 whitespace-pre-wrap [overflow-wrap:anywhere] [word-break:break-word]">{message.content.text}</p>
                         )}
                     </div>
                 )
@@ -141,7 +141,7 @@ export default function MessageBubble({
                             className="max-w-[300px] rounded-lg"
                         />
                         {message.content.text && (
-                            <p className="mt-2">{message.content.text}</p>
+                            <p className="mt-2 whitespace-pre-wrap [overflow-wrap:anywhere] [word-break:break-word]">{message.content.text}</p>
                         )}
                     </div>
                 )
@@ -186,7 +186,7 @@ export default function MessageBubble({
                 )
 
             default:
-                return <p className="whitespace-pre-wrap break-words">{message.content.text}</p>
+                return <p className="whitespace-pre-wrap [overflow-wrap:anywhere] [word-break:break-word]">{message.content.text}</p>
         }
     }
 
@@ -201,8 +201,8 @@ export default function MessageBubble({
     }
 
     return (
-        <div className={`flex ${isSent ? 'justify-end' : 'justify-start'} group`}>
-            <div className={`flex items-end gap-2 max-w-[70%] ${isSent ? 'flex-row-reverse' : ''}`}>
+        <div className={`flex ${isSent ? 'justify-end' : 'justify-start'} group mb-4`}>
+            <div className={`flex items-end gap-2 max-w-[75%] ${isSent ? 'flex-row-reverse' : ''}`}>
                 {/* Avatar for received messages */}
                 {!isSent && showAvatar && (
                     senderAvatar ? (
@@ -221,7 +221,7 @@ export default function MessageBubble({
                 )}
                 {!isSent && !showAvatar && <div className="w-8" />}
 
-                <div className={`relative ${isSent ? 'items-end' : 'items-start'}`}>
+                <div className={`flex flex-col relative ${isSent ? 'items-end' : 'items-start'} max-w-full`}>
                     {/* Reply reference */}
                     {replyMessage && (
                         <div className={`mb-1 px-3 py-1.5 rounded-lg text-xs bg-black/5 dark:bg-white/5 border-l-2 border-primary-500 ${isSent ? 'ml-auto' : 'mr-auto'} max-w-full`}>

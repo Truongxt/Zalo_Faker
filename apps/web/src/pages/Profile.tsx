@@ -14,8 +14,7 @@ import {
     LogOut,
     Loader2,
     User as UserIcon,
-    X,
-    Trash2
+    X
 } from 'lucide-react'
 
 export default function Profile() {

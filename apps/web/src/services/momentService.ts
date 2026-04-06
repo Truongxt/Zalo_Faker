@@ -21,7 +21,7 @@ class MomentService {
       formData.append("mediaUrls", JSON.stringify(mediaUrls));
       formData.append("image", imageFile.file);
 
-      const response = await fetchWithAuth(`${baseAPI}/moments`, {
+      const response = await fetchWithAuth(`/moments`, {
         method: "POST",
         body: formData,
       });
@@ -46,25 +46,25 @@ class MomentService {
   }
 
   async getFriendMoments(): Promise<Moment[]> {
-    const response = await fetchWithAuth(`${baseAPI}/moments/friends`);
+    const response = await fetchWithAuth(`/moments/friends`);
     if (!response.ok) throw new Error("Lấy danh sách bài viết thất bại");
     return response.json();
   }
 
   async getMyProfile(): Promise<MomentProfile> {
-    const response = await fetchWithAuth(`${baseAPI}/moments/me`);
+    const response = await fetchWithAuth(`/moments/me`);
     if (!response.ok) throw new Error("Lấy hồ sơ cá nhân thất bại");
     return response.json();
   }
 
   async getReactedMoments(): Promise<Moment[]> {
-    const response = await fetchWithAuth(`${baseAPI}/moments/reacted`);
+    const response = await fetchWithAuth(`/moments/reacted`);
     if (!response.ok) throw new Error("Lấy danh sách bài viết đã phản hồi thất bại");
     return response.json();
   }
 
   async reactToMoment(momentId: string, emoji: string) {
-    const response = await fetchWithAuth(`${baseAPI}/moments/${momentId}/reaction`, {
+    const response = await fetchWithAuth(`/moments/${momentId}/reaction`, {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
@@ -76,7 +76,7 @@ class MomentService {
   }
 
   async getMomentComments(momentId: string): Promise<MomentComment[]> {
-    const response = await fetchWithAuth(`${baseAPI}/moments/${momentId}/comments`);
+    const response = await fetchWithAuth(`/moments/${momentId}/comments`);
     if (!response.ok) throw new Error("Lấy bình luận thất bại");
     return response.json();
   }
@@ -90,7 +90,7 @@ class MomentService {
     content: string,
     replyToCommentId: string | null,
   ): Promise<MomentComment> {
-    const response = await fetchWithAuth(`${baseAPI}/moments/${momentId}/comments`, {
+    const response = await fetchWithAuth(`/moments/${momentId}/comments`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -102,7 +102,7 @@ class MomentService {
   }
 
   async reactToComment(momentId: string, commentId: string, emoji: string) {
-    const response = await fetchWithAuth(`${baseAPI}/moments/${momentId}/comments/${commentId}/reaction`, {
+    const response = await fetchWithAuth(`/moments/${momentId}/comments/${commentId}/reaction`, {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
@@ -114,7 +114,7 @@ class MomentService {
   }
 
   async shareMoment(momentId: string, caption = ""): Promise<Moment> {
-    const response = await fetchWithAuth(`${baseAPI}/moments/${momentId}/share`, {
+    const response = await fetchWithAuth(`/moments/${momentId}/share`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -126,7 +126,7 @@ class MomentService {
   }
 
   async deleteMoment(momentId: string): Promise<{ message: string; momentId: string }> {
-    const response = await fetchWithAuth(`${baseAPI}/moments/${momentId}`, {
+    const response = await fetchWithAuth(`/moments/${momentId}`, {
       method: "DELETE",
     });
     if (!response.ok) throw new Error("Xoá bài viết thất bại");

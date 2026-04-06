@@ -89,7 +89,7 @@ export default function ChatRoom() {
 
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const menuRef = useRef<HTMLDivElement>(null)
-    const inputRef = useRef<HTMLInputElement>(null)
+    const inputRef = useRef<HTMLTextAreaElement>(null)
     const imageInputRef = useRef<HTMLInputElement>(null)
     const fileInputRef = useRef<HTMLInputElement>(null)
     const typingTimeoutRef = useRef<ReturnType<typeof setTimeout>>()
@@ -136,7 +136,9 @@ export default function ChatRoom() {
     // Xử lý chọn emoji
     const onEmojiClick = useCallback((emojiData: EmojiClickData) => {
         setMessage(prev => prev + emojiData.emoji)
-        inputRef.current?.focus()
+        setTimeout(() => {
+            inputRef.current?.focus()
+        }, 0)
     }, [])
 
     // Scroll to bottom khi có tin nhắn mới
@@ -398,6 +400,11 @@ export default function ChatRoom() {
             },
             updatedAt: new Date().toISOString(),
         })
+
+        // Reset height
+        if (inputRef.current) {
+            inputRef.current.style.height = 'auto'
+        }
     }
 
     const handleForwardSend = (targetConversationIds: string[]) => {
@@ -486,6 +493,15 @@ export default function ChatRoom() {
             }
         }
     }, [conversationId, user?.id])
+
+    // Auto-scale textarea height
+    useEffect(() => {
+        if (inputRef.current) {
+            inputRef.current.style.height = 'auto'
+            const newHeight = Math.min(inputRef.current.scrollHeight, 150)
+            inputRef.current.style.height = `${newHeight}px`
+        }
+    }, [message])
 
     const handleRecall = (messageId: string) => {
         if (!conversationId || !user) return
@@ -1319,10 +1335,18 @@ export default function ChatRoom() {
                             </div>
                         ) : (
                             <>
-                                <input
+                                <textarea
                                     ref={inputRef}
-                                    type="text"
                                     value={message}
+                                    rows={1}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter' && !e.shiftKey) {
+                                            e.preventDefault()
+                                            // Trigger form submission manually since it's a textarea now
+                                            const form = e.currentTarget.closest('form')
+                                            if (form) form.requestSubmit()
+                                        }
+                                    }}
                                     onChange={(e) => {
                                         setMessage(e.target.value)
                                         handleTyping()

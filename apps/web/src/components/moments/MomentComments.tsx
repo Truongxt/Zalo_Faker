@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useAuthStore } from '@/stores/authStore';
 import { momentService } from '@/services/momentService';
 import { MomentComment } from '@/types/moment';
-import { Send, Loader2, Heart } from 'lucide-react';
+import { Send, Loader2 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { vi } from 'date-fns/locale';
 

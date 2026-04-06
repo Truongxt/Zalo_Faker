@@ -100,7 +100,9 @@
 
   /* Message bubble */
   .message-bubble {
-    @apply max-w-[70%] px-4 py-2 rounded-2xl break-words;
+    @apply w-fit max-w-full px-4 py-2 rounded-2xl;
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
 
   .message-sent {
