@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const userController = require("../controllers/userController");
 const auth = require("../middlewares/authMiddleware");
+const upload = require("../middlewares/upload");
 
 /**
  * @swagger
@@ -147,7 +148,7 @@ router.get("/", auth, userController.getUsers);
  *       200:
  *         description: Thành công
  */
-router.put("/:userId", auth, userController.updateUser);
+router.put("/:userId", auth, upload, userController.updateUser);
 
 
 /**

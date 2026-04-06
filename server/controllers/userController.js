@@ -49,7 +49,7 @@ const userController = {
   updateUser: async (req, res) => {
     try {
       const { userId } = req.params;
-      const updated = await userService.updateUser(userId, req.body);
+      const updated = await userService.updateUser(userId, req.body, req.file);
       res.json(updated);
     } catch (err) {
       res.status(400).json({ message: err.message });

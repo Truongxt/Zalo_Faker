@@ -1,4 +1,5 @@
-import { View, Text } from "react-native";
+import { Image, View, Text } from "react-native";
+import { useState } from "react";
 
 interface AvatarProps {
   name?: string;
@@ -13,6 +14,8 @@ export function Avatar({
   size = 40,
   isGroup = false,
 }: AvatarProps) {
+  const [imageError, setImageError] = useState(false);
+
   const initials = (name ?? "User")
     .split(" ")
     .map((n) => n[0])
@@ -34,14 +37,25 @@ export function Avatar({
       .split("")
       .reduce((acc, char) => acc + char.charCodeAt(0), 0) % bgColors.length;
 
-  // TODO: Add Image support when uri is available
+  const hasImageUri = !!uri && uri.trim().length > 0 && !imageError;
+
   return (
     <View
       className={`${bgColors[colorIndex]} rounded-full items-center justify-center`}
-      style={{ width: size, height: size }}
+      style={{ width: size, height: size, overflow: "hidden" }}
     >
       {isGroup ? (
         <Text style={{ fontSize: size * 0.35 }}>👥</Text>
+      ) : hasImageUri ? (
+        <Image
+          source={{ uri: uri!.trim() }}
+          style={{ width: size, height: size }}
+          resizeMode="cover"
+          onError={(e) => {
+            console.warn("[Avatar] Image load failed:", uri, e.nativeEvent.error);
+            setImageError(true);
+          }}
+        />
       ) : (
         <Text
           className="text-white font-bold"

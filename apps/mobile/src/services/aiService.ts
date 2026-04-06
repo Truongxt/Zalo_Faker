@@ -13,7 +13,7 @@ export interface AskAIResponse {
 
 class AIService {
   async ask(question: string, conversationId?: string): Promise<AskAIResponse> {
-    const response = await apiClient.post<AskAIResponse>("/api/ai/ask", {
+    const response = await apiClient.post<AskAIResponse>("/api/ai/chat", {
       question,
       conversationId,
     });

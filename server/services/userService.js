@@ -5,6 +5,8 @@ const {
   signAccessToken,
   signRefreshToken
 } = require("../utils/jwt");
+const { s3 } = require("../utils/aws-helper");
+const { v4: uuidv4 } = require("uuid");
 
 const userRepository = require("../repository/userRepository");
 const refreshTokenRepository = require("../repository/RefreshTokenRepository");
@@ -19,6 +21,35 @@ const FORGOT_RESEND_LIMIT_SECONDS = 60;
 const normalizeEmail = (email) => String(email || "").trim().toLowerCase();
 
 const generateOtp = () => String(Math.floor(100000 + Math.random() * 900000));
+
+const sanitizePathSegment = (value, fallback) => {
+  const normalized = String(value || "").trim();
+  if (!normalized) {
+    return fallback;
+  }
+
+  return normalized.replace(/[^a-zA-Z0-9-_]/g, "_");
+};
+
+const uploadAvatarToS3 = async (userId, file) => {
+  const safeUserId = sanitizePathSegment(userId, "anonymous");
+  const originalName = file.originalname || "avatar.jpg";
+  const extension = originalName.includes(".")
+    ? originalName.split(".").pop()
+    : "jpg";
+  const fileName = `${uuidv4()}.${extension}`;
+
+  const params = {
+    Bucket: process.env.BUCKET_NAME,
+    Key: `avatars/${safeUserId}/${fileName}`,
+    Body: file.buffer,
+    ContentType: file.mimetype,
+   
+  };
+
+  const data = await s3.upload(params).promise();
+  return data.Location;
+};
 
 const UserService = {
 
@@ -55,7 +86,12 @@ const UserService = {
   getUsers: async () => {
     return await userRepository.getAll();
   },
-updateUser: async (userId, userData) => {
+updateUser: async (userId, userData, avatarFile) => {
+
+    if (avatarFile) {
+      const avatarUrl = await uploadAvatarToS3(userId, avatarFile);
+      userData.avartarUrl = avatarUrl;
+    }
 
     const updateFields = [];
     const ExpressionAttributeNames = {};
@@ -244,6 +280,21 @@ forgotPasswordReset: async (email, newPassword) => {
   await redisClient.del(verifiedKey);
 
   return { message: "Password reset successful" };
+},
+
+uploadAvatar: async (userId, file) => {
+  if (!file) {
+    throw new Error("No file uploaded");
+  }
+
+  const fileUrl = await uploadAvatarToS3(userId, file);
+
+  return {
+    url: fileUrl,
+    fileName: file.originalname,
+    fileSize: file.size,
+    mimetype: file.mimetype
+  };
 }
 
 };
