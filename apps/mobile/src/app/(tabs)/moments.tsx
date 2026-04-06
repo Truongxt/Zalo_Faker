@@ -15,6 +15,7 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { ResizeMode, Video } from "expo-av";
 import * as ImagePicker from "expo-image-picker";
 import { useFocusEffect } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -31,20 +32,29 @@ import { useAuthStore } from "@/stores";
 
 type FeedMode = "friends" | "me" | "reacted";
 
-type ComposerImage = {
+type ComposerMedia = {
   uri: string;
   name?: string;
   mimeType?: string | null;
-} | null;
+  mediaType: "image" | "video";
+};
 
 const FEED_OPTIONS: Array<{
   key: FeedMode;
   label: string;
   icon: keyof typeof Ionicons.glyphMap;
 }> = [
-  { key: "friends", label: "\u0042\u1ea1n \u0062\u00e8", icon: "people-outline" },
+  {
+    key: "friends",
+    label: "\u0042\u1ea1n \u0062\u00e8",
+    icon: "people-outline",
+  },
   { key: "me", label: "\u0043\u1ee7a t\u00f4i", icon: "person-outline" },
-  { key: "reacted", label: "\u0110\u00e3 th\u1ea3 c\u1ea3m x\u00fac", icon: "heart-outline" },
+  {
+    key: "reacted",
+    label: "\u0110\u00e3 th\u1ea3 c\u1ea3m x\u00fac",
+    icon: "heart-outline",
+  },
 ];
 
 const REACTION_OPTIONS = [
@@ -59,7 +69,9 @@ const REACTION_OPTIONS = [
 const getReactionOption = (reactionKey?: string | null) =>
   REACTION_OPTIONS.find((option) => option.key === reactionKey) || null;
 
-const summarizeCommentReactions = (reactions: MomentComment["reactions"] = []) => {
+const summarizeCommentReactions = (
+  reactions: MomentComment["reactions"] = [],
+) => {
   const summary = reactions.reduce<Record<string, number>>((acc, reaction) => {
     acc[reaction.emoji] = (acc[reaction.emoji] || 0) + 1;
     return acc;
@@ -75,6 +87,51 @@ const getDisplayName = (
   author?: MomentAuthor | null,
   fallback = "Ng\u01b0\u1eddi d\u00f9ng",
 ) => author?.userName || fallback;
+
+const getErrorMessage = (error: unknown, fallback: string) =>
+  error instanceof Error && error.message ? error.message : fallback;
+
+const isVideoMimeType = (mimeType?: string | null) =>
+  typeof mimeType === "string" && mimeType.startsWith("video/");
+
+const isVideoUrl = (url?: string | null) => {
+  const normalizedUrl = String(url || "").split("?")[0].toLowerCase();
+  return [".mp4", ".mov", ".webm", ".m4v"].some((extension) =>
+    normalizedUrl.endsWith(extension),
+  );
+};
+
+const getFileExtensionFromAsset = (asset: ImagePicker.ImagePickerAsset) => {
+  const normalizedUri = String(asset.uri || "").split("?")[0].toLowerCase();
+
+  if (normalizedUri.endsWith(".png")) return "png";
+  if (normalizedUri.endsWith(".gif")) return "gif";
+  if (normalizedUri.endsWith(".webp")) return "webp";
+  if (normalizedUri.endsWith(".heic")) return "heic";
+  if (normalizedUri.endsWith(".heif")) return "heif";
+  if (normalizedUri.endsWith(".mov")) return "mov";
+  if (normalizedUri.endsWith(".webm")) return "webm";
+  if (normalizedUri.endsWith(".mp4")) return "mp4";
+
+  return asset.type === "video" ? "mp4" : "jpg";
+};
+
+const mapAssetToComposerMedia = (
+  asset: ImagePicker.ImagePickerAsset,
+  index: number,
+): ComposerMedia => {
+  const mediaType = asset.type === "video" ? "video" : "image";
+  const extension = getFileExtensionFromAsset(asset);
+
+  return {
+    uri: asset.uri,
+    name: asset.fileName || `moment-${Date.now()}-${index}.${extension}`,
+    mimeType:
+      asset.mimeType ||
+      (mediaType === "video" ? "video/mp4" : "image/jpeg"),
+    mediaType,
+  };
+};
 
 const getAvatarFallback = (name: string) =>
   name
@@ -188,26 +245,29 @@ export default function MomentsScreen() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isPosting, setIsPosting] = useState(false);
   const [composerText, setComposerText] = useState("");
-  const [composerImage, setComposerImage] = useState<ComposerImage>(null);
-  const [reactionPickerMomentId, setReactionPickerMomentId] = useState<string | null>(
-    null,
-  );
+  const [composerMedia, setComposerMedia] = useState<ComposerMedia[]>([]);
+  const [reactionPickerMomentId, setReactionPickerMomentId] = useState<
+    string | null
+  >(null);
   const [commentsVisible, setCommentsVisible] = useState(false);
   const [commentTarget, setCommentTarget] = useState<Moment | null>(null);
   const [comments, setComments] = useState<MomentComment[]>([]);
-  const [commentReplyTarget, setCommentReplyTarget] = useState<MomentComment | null>(null);
+  const [commentReplyTarget, setCommentReplyTarget] =
+    useState<MomentComment | null>(null);
   const [commentText, setCommentText] = useState("");
   const [isCommentLoading, setIsCommentLoading] = useState(false);
   const [isCommentSubmitting, setIsCommentSubmitting] = useState(false);
   const [actionMomentId, setActionMomentId] = useState<string | null>(null);
 
   const canPost = useMemo(
-    () => Boolean(composerText.trim() || composerImage?.uri) && !isPosting,
-    [composerImage?.uri, composerText, isPosting],
+    () => Boolean(composerText.trim() || composerMedia.length > 0) && !isPosting,
+    [composerMedia.length, composerText, isPosting],
   );
 
   const reactionTarget = useMemo(
-    () => moments.find((moment) => moment.momentId === reactionPickerMomentId) || null,
+    () =>
+      moments.find((moment) => moment.momentId === reactionPickerMomentId) ||
+      null,
     [moments, reactionPickerMomentId],
   );
 
@@ -240,12 +300,9 @@ export default function MomentsScreen() {
       const reacted = await momentService.getReactedMoments();
       setMoments(reacted);
       setProfile(null);
-    } catch (error: any) {
-      console.error(
-        "Load moments error:",
-        error?.response?.data || error?.message,
-      );
-      GrayToast(error?.response?.data?.message || "Kh\u00f4ng th\u1ec3 t\u1ea3i kho\u1ea3nh kh\u1eafc");
+    } catch (error) {
+      console.error("Load moments error:", error);
+      GrayToast(getErrorMessage(error, "Không thể tải khoảnh khắc"));
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
@@ -263,39 +320,49 @@ export default function MomentsScreen() {
     loadFeed(activeFeed, false);
   };
 
-  const handlePickImage = async () => {
+  const handlePickMedia = async () => {
     try {
       const permission =
         await ImagePicker.requestMediaLibraryPermissionsAsync();
 
       if (!permission.granted) {
         Alert.alert(
-          "C\u1ea7n quy\u1ec1n truy c\u1eadp \u1ea3nh",
-          "H\u00e3y c\u1ea5p quy\u1ec1n truy c\u1eadp th\u01b0 vi\u1ec7n \u1ea3nh \u0111\u1ec3 t\u1ea3i kho\u1ea3nh kh\u1eafc.",
+          "Cấp quyền truy cập ảnh",
+          "Hãy cấp quyền truy cập ảnh để tải khoảnh khắc",
         );
         return;
       }
 
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ["images"],
-        allowsEditing: true,
+        mediaTypes: ["images", "videos"],
+        allowsMultipleSelection: true,
+        selectionLimit: 10,
+        orderedSelection: true,
         quality: 0.9,
       });
 
-      if (result.canceled || !result.assets?.[0]) {
+      if (result.canceled || !result.assets?.length) {
         return;
       }
 
-      const asset = result.assets[0];
-      setComposerImage({
-        uri: asset.uri,
-        name: asset.fileName || `moment-${Date.now()}.jpg`,
-        mimeType: asset.mimeType,
+      const pickedMedia = result.assets.map(mapAssetToComposerMedia);
+      setComposerMedia((prev) => {
+        const merged = [...prev, ...pickedMedia];
+        const deduped = merged.filter(
+          (item, index, list) =>
+            list.findIndex((candidate) => candidate.uri === item.uri) === index,
+        );
+
+        return deduped.slice(0, 10);
       });
     } catch (error) {
-      console.error("Pick moment image error:", error);
-      GrayToast("Kh\u00f4ng th\u1ec3 ch\u1ecdn \u1ea3nh");
+      console.error("Pick moment media error:", error);
+      GrayToast("Không thể chọn ảnh hoặc video");
     }
+  };
+
+  const handleRemoveComposerMedia = (uri: string) => {
+    setComposerMedia((prev) => prev.filter((item) => item.uri !== uri));
   };
 
   const handleCreateMoment = async () => {
@@ -308,24 +375,21 @@ export default function MomentsScreen() {
 
       await momentService.createMoment({
         content: composerText.trim(),
-        imageFile: composerImage,
+        mediaFiles: composerMedia,
       });
 
       setComposerText("");
-      setComposerImage(null);
-      GrayToast("\u0110\u0103ng kho\u1ea3nh kh\u1eafc th\u00e0nh c\u00f4ng");
+      setComposerMedia([]);
+      GrayToast("Đăng khoảnh khắc thành công");
 
       const nextFeed = activeFeed === "reacted" ? "me" : activeFeed;
       if (nextFeed !== activeFeed) {
         setActiveFeed(nextFeed);
       }
       await loadFeed(nextFeed, false);
-    } catch (error: any) {
-      console.error(
-        "Create moment error:",
-        error?.response?.data || error?.message,
-      );
-      GrayToast(error?.response?.data?.message || "\u0110\u0103ng kho\u1ea3nh kh\u1eafc th\u1ea5t b\u1ea1i");
+    } catch (error) {
+      console.error("Create moment error:", error);
+      GrayToast(getErrorMessage(error, "Đăng khoảnh khắc thất bại"));
     } finally {
       setIsPosting(false);
     }
@@ -337,14 +401,17 @@ export default function MomentsScreen() {
     setReactionPickerMomentId(momentId);
   };
 
-  const handleReactionSelect = async (momentId: string, reactionKey: string) => {
+  const handleReactionSelect = async (
+    momentId: string,
+    reactionKey: string,
+  ) => {
     try {
       closeReactionPicker();
       setActionMomentId(momentId);
       await momentService.reactToMoment(momentId, reactionKey);
       await loadFeed(activeFeed, false);
-    } catch (error: any) {
-      GrayToast(error?.response?.data?.message || "Kh\u00f4ng th\u1ec3 th\u1ea3 c\u1ea3m x\u00fac");
+    } catch (error) {
+      GrayToast(getErrorMessage(error, "Không thể thả cảm xúc"));
     } finally {
       setActionMomentId(null);
     }
@@ -362,8 +429,8 @@ export default function MomentsScreen() {
       if (data.length > 0) {
         scrollCommentsToEnd(false);
       }
-    } catch (error: any) {
-      GrayToast(error?.response?.data?.message || "Kh\u00f4ng th\u1ec3 t\u1ea3i b\u00ecnh lu\u1eadn");
+    } catch (error) {
+      GrayToast(getErrorMessage(error, "Không thể tải bình luận"));
     } finally {
       setIsCommentLoading(false);
     }
@@ -385,7 +452,10 @@ export default function MomentsScreen() {
     }, 100);
   };
 
-  const handleCommentReaction = async (comment: MomentComment, reactionKey: string) => {
+  const handleCommentReaction = async (
+    comment: MomentComment,
+    reactionKey: string,
+  ) => {
     if (!commentTarget) {
       return;
     }
@@ -397,21 +467,28 @@ export default function MomentsScreen() {
         reactionKey,
       );
       setComments((prev) =>
-        prev.map((item) => (item.commentId === updated.commentId ? updated : item)),
+        prev.map((item) =>
+          item.commentId === updated.commentId ? updated : item,
+        ),
       );
-    } catch (error: any) {
-      GrayToast(error?.response?.data?.message || "Kh\u00f4ng th\u1ec3 th\u1ea3 c\u1ea3m x\u00fac");
+    } catch (error) {
+      GrayToast(getErrorMessage(error, "Không thể thả cảm xúc"));
     }
   };
 
   const openCommentReactionPicker = (comment: MomentComment) => {
-    Alert.alert("Th\u1ea3 c\u1ea3m x\u00fac", "Ch\u1ecdn c\u1ea3m x\u00fac cho b\u00ecnh lu\u1eadn n\u00e0y", [
-      ...REACTION_OPTIONS.map((option) => ({
-        text: option.icon,
-        onPress: () => handleCommentReaction(comment, option.key),
-      })),
-      { text: "\u0110\u00f3ng", style: "cancel" as const },
-    ]);
+    Alert.alert(
+      "Thả cảm xúc",
+      "Chọn cảm xúc cho bình luận này",
+
+      [
+        ...REACTION_OPTIONS.map((option) => ({
+          text: option.icon,
+          onPress: () => handleCommentReaction(comment, option.key),
+        })),
+        { text: "Đóng", style: "cancel" as const },
+      ],
+    );
   };
 
   const handleCommentSubmit = async () => {
@@ -431,26 +508,26 @@ export default function MomentsScreen() {
       setCommentReplyTarget(null);
       scrollCommentsToEnd();
       await loadFeed(activeFeed, false);
-    } catch (error: any) {
-      GrayToast(error?.response?.data?.message || "Kh\u00f4ng th\u1ec3 g\u1eedi b\u00ecnh lu\u1eadn");
+    } catch (error) {
+      GrayToast(getErrorMessage(error, "Không thể gửi bình luận"));
     } finally {
       setIsCommentSubmitting(false);
     }
   };
 
   const handleShareMoment = (moment: Moment) => {
-    Alert.alert("Chia s\u1ebb", "B\u1ea1n mu\u1ed1n chia s\u1ebb kho\u1ea3nh kh\u1eafc n\u00e0y?", [
-      { text: "H\u1ee7y", style: "cancel" },
+    Alert.alert("Chia sẻ", "Bạn muốn chia sẻ khoảnh khắc này ?", [
+      { text: "Hủy", style: "cancel" },
       {
-        text: "Chia s\u1ebb",
+        text: "Chia sẻ",
         onPress: async () => {
           try {
             setActionMomentId(moment.momentId);
             await momentService.shareMoment(moment.momentId, "");
-            GrayToast("\u0110\u00e3 chia s\u1ebb kho\u1ea3nh kh\u1eafc");
+            GrayToast("Đã chia sẻ khoảnh khắc");
             await loadFeed(activeFeed, false);
-          } catch (error: any) {
-            GrayToast(error?.response?.data?.message || "Kh\u00f4ng th\u1ec3 chia s\u1ebb");
+          } catch (error) {
+            GrayToast(getErrorMessage(error, "Không thể chia sẻ"));
           } finally {
             setActionMomentId(null);
           }
@@ -460,21 +537,19 @@ export default function MomentsScreen() {
   };
 
   const handleDeleteMoment = (moment: Moment) => {
-    Alert.alert("X\u00f3a kho\u1ea3nh kh\u1eafc", "Kho\u1ea3nh kh\u1eafc n\u00e0y s\u1ebd b\u1ecb x\u00f3a v\u0129nh vi\u1ec5n.", [
-      { text: "H\u1ee7y", style: "cancel" },
+    Alert.alert("Xóa khoảnh khắc", "Khoảnh khắc này sẽ bị xóa vĩnh viễn.", [
+      { text: "Hủy", style: "cancel" },
       {
-        text: "X\u00f3a",
+        text: "Xóa",
         style: "destructive",
         onPress: async () => {
           try {
             setActionMomentId(moment.momentId);
             await momentService.deleteMoment(moment.momentId);
-            GrayToast("\u0110\u00e3 x\u00f3a kho\u1ea3nh kh\u1eafc");
+            GrayToast("Đã xóa khoảnh khắc");
             await loadFeed(activeFeed, false);
-          } catch (error: any) {
-            GrayToast(
-              error?.response?.data?.message || "Kh\u00f4ng th\u1ec3 x\u00f3a kho\u1ea3nh kh\u1eafc",
-            );
+          } catch (error) {
+            GrayToast(getErrorMessage(error, "Không thể xóa khoảnh khắc"));
           } finally {
             setActionMomentId(null);
           }
@@ -486,9 +561,7 @@ export default function MomentsScreen() {
   const renderMomentCard = ({ item }: { item: Moment }) => {
     const authorName = getDisplayName(
       item.author,
-      item.isOwner
-        ? user?.fullName || "\u0042\u1ea1n"
-        : `Ng\u01b0\u1eddi d\u00f9ng ${item.authorId}`,
+      item.isOwner ? user?.fullName || "Bạn" : `Người dùng ${item.authorId}`,
     );
     const activeReaction = getReactionOption(item.currentUserReaction);
 
@@ -536,14 +609,32 @@ export default function MomentsScreen() {
                 showsHorizontalScrollIndicator={false}
                 className="mt-3"
               >
-                {item.mediaUrls.map((url) => (
-                  <Image
-                    key={url}
-                    source={{ uri: url }}
-                    className="mr-3 h-48 w-72 rounded-[20px] bg-[#E5E7EB]"
-                    resizeMode="cover"
-                  />
-                ))}
+                {item.mediaUrls.map((url, index) =>
+                  isVideoUrl(url) ? (
+                    <Video
+                      key={`${url}-${index}`}
+                      source={{ uri: url }}
+                      style={{
+                        width: 288,
+                        height: 192,
+                        borderRadius: 20,
+                        backgroundColor: "#000000",
+                        marginRight: 12,
+                      }}
+                      resizeMode={ResizeMode.COVER}
+                      shouldPlay={false}
+                      isLooping={false}
+                      useNativeControls
+                    />
+                  ) : (
+                    <Image
+                      key={`${url}-${index}`}
+                      source={{ uri: url }}
+                      className="mr-3 h-48 w-72 rounded-[20px] bg-[#E5E7EB]"
+                      resizeMode="cover"
+                    />
+                  ),
+                )}
               </ScrollView>
             ) : null}
 
@@ -551,7 +642,7 @@ export default function MomentsScreen() {
               <View className="mt-3 rounded-[20px] border border-[#DCE7FF] bg-[#F8FBFF] px-3 py-3">
                 <Text className="text-sm font-semibold text-[#0068FF]">
                   Chia sẻ từ{" "}
-                  {getDisplayName(item.originalMomentSnapshot.author, "\u0042\u1ea1n b\u00e8")}
+                  {getDisplayName(item.originalMomentSnapshot.author, "Bạn bè")}
                 </Text>
                 {item.originalMomentSnapshot.content ? (
                   <Text className="mt-2 text-sm leading-5 text-gray-700">
@@ -559,11 +650,28 @@ export default function MomentsScreen() {
                   </Text>
                 ) : null}
                 {item.originalMomentSnapshot.mediaUrls?.[0] ? (
-                  <Image
-                    source={{ uri: item.originalMomentSnapshot.mediaUrls[0] }}
-                    className="mt-3 h-40 w-full rounded-[18px] bg-[#E5E7EB]"
-                    resizeMode="cover"
-                  />
+                  isVideoUrl(item.originalMomentSnapshot.mediaUrls[0]) ? (
+                    <Video
+                      source={{ uri: item.originalMomentSnapshot.mediaUrls[0] }}
+                      style={{
+                        width: "100%",
+                        height: 160,
+                        borderRadius: 18,
+                        backgroundColor: "#000000",
+                        marginTop: 12,
+                      }}
+                      resizeMode={ResizeMode.COVER}
+                      shouldPlay={false}
+                      isLooping={false}
+                      useNativeControls
+                    />
+                  ) : (
+                    <Image
+                      source={{ uri: item.originalMomentSnapshot.mediaUrls[0] }}
+                      className="mt-3 h-40 w-full rounded-[18px] bg-[#E5E7EB]"
+                      resizeMode="cover"
+                    />
+                  )
                 ) : null}
               </View>
             ) : null}
@@ -600,7 +708,7 @@ export default function MomentsScreen() {
                       : "text-gray-600"
                   }`}
                 >
-                  {activeReaction?.icon || "C\u1ea3m x\u00fac"}
+                  {activeReaction?.icon || "Cảm xúc"}
                 </Text>
               </TouchableOpacity>
 
@@ -641,7 +749,7 @@ export default function MomentsScreen() {
       <View className="rounded-[28px] bg-white px-4 py-4">
         <View className="flex-row items-center">
           <AvatarBubble
-            name={user?.fullName || "\u0042\u1ea1n"}
+            name={user?.fullName || "Bạn"}
             uri={user?.avatarUrl}
             size={48}
           />
@@ -666,31 +774,62 @@ export default function MomentsScreen() {
           textAlignVertical="top"
         />
 
-        {composerImage?.uri ? (
-          <View className="mt-3">
-            <Image
-              source={{ uri: composerImage.uri }}
-              className="h-48 w-full rounded-[22px]"
-              resizeMode="cover"
-            />
-            <TouchableOpacity
-              onPress={() => setComposerImage(null)}
-              className="absolute right-3 top-3 h-9 w-9 items-center justify-center rounded-full bg-black/60"
-            >
-              <Ionicons name="close" size={18} color="white" />
-            </TouchableOpacity>
-          </View>
+        {composerMedia.length > 0 ? (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            className="mt-3"
+          >
+            {composerMedia.map((media, index) => (
+              <View key={`${media.uri}-${index}`} className="mr-3">
+                {media.mediaType === "video" || isVideoMimeType(media.mimeType) ? (
+                  <Video
+                    source={{ uri: media.uri }}
+                    style={{
+                      width: 288,
+                      height: 192,
+                      borderRadius: 22,
+                      backgroundColor: "#000000",
+                    }}
+                    resizeMode={ResizeMode.COVER}
+                    shouldPlay={false}
+                    isLooping={false}
+                    useNativeControls
+                  />
+                ) : (
+                  <Image
+                    source={{ uri: media.uri }}
+                    className="h-48 w-72 rounded-[22px]"
+                    resizeMode="cover"
+                  />
+                )}
+
+                <TouchableOpacity
+                  onPress={() => handleRemoveComposerMedia(media.uri)}
+                  className="absolute right-3 top-3 h-9 w-9 items-center justify-center rounded-full bg-black/60"
+                >
+                  <Ionicons name="close" size={18} color="white" />
+                </TouchableOpacity>
+
+                <View className="absolute bottom-3 left-3 rounded-full bg-black/60 px-3 py-1">
+                  <Text className="text-xs font-semibold text-white">
+                    {media.mediaType === "video" ? "Video" : "Ảnh"}
+                  </Text>
+                </View>
+              </View>
+            ))}
+          </ScrollView>
         ) : null}
 
         <View className="mt-4 flex-row items-center">
           <TouchableOpacity
             activeOpacity={0.85}
-            onPress={handlePickImage}
+            onPress={handlePickMedia}
             className="mr-3 flex-row items-center rounded-full bg-[#E8F0FF] px-4 py-3"
           >
             <Ionicons name="image-outline" size={18} color={Colors.primary} />
             <Text className="ml-2 text-sm font-semibold text-[#0068FF]">
-              {composerImage?.uri ? "\u0110\u1ed5i \u1ea3nh" : "Th\u00eam \u1ea3nh"}
+              {composerMedia.length > 0 ? "Thêm ảnh/video" : "Chọn ảnh/video"}
             </Text>
           </TouchableOpacity>
 
@@ -703,7 +842,7 @@ export default function MomentsScreen() {
             }`}
           >
             <Text className="text-sm font-bold text-white">
-              {isPosting ? "\u0110ang..." : "\u0110\u0103ng kho\u1ea3nh kh\u1eafc"}
+              {isPosting ? "Đang tải..." : "Đăng khoảnh khắc"}
             </Text>
           </TouchableOpacity>
         </View>
@@ -748,18 +887,18 @@ export default function MomentsScreen() {
   const renderEmptyState = () => {
     const messages: Record<FeedMode, { title: string; description: string }> = {
       friends: {
-        title: "Ch\u01b0a c\u00f3 kho\u1ea3nh kh\u1eafc t\u1eeb b\u1ea1n b\u00e8",
+        title: "Chưa có khoảnh khắc từ bạn bè",
         description:
-          "Khi b\u1ea1n b\u00e8 \u0111\u0103ng b\u00e0i m\u1edbi, feed n\u00e0y s\u1ebd c\u1eadp nh\u1eadt ngay t\u1ea1i \u0111\u00e2y.",
+          "Khi bạn bè đăng bài mới, feed này sẽ cập nhật ngay tại đây.",
       },
       me: {
-        title: "B\u1ea1n ch\u01b0a \u0111\u0103ng kho\u1ea3nh kh\u1eafc n\u00e0o",
-        description: "H\u00e3y \u0111\u0103ng b\u00e0i \u0111\u1ea7u ti\u00ean \u0111\u1ec3 b\u1eaft \u0111\u1ea7u trang c\u00e1 nh\u00e2n c\u1ee7a b\u1ea1n.",
+        title: "Bạn chưa đăng khoảnh khắc nào",
+        description: "Hãy đăng bài đầu tiên để bắt đầu trang cá nhân của bạn.",
       },
       reacted: {
-        title: "Ch\u01b0a c\u00f3 kho\u1ea3nh kh\u1eafc \u0111\u00e3 th\u1ea3 c\u1ea3m x\u00fac",
+        title: "Chưa có khoảnh khắc đã thả cảm xúc",
         description:
-          "Nh\u1eefng b\u00e0i b\u1ea1n \u0111\u00e3 react s\u1ebd \u0111\u01b0\u1ee3c l\u01b0u l\u1ea1i \u0111\u1ec3 xem nhanh \u1edf \u0111\u00e2y.",
+          "Những bài bạn đã react sẽ được lưu lại để xem nhanh ở đây.",
       },
     };
 
@@ -823,7 +962,8 @@ export default function MomentsScreen() {
 
             <View className="mt-5 flex-row flex-wrap justify-between">
               {REACTION_OPTIONS.map((option) => {
-                const isActive = reactionTarget?.currentUserReaction === option.key;
+                const isActive =
+                  reactionTarget?.currentUserReaction === option.key;
 
                 return (
                   <TouchableOpacity
@@ -880,7 +1020,9 @@ export default function MomentsScreen() {
                   reactionTarget?.currentUserReaction ? "flex-1" : "w-full"
                 }`}
               >
-                <Text className="text-sm font-semibold text-gray-700">Đóng</Text>
+                <Text className="text-sm font-semibold text-gray-700">
+                  Đóng
+                </Text>
               </TouchableOpacity>
             </View>
           </Pressable>
@@ -904,7 +1046,9 @@ export default function MomentsScreen() {
               <TouchableOpacity onPress={closeComments}>
                 <Ionicons name="close" size={24} color="#111827" />
               </TouchableOpacity>
-              <Text className="text-base font-bold text-gray-900">Bình luận</Text>
+              <Text className="text-base font-bold text-gray-900">
+                Bình luận
+              </Text>
               <View className="w-6" />
             </View>
 
@@ -935,8 +1079,12 @@ export default function MomentsScreen() {
                 keyboardShouldPersistTaps="handled"
                 contentContainerStyle={{ padding: 16, paddingBottom: 24 }}
                 renderItem={({ item }) => {
-                  const activeCommentReaction = getReactionOption(item.currentUserReaction);
-                  const reactionSummary = summarizeCommentReactions(item.reactions);
+                  const activeCommentReaction = getReactionOption(
+                    item.currentUserReaction,
+                  );
+                  const reactionSummary = summarizeCommentReactions(
+                    item.reactions,
+                  );
 
                   return (
                     <View
@@ -946,14 +1094,20 @@ export default function MomentsScreen() {
                     >
                       <View className="flex-row items-start">
                         <AvatarBubble
-                          name={getDisplayName(item.author, `Ng\u01b0\u1eddi d\u00f9ng ${item.userId}`)}
+                          name={getDisplayName(
+                            item.author,
+                            `Người dùng ${item.userId}`,
+                          )}
                           uri={item.author?.avartarUrl}
                           size={38}
                         />
                         <View className="ml-3 flex-1">
                           <View className="flex-row items-center justify-between">
                             <Text className="text-sm font-bold text-gray-900">
-                              {getDisplayName(item.author, `Ng\u01b0\u1eddi d\u00f9ng ${item.userId}`)}
+                              {getDisplayName(
+                                item.author,
+                                `Người dùng ${item.userId}`,
+                              )}
                             </Text>
                             <Text className="text-xs text-gray-500">
                               {formatRelativeTime(item.createdAt)}
@@ -963,7 +1117,11 @@ export default function MomentsScreen() {
                           {item.replyTo ? (
                             <View className="mt-2 rounded-2xl border border-[#DCE7FF] bg-[#F8FBFF] px-3 py-2">
                               <Text className="text-xs font-semibold text-[#0068FF]">
-                                Trả lời {getDisplayName(item.replyTo.author, "Ng\u01b0\u1eddi d\u00f9ng")}
+                                Trả lời{" "}
+                                {getDisplayName(
+                                  item.replyTo.author,
+                                  "Người dùng",
+                                )}
                               </Text>
                               <Text
                                 className="mt-1 text-sm leading-5 text-gray-600"
@@ -1011,7 +1169,8 @@ export default function MomentsScreen() {
                                     : "text-gray-500"
                                 }`}
                               >
-                                {activeCommentReaction?.label || "C\u1ea3m x\u00fac"}
+                                {activeCommentReaction?.label ||
+                                  "C\u1ea3m x\u00fac"}
                               </Text>
                             </TouchableOpacity>
 
@@ -1055,7 +1214,10 @@ export default function MomentsScreen() {
                     <View className="flex-1 pr-3">
                       <Text className="text-xs font-semibold text-[#0068FF]">
                         Đang trả lời{" "}
-                        {getDisplayName(commentReplyTarget.author, "Ng\u01b0\u1eddi d\u00f9ng")}
+                        {getDisplayName(
+                          commentReplyTarget.author,
+                          "Người dùng",
+                        )}
                       </Text>
                       <Text
                         className="mt-1 text-sm leading-5 text-gray-600"
@@ -1064,7 +1226,9 @@ export default function MomentsScreen() {
                         {commentReplyTarget.content}
                       </Text>
                     </View>
-                    <TouchableOpacity onPress={() => setCommentReplyTarget(null)}>
+                    <TouchableOpacity
+                      onPress={() => setCommentReplyTarget(null)}
+                    >
                       <Ionicons name="close" size={18} color="#6B7280" />
                     </TouchableOpacity>
                   </View>
@@ -1079,8 +1243,8 @@ export default function MomentsScreen() {
                   onFocus={() => scrollCommentsToEnd(false)}
                   placeholder={
                     commentReplyTarget
-                      ? `Tr\u1ea3 l\u1eddi ${getDisplayName(commentReplyTarget.author, "Ng\u01b0\u1eddi d\u00f9ng")}...`
-                      : "Vi\u1ebft b\u00ecnh lu\u1eadn..."
+                      ? `Trả lời ${getDisplayName(commentReplyTarget.author, "Người dùng")}...`
+                      : "Viết bình luận..."
                   }
                   placeholderTextColor="#9CA3AF"
                   multiline
@@ -1105,4 +1269,3 @@ export default function MomentsScreen() {
     </View>
   );
 }
-

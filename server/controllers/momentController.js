@@ -1,5 +1,5 @@
 const momentService = require("../services/momentService");
-const { uploadFile } = require("../services/file.service");
+const { uploadFiles } = require("../services/file.service");
 
 const getRequesterId = (req) => req.user?.userId;
 
@@ -42,13 +42,24 @@ const MomentController = {
     try {
       const body = req.body || {};
       const mediaUrls = parseMediaUrls(body.mediaUrls);
+      const requesterId = getRequesterId(req);
+      const uploadedFiles = Array.isArray(req.uploadedFiles)
+        ? req.uploadedFiles
+        : req.file
+          ? [req.file]
+          : [];
 
-      if (req.file) {
-        mediaUrls.push(await uploadFile(req.file));
+      if (uploadedFiles.length) {
+        const mediaFolder = `${requesterId || "anonymous"}/${Date.now()}`;
+        const uploadedUrls = await uploadFiles(uploadedFiles, {
+          folder: "moments",
+          subfolder: mediaFolder,
+        });
+        mediaUrls.push(...uploadedUrls);
       }
 
       const moment = await momentService.createMoment({
-        userId: getRequesterId(req),
+        userId: requesterId,
         content: body.content,
         mediaUrls
       });
