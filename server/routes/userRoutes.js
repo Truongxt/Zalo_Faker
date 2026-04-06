@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const userController = require("../controllers/userController");
 const auth = require("../middlewares/authMiddleware");
+const upload = require("../middlewares/upload");
 
 /**
  * @swagger
@@ -107,6 +108,10 @@ router.post("/refresh-token", userController.refreshToken);
 router.post("/forgot-password/request-otp", userController.forgotPasswordRequestOtp);
 router.post("/forgot-password/verify-otp", userController.forgotPasswordVerifyOtp);
 router.post("/forgot-password/reset", userController.forgotPasswordReset);
+router.post("/register/request-otp", userController.registerRequestOtp);
+router.post("/register/verify-otp", userController.registerVerifyOtp);
+router.post("/register/complete", userController.registerComplete);
+router.post("/:userId/change-password", auth, userController.changePassword);
 
 
 /**
@@ -147,7 +152,7 @@ router.get("/", auth, userController.getUsers);
  *       200:
  *         description: Thành công
  */
-router.put("/:userId", auth, userController.updateUser);
+router.put("/:userId", auth, upload, userController.updateUser);
 
 
 /**

@@ -15,6 +15,56 @@ export interface User {
   createdAt: string;
 }
 
+// Raw user shape returned from server
+export interface ServerUser {
+  userId: string;
+  email: string;
+  phone: string;
+  userName: string;
+  avartarUrl: string | null;
+  birthday: string | null;
+  gender: string;
+  status: string;
+  createdAt: string;
+}
+
+// User service request/response types
+export interface LoginResponse {
+  user: User;
+  accessToken: string;
+  refreshToken: string;
+}
+
+export interface UpdateUserData {
+  userName?: string;
+  phone?: string;
+  avartarUrl?: string;
+  birthday?: string;
+  gender?: string;
+  password?: string;
+  status?: string;
+}
+
+export interface RegisterData {
+  email: string;
+  password: string;
+  userName: string;
+  phone: string;
+  gender: string;
+  birthday: string;
+  avartarUrl: string;
+  status?: string;
+}
+
+export interface ForgotPasswordResponse {
+  message: string;
+  expiresIn: number;
+}
+
+export interface UploadResponse {
+  url: string;
+}
+
 // ========================
 // Message
 // ========================

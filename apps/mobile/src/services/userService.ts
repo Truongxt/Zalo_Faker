@@ -1,57 +1,38 @@
 import apiClient from "./apiClient";
-import type { User } from "@/types";
+import { API_URL, STORAGE_KEYS } from "@/constants/config";
+import type {
+  User,
+  ServerUser,
+  LoginResponse,
+  UpdateUserData,
+  RegisterData,
+  ForgotPasswordResponse,
+  UploadResponse
+} from "@/types";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useAuthStore } from "@/stores/authStore";
 
-export interface LoginResponse {
-  user: User;
-  accessToken: string;
-  refreshToken: string;
-}
+export type { LoginResponse };
 
-// Raw user shape returned from server
-interface ServerUser {
-  userId: string;
-  email: string;
-  phone: string;
-  userName: string;
-  avartarUrl: string | null;
-  birthday: string | null;
-  gender: string;
-  status: string;
-  createdAt: string;
-}
+const getMimeTypeFromUri = (fileUri: string) => {
+  const cleanUri = fileUri.split("?")[0];
+  const fileName = cleanUri.split("/").pop() || "avatar.jpg";
+  const fileExtension = fileName.split(".").pop()?.toLowerCase();
 
-interface UpdateUserData {
-  userName?: string;
-  phone?: string;
-  avartarUrl?: string;
-  birthday?: string;
-  gender?: string;
-  password?: string;
-  status?: string;
-}
+  const mimeType =
+    fileExtension === "png"
+      ? "image/png"
+      : fileExtension === "gif"
+        ? "image/gif"
+        : fileExtension === "webp"
+          ? "image/webp"
+          : "image/jpeg";
 
-interface ForgotPasswordResponse {
-  message: string;
-  expiresIn: number;
-}
+  return { fileName, mimeType };
+};
 
-interface RegisterData {
-  email: string;
-  password: string;
-  userName: string;
-  phone: string;
-  gender: string;
-  birthday: string;
-  avartarUrl: string;
-  status?: string;
-}
 
-interface UploadResponse {
-  url: string;
-  fileName: string;
-  fileSize: number;
-  mimetype: string;
-}
+
 
 // Map server user shape to mobile User type
 const mapServerUser = (u: ServerUser): User => ({
@@ -69,9 +50,31 @@ const mapServerUser = (u: ServerUser): User => ({
 });
 
 class UserService {
+  // Helper: Build FormData with user data + avatar file
+  private buildFormDataWithFile(data: UpdateUserData, avatarFileUri: string): FormData {
+    const formData = new FormData();
+
+    // Add user info fields
+    Object.entries(data).forEach(([key, value]) => {
+      if (value !== undefined && value !== null) {
+        formData.append(key, String(value));
+      }
+    });
+
+    // Add avatar file
+    const { fileName, mimeType } = getMimeTypeFromUri(avatarFileUri);
+    formData.append("file", {
+      uri: avatarFileUri,
+      name: fileName,
+      type: mimeType,
+    } as any);
+
+    return formData;
+  }
+
   // POST /api/users/login - đăng nhập
   async login(email: string, password: string): Promise<LoginResponse> {
-      console.log(email, password);
+    console.log(email, password);
     const response = await apiClient.post<{ user: ServerUser; accessToken: string; refreshToken: string }>(
       "/api/users/login",
       { email, password },
@@ -99,36 +102,64 @@ class UserService {
     return response.data.map(mapServerUser);
   }
 
-  // PUT /api/users/:userId - cập nhật thông tin user (cần auth)
-  async updateUser(userId: string, data: UpdateUserData): Promise<User> {
-    const response = await apiClient.put<ServerUser>(`/api/users/${userId}`, data);
-    return mapServerUser(response.data);
-  }
+  // PUT /api/users/:userId - Cập nhật user (với hoặc không có avatar)
+  async updateUser(
+    userId: string,
+    data: UpdateUserData,
+    avatarFileUri?: string,
+  ): Promise<User> {
+    // Không có avatar → gửi JSON bình thường
+    if (!avatarFileUri) {
+      const response = await apiClient.put<ServerUser>(`/api/users/${userId}`, data);
+      return mapServerUser(response.data);
+    }
 
-  async uploadAvatar(fileUri: string): Promise<string> {
-    const formData = new FormData();
-    const fileName = fileUri.split("/").pop() || `avatar-${Date.now()}.jpg`;
-    const fileExtension = fileName.split(".").pop()?.toLowerCase();
-    const mimeType =
-      fileExtension === "png"
-        ? "image/png"
-        : fileExtension === "gif"
-          ? "image/gif"
-          : "image/jpeg";
+    // Có avatar → dùng fetch (Axios không hỗ trợ file URI trên React Native)
+    try {
+      // 1. Lấy token
+      let token: string | null = null;
+      try { token = useAuthStore.getState().accessToken; } catch (_) { }
+      if (!token) token = await AsyncStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
+      if (!token) {
+        try {
+          const p = await AsyncStorage.getItem("auth-storage");
+          if (p) token = JSON.parse(p)?.state?.accessToken ?? null;
+        } catch (_) { }
+      }
 
-    formData.append("file", {
-      uri: fileUri,
-      name: fileName,
-      type: mimeType,
-    } as any);
+      // 2. Build FormData
+      const formData = new FormData();
+      Object.entries(data).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) {
+          formData.append(key, String(value));
+        }
+      });
 
-    const response = await apiClient.post<UploadResponse>("/api/upload", formData, {
-      headers: {
-        "Content-Type": "multipart/form-data",
-      },
-    });
+      const { fileName, mimeType } = getMimeTypeFromUri(avatarFileUri);
+      formData.append("file", {
+        uri: avatarFileUri,
+        name: fileName,
+        type: mimeType,
+      } as any);
 
-    return response.data.url;
+      // 3. Gửi bằng fetch — KHÔNG dùng Axios, KHÔNG set Content-Type
+      const res = await fetch(`${API_URL}/api/users/${userId}`, {
+        method: "PUT",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: formData,
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`Upload failed: ${res.status} ${errText}`);
+      }
+
+      const serverUser: ServerUser = await res.json();
+      return mapServerUser(serverUser);
+    } catch (error) {
+      console.error("[userService] Avatar upload failed:", error);
+      throw error;
+    }
   }
 
   // DELETE /api/users/:userId - xóa user (cần auth)
@@ -170,6 +201,44 @@ class UserService {
     );
     return response.data;
   }
+
+  // POST /api/users/:userId/change-password - đổi mật khẩu
+  async changePassword(userId: string, oldPassword: string, newPassword: string): Promise<{ message: string; user: User }> {
+    const response = await apiClient.post<{ message: string; user: ServerUser }>(
+      `/api/users/${userId}/change-password`,
+      { oldPassword, newPassword },
+    );
+    return { message: response.data.message, user: mapServerUser(response.data.user) };
+  }
+
+  // POST /api/users/register/request-otp - gửi OTP khi đăng ký
+  async registerRequestOtp(email: string): Promise<{ message: string; expiresIn: number }> {
+    const response = await apiClient.post<{ message: string; expiresIn: number }>(
+      "/api/users/register/request-otp",
+      { email },
+    );
+    return response.data;
+  }
+
+  // POST /api/users/register/verify-otp - xác thực OTP đăng ký
+  async registerVerifyOtp(email: string, otp: string): Promise<{ message: string; expiresIn: number }> {
+    const response = await apiClient.post<{ message: string; expiresIn: number }>(
+      "/api/users/register/verify-otp",
+      { email, otp },
+    );
+    return response.data;
+  }
+
+  // POST /api/users/register/complete - hoàn tất đăng ký sau xác thực OTP
+  async registerComplete(data: RegisterData): Promise<{ message: string; user: User }> {
+    const response = await apiClient.post<{ message: string; user: ServerUser }>(
+      "/api/users/register/complete",
+      data,
+    );
+    return { message: response.data.message, user: mapServerUser(response.data.user) };
+  }
+
 }
+
 
 export const userService = new UserService();
