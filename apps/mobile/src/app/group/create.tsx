@@ -156,9 +156,10 @@ export default function CreateGroupScreen() {
 
       GrayToast("Tao nhom thanh cong");
       router.replace("/contacts/groups");
-    } catch (error: any) {
-      console.error("Create group error:", error?.response?.data || error?.message);
-      GrayToast(error?.response?.data?.message || "Tao nhom that bai");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Tao nhom that bai";
+      console.error("Create group error:", error);
+      GrayToast(message || "Tao nhom that bai");
     } finally {
       setIsSubmitting(false);
     }

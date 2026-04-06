@@ -11,7 +11,7 @@ import {
 } from "react-native";
 import { useLocalSearchParams, router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import apiClient from "@/services/apiClient";
+import { getGroupById } from "@/services/groupService";
 
 type Message = {
   id: string;
@@ -39,10 +39,7 @@ export default function GroupChatScreen() {
   useEffect(() => {
     const fetchGroup = async () => {
       try {
-        const res = await apiClient.get("/api/groups");
-
-        const found = res.data.find((g: any) => g._id === groupId);
-
+        const found = await getGroupById(String(groupId));
         setGroup(found);
       } catch (error) {
         console.log("fetch group error:", error);

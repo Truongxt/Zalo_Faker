@@ -1,77 +1,91 @@
-import apiClient from "./apiClient";
+import { apiFetch } from "./fetchClient";
 import type { Moment, MomentComment, MomentProfile } from "@/types";
 
-export interface MomentImageFile {
+export interface MomentMediaFile {
   uri: string;
   name?: string;
   mimeType?: string | null;
 }
 
+const getMomentMimeType = (file: MomentMediaFile) => {
+  if (file.mimeType) {
+    return file.mimeType;
+  }
+
+  const normalizedName = String(file.name || file.uri || "").toLowerCase();
+
+  if (normalizedName.endsWith(".png")) return "image/png";
+  if (normalizedName.endsWith(".gif")) return "image/gif";
+  if (normalizedName.endsWith(".webp")) return "image/webp";
+  if (normalizedName.endsWith(".heic")) return "image/heic";
+  if (normalizedName.endsWith(".heif")) return "image/heif";
+  if (normalizedName.endsWith(".mov")) return "video/quicktime";
+  if (normalizedName.endsWith(".webm")) return "video/webm";
+  if (normalizedName.endsWith(".mp4")) return "video/mp4";
+
+  return "image/jpeg";
+};
+
 export interface CreateMomentPayload {
   content?: string;
   mediaUrls?: string[];
-  imageFile?: MomentImageFile | null;
+  mediaFiles?: MomentMediaFile[];
 }
 
 class MomentService {
   async createMoment(payload: CreateMomentPayload): Promise<Moment> {
-    const { content = "", mediaUrls = [], imageFile } = payload;
+    const { content = "", mediaUrls = [], mediaFiles = [] } = payload;
 
-    if (imageFile?.uri) {
+    if (mediaFiles.length > 0) {
       const formData = new FormData();
       formData.append("content", content);
       formData.append("mediaUrls", JSON.stringify(mediaUrls));
-      formData.append("image", {
-        uri: imageFile.uri,
-        name: imageFile.name || `moment-${Date.now()}.jpg`,
-        type: imageFile.mimeType || "image/jpeg",
-      } as any);
-
-      const response = await apiClient.post<Moment>("/api/moments", formData, {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
+      mediaFiles.forEach((mediaFile, index) => {
+        const mimeType = getMomentMimeType(mediaFile);
+        const fallbackExtension = mimeType.startsWith("video/") ? "mp4" : "jpg";
+        formData.append("files", {
+          uri: mediaFile.uri,
+          name: mediaFile.name || `moment-${Date.now()}-${index}.${fallbackExtension}`,
+          type: mimeType,
+        } as any);
       });
 
-      return response.data;
+      return apiFetch<Moment>("/api/moments", {
+        method: "POST",
+        body: formData,
+      });
     }
 
-    const response = await apiClient.post<Moment>("/api/moments", {
-      content,
-      mediaUrls,
+    return apiFetch<Moment>("/api/moments", {
+      method: "POST",
+      body: {
+        content,
+        mediaUrls,
+      },
     });
-
-    return response.data;
   }
 
   async getFriendMoments(): Promise<Moment[]> {
-    const response = await apiClient.get<Moment[]>("/api/moments/friends");
-    return response.data;
+    return apiFetch<Moment[]>("/api/moments/friends");
   }
 
   async getMyProfile(): Promise<MomentProfile> {
-    const response = await apiClient.get<MomentProfile>("/api/moments/me");
-    return response.data;
+    return apiFetch<MomentProfile>("/api/moments/me");
   }
 
   async getReactedMoments(): Promise<Moment[]> {
-    const response = await apiClient.get<Moment[]>("/api/moments/reacted");
-    return response.data;
+    return apiFetch<Moment[]>("/api/moments/reacted");
   }
 
   async reactToMoment(momentId: string, emoji: string) {
-    const response = await apiClient.put(`/api/moments/${momentId}/reaction`, {
-      emoji,
+    return apiFetch(`/api/moments/${momentId}/reaction`, {
+      method: "PUT",
+      body: { emoji },
     });
-
-    return response.data;
   }
 
   async getMomentComments(momentId: string): Promise<MomentComment[]> {
-    const response = await apiClient.get<MomentComment[]>(
-      `/api/moments/${momentId}/comments`,
-    );
-    return response.data;
+    return apiFetch<MomentComment[]>(`/api/moments/${momentId}/comments`);
   }
 
   async commentMoment(momentId: string, content: string): Promise<MomentComment> {
@@ -83,37 +97,30 @@ class MomentService {
     content: string,
     replyToCommentId: string | null,
   ): Promise<MomentComment> {
-    const response = await apiClient.post<MomentComment>(
-      `/api/moments/${momentId}/comments`,
-      { content, replyToCommentId },
-    );
-
-    return response.data;
+    return apiFetch<MomentComment>(`/api/moments/${momentId}/comments`, {
+      method: "POST",
+      body: { content, replyToCommentId },
+    });
   }
 
   async reactToComment(momentId: string, commentId: string, emoji: string) {
-    const response = await apiClient.put<MomentComment>(
-      `/api/moments/${momentId}/comments/${commentId}/reaction`,
-      { emoji },
-    );
-
-    return response.data;
+    return apiFetch<MomentComment>(`/api/moments/${momentId}/comments/${commentId}/reaction`, {
+      method: "PUT",
+      body: { emoji },
+    });
   }
 
   async shareMoment(momentId: string, caption = ""): Promise<Moment> {
-    const response = await apiClient.post<Moment>(`/api/moments/${momentId}/share`, {
-      caption,
+    return apiFetch<Moment>(`/api/moments/${momentId}/share`, {
+      method: "POST",
+      body: { caption },
     });
-
-    return response.data;
   }
 
   async deleteMoment(momentId: string): Promise<{ message: string; momentId: string }> {
-    const response = await apiClient.delete<{ message: string; momentId: string }>(
-      `/api/moments/${momentId}`,
-    );
-
-    return response.data;
+    return apiFetch<{ message: string; momentId: string }>(`/api/moments/${momentId}`, {
+      method: "DELETE",
+    });
   }
 }
 
