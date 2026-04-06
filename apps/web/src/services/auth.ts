@@ -2,21 +2,27 @@ import { User, useAuthStore } from '@/stores/authStore'
 import { baseAPI, fetchWithAuth } from './api'
 
 export const authService = {
-    async register(fullName: string, email: string, password: string): Promise<{ user: User; accessToken: string }> {
-        // Backend yêu cầu: email, password, userName, gender, phone, status, avartarUrl, birthday
-        // (Do design UI chưa có các trường này nên truyền tạm giá trị mặc định)
+    async register(data: {
+        fullName: string;
+        email: string;
+        password: string;
+        phone: string;
+        birthday: string;
+        gender: string;
+        avatarUrl?: string;
+    }): Promise<{ user: User; accessToken: string }> {
         const response = await fetch(`${baseAPI}/users/register`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                email,
-                password,
-                userName: fullName,
-                gender: "other",
-                phone: "0000000000",
+                email: data.email,
+                password: data.password,
+                userName: data.fullName,
+                gender: data.gender,
+                phone: data.phone,
                 status: "active",
-                avartarUrl: "",
-                birthday: "2000-01-01"
+                avartarUrl: data.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(data.fullName)}&background=0068FF&color=fff&size=256`,
+                birthday: data.birthday
             })
         });
 
@@ -26,7 +32,7 @@ export const authService = {
         }
         
         // Sau khi đăng ký thành công, gọi login để tự động đăng nhập và lấy chuỗi token
-        return await this.login(email, password);
+        return await this.login(data.email, data.password);
     },
 
     async login(email: string, password: string): Promise<{ user: User; accessToken: string, refreshToken: string }> {
@@ -45,9 +51,12 @@ export const authService = {
         
         const mappedUser: User = {
             ...data.user,
-            id: data.user.userId, // Map userId từ BE sang id trên FE
+            id: data.user.userId,
             avatarUrl: data.user.avartarUrl,
             fullName: data.user.userName || 'User',
+            phone: data.user.phone || null,
+            birthday: data.user.birthday || null,
+            gender: data.user.gender || 'other',
         }
 
         return {
@@ -76,18 +85,91 @@ export const authService = {
         }
     },
 
-    async updateProfile(updates: { fullName?: string; bio?: string; avatarUrl?: string }): Promise<void> {
+    async updateProfile(updates: { 
+        fullName?: string; 
+        bio?: string; 
+        avatarUrl?: string;
+        phone?: string;
+        birthday?: string;
+        gender?: string;
+    }): Promise<void> {
         const store = useAuthStore.getState();
-        if (!store.user?.userId) throw new Error('Not authenticated');
+        if (!store.user?.id && !store.user?.userId) throw new Error('Not authenticated');
 
+        const userId = store.user?.id || store.user?.userId;
         const backendUpdates: any = {};
-        if (updates.fullName) backendUpdates.userName = updates.fullName;
-        if (updates.avatarUrl) backendUpdates.avartarUrl = updates.avatarUrl;
+        if (updates.fullName !== undefined) backendUpdates.userName = updates.fullName;
+        if (updates.avatarUrl !== undefined) backendUpdates.avartarUrl = updates.avatarUrl;
+        if (updates.phone !== undefined) backendUpdates.phone = updates.phone;
+        if (updates.birthday !== undefined) backendUpdates.birthday = updates.birthday;
+        if (updates.gender !== undefined) backendUpdates.gender = updates.gender;
+        if (updates.bio !== undefined) backendUpdates.bio = updates.bio;
         
-        await fetchWithAuth(`/users/${store.user.userId}`, {
+        await fetchWithAuth(`/users/${userId}`, {
             method: 'PUT',
             body: JSON.stringify(backendUpdates)
         });
+    },
+
+    async uploadAvatar(file: File): Promise<string> {
+        const formData = new FormData();
+        formData.append("file", file);
+        
+        const response = await fetch(`${baseAPI}/upload`, {
+            method: "POST",
+            headers: {
+                ...this.getAuthHeaders()
+            },
+            body: formData,
+        });
+        
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        return data.url;
+    },
+
+    getAuthHeaders(): Record<string, string> {
+        const token = useAuthStore.getState().accessToken;
+        return token ? { 'Authorization': `Bearer ${token}` } : {};
+    },
+
+    async requestForgotPasswordOtp(email: string): Promise<{ message: string; expiresIn: number }> {
+        const response = await fetch(`${baseAPI}/users/forgot-password/request-otp`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email })
+        });
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.message || 'Không thể gửi OTP');
+        }
+        return response.json();
+    },
+
+    async verifyForgotPasswordOtp(email: string, otp: string): Promise<{ message: string; expiresIn: number }> {
+        const response = await fetch(`${baseAPI}/users/forgot-password/verify-otp`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, otp })
+        });
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.message || 'Xác thực OTP thất bại');
+        }
+        return response.json();
+    },
+
+    async resetForgotPassword(email: string, newPassword: string): Promise<{ message: string }> {
+        const response = await fetch(`${baseAPI}/users/forgot-password/reset`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, newPassword })
+        });
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.message || 'Không thể đặt lại mật khẩu');
+        }
+        return response.json();
     },
 
     async getSession() {
