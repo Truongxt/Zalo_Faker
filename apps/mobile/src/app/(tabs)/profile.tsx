@@ -41,14 +41,14 @@ export default function ProfileScreen() {
   };
 
   const menuItems = [
-    { icon: "🔔", title: "Thông báo", onPress: () => {} },
-    { icon: "🌙", title: "Giao diện", onPress: () => {} },
+    { icon: "🔔", title: "Thông báo", onPress: () => router.push("/profile/notifications") },
+    { icon: "🌙", title: "Giao diện", onPress: () => router.push("/profile/appearance") },
     {
       icon: "🔒",
       title: "Bảo mật",
       onPress: () => router.push("/profile/security"),
     },
-    { icon: "💾", title: "Dữ liệu & Lưu trữ", onPress: () => {} },
+    { icon: "💾", title: "Dữ liệu & Lưu trữ", onPress: () => router.push("/profile/data-storage") },
     { icon: "❓", title: "Trợ giúp", onPress: () => {} },
     { icon: "ℹ️", title: "Về ứng dụng", onPress: () => {} },
   ];

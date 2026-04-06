@@ -99,7 +99,19 @@ const FriendRepository= {
     ]);
 
     return direct || reverse || null;
-  }
+  },
+
+  // từ chối request kết bạn — xóa record khỏi bảng
+  async rejectRequest(fromUserId, toUserId) {
+    const params = {
+      TableName: TABLE_NAME,
+      Key: {
+        fromUserId: Number(fromUserId),
+        toUserId: Number(toUserId),
+      },
+    };
+    await dynamodb.delete(params).promise();
+  },
   // async getStatusFriend(userId, friendId,status) {
   //  const result = await dynamodb.scan({
   //   TableName:TABLE_NAME,

@@ -61,6 +61,19 @@ const FriendService = {
   },
   async getExitingFriend(fromUserId, toUserId) {
     return await friendRepository.getExitingFriend(Number(fromUserId), Number(toUserId));
+  },
+
+  // từ chối lời mời kết bạn
+  async rejectFriendRequest(fromUserId, toUserId) {
+    fromUserId = Number(fromUserId);
+    toUserId = Number(toUserId);
+
+    const request = await friendRepository.getFriend(fromUserId, toUserId);
+    if (!request) {
+      throw new Error("Friend request not found");
+    }
+
+    await friendRepository.rejectRequest(fromUserId, toUserId);
   }
 
 }

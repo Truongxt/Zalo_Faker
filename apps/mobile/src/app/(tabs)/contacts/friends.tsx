@@ -146,14 +146,27 @@ export default function ContactsScreen() {
                   setLoading(false);
                 }
               }}
-              onReject={(req) => {
-                setRequestFriends((prev) =>
-                  prev.filter(
-                    (r) =>
-                      r.fromUserId !== req.fromUserId ||
-                      r.toUserId !== req.toUserId,
-                  ),
-                );
+              onReject={async (req) => {
+                try {
+                  setLoading(true);
+                  await friendsService.rejectFriendRequest(
+                    String(req.fromUserId),
+                    String(req.toUserId),
+                  );
+                  setRequestFriends((prev) =>
+                    prev.filter(
+                      (r) =>
+                        r.fromUserId !== req.fromUserId ||
+                        r.toUserId !== req.toUserId,
+                    ),
+                  );
+                  GrayToast("Đã từ chối lời mời kết bạn");
+                } catch (e) {
+                  console.error("Lỗi từ chối:", e);
+                  GrayToast("Không thể từ chối lời mời");
+                } finally {
+                  setLoading(false);
+                }
               }}
             />
           )}

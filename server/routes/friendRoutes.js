@@ -52,6 +52,29 @@ router.post("/requests",auth, friendController.sendFriendRequest);
  */
 router.post("/requests/accept", auth, friendController.acceptFriendRequest);
 
+/**
+ * @swagger
+ * /requests/reject:
+ *   post:
+ *     summary: Từ chối lời mời kết bạn
+ *     tags: [Friend]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               fromUserId:
+ *                 type: number
+ *               toUserId:
+ *                 type: number
+ *     responses:
+ *       200:
+ *         description: Thành công
+ */
+router.post("/requests/reject", auth, friendController.rejectFriendRequest);
+
 
 /**
  * @swagger
