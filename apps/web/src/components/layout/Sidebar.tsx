@@ -14,7 +14,8 @@ import {
     Pin,
     BellOff,
     Tag,
-    Link2
+    Link2,
+    Clock
 } from 'lucide-react'
 import CreateGroupModal from '@/components/chat/CreateGroupModal'
 import LabelManagerModal from '@/components/chat/LabelManagerModal'
@@ -372,14 +373,18 @@ export default function Sidebar() {
             {/* Bottom navigation */}
             <div className="border-t border-gray-200 dark:border-gray-800 p-2">
                 <div className="flex items-center justify-around">
-                    <button className="flex flex-col items-center gap-1 p-2 text-primary-500">
+                    <Link to="/chat" className="flex flex-col items-center gap-1 p-2 text-primary-500">
                         <MessageCircle className="w-5 h-5" />
                         <span className="text-xs">Tin nhắn</span>
-                    </button>
+                    </Link>
                     <button className="flex flex-col items-center gap-1 p-2 text-gray-500 dark:text-gray-400 hover:text-primary-500">
                         <Users className="w-5 h-5" />
                         <span className="text-xs">Danh bạ</span>
                     </button>
+                    <Link to="/chat/moments" className="flex flex-col items-center gap-1 p-2 text-gray-500 dark:text-gray-400 hover:text-primary-500">
+                        <Clock className="w-5 h-5" />
+                        <span className="text-xs">Nhật ký</span>
+                    </Link>
                     <Link
                         to="/profile"
                         className="flex flex-col items-center gap-1 p-2 text-gray-500 dark:text-gray-400 hover:text-primary-500"

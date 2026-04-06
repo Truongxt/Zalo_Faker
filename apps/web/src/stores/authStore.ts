@@ -6,11 +6,14 @@ export interface User {
     userId?: string
     email: string | null
     phone: string | null
+    phoneNumber?: string | null
     fullName: string
     userName?: string
     avatarUrl: string | null
     avartarUrl?: string | null // backend typo
     bio: string | null
+    birthday: string | null
+    gender: 'male' | 'female' | 'other' | string
     status: 'online' | 'offline' | 'away' | string
     lastSeen: string | null
     createdAt: string

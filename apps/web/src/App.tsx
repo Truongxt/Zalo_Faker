@@ -6,8 +6,10 @@ import { ToastProvider } from '@/contexts/ToastContext'
 import Landing from '@/pages/Landing'
 import Login from '@/pages/Login'
 import Register from '@/pages/Register'
+import ForgotPassword from '@/pages/ForgotPassword'
 import ChatLayout from '@/pages/ChatLayout'
 import ChatRoom from '@/pages/ChatRoom'
+import Moments from '@/pages/Moments'
 import Profile from '@/pages/Profile'
 import Settings from '@/pages/Settings'
 
@@ -82,6 +84,11 @@ export default function App() {
                             <Register />
                         </PublicRoute>
                     } />
+                    <Route path="/forgot-password" element={
+                        <PublicRoute>
+                            <ForgotPassword />
+                        </PublicRoute>
+                    } />
 
                     {/* Protected routes */}
                     <Route path="/chat" element={
@@ -106,6 +113,7 @@ export default function App() {
                                 </div>
                             </div>
                         } />
+                        <Route path="moments" element={<Moments />} />
                         <Route path=":conversationId" element={<ChatRoom />} />
                     </Route>
 
