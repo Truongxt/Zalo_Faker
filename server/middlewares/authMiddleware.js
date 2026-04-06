@@ -1,4 +1,5 @@
 const { verifyAccessToken } = require("../utils/jwt.js");
+const userRepository = require("../repository/userRepository");
 
 const normalizeUserPayload = (decoded = {}) => {
   const rawUserId = decoded.userId ?? decoded.id ?? decoded.sub;
@@ -16,7 +17,7 @@ const normalizeUserPayload = (decoded = {}) => {
   };
 };
 
-const authMiddleware = (req, res, next) => {
+const authMiddleware = async (req, res, next) => {
   try {
     const header = req.headers.authorization;
 
@@ -40,6 +41,23 @@ const authMiddleware = (req, res, next) => {
 
     if (!normalizedUser) {
       return res.status(401).json({ message: "Invalid token payload" });
+    }
+
+    const tokenAccountStatus = normalizedUser.accountStatus;
+    if (tokenAccountStatus === "locked" || tokenAccountStatus === "deleted") {
+      return res.status(403).json({ message: "Account is not allowed to access this resource" });
+    }
+
+    // Check latest status from DB so locking account takes effect immediately,
+    // even when old access tokens are still valid.
+    const currentUser = await userRepository.getById(normalizedUser.userId);
+    if (!currentUser) {
+      return res.status(401).json({ message: "User not found" });
+    }
+
+    const currentAccountStatus = currentUser.accountStatus || currentUser.status || "active";
+    if (currentAccountStatus === "locked" || currentAccountStatus === "deleted") {
+      return res.status(403).json({ message: "Account is not allowed to access this resource" });
     }
 
     req.user = normalizedUser;

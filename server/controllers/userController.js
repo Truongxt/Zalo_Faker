@@ -16,8 +16,16 @@ const userController = {
   // ===== LOGIN =====
   login: async (req, res) => {
     try {
-      const { email, password } = req.body;
-      const result = await userService.login(email, password);
+      const { email, password, platform, deviceInfo } = req.body;
+
+      // Extract device info from request
+      const loginMeta = {
+        platform: platform || req.headers["x-platform"] || "unknown",
+        deviceInfo: deviceInfo || req.headers["x-device-info"] || req.headers["user-agent"] || "Unknown",
+        ipAddress: req.headers["x-forwarded-for"] || req.connection?.remoteAddress || req.ip || "Unknown",
+      };
+
+      const result = await userService.login(email, password, loginMeta);
       res.json(result);
     } catch (err) {
       res.status(401).json({ message: err.message });
@@ -152,7 +160,80 @@ getUserById: async (req, res) => {
       const message = err.message || "Failed to change password";
       const status = /required|not found|incorrect/i.test(message) ? 400 : 500;
       res.status(status).json({ message });
-    }  },
+    }
+  },
+
+  // ===== LOCK ACCOUNT =====
+  lockAccount: async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const { currentPassword } = req.body || {};
+
+      if (!req.user?.userId || String(req.user.userId) !== String(userId)) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+
+      const result = await userService.lockAccount(userId, currentPassword);
+      res.json(result);
+    } catch (err) {
+      const message = err.message || "Failed to lock account";
+      const status = /required|not found|incorrect/i.test(message) ? 400 : 500;
+      res.status(status).json({ message });
+    }
+  },
+
+  requestPermanentLockOtp: async (req, res) => {
+    try {
+      const { userId } = req.params;
+
+      if (!req.user?.userId || String(req.user.userId) !== String(userId)) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+
+      const result = await userService.requestPermanentLockOtp(userId);
+      res.json(result);
+    } catch (err) {
+      const message = err.message || "Failed to send lock OTP";
+      const status = /required|not found|wait|already/i.test(message) ? 400 : 500;
+      res.status(status).json({ message });
+    }
+  },
+
+  permanentLockAccount: async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const { password, otp, confirmIrreversible } = req.body || {};
+
+      if (!req.user?.userId || String(req.user.userId) !== String(userId)) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+
+      const result = await userService.permanentLockAccount(
+        userId,
+        password,
+        otp,
+        confirmIrreversible,
+      );
+      res.json(result);
+    } catch (err) {
+      const message = err.message || "Failed to permanently lock account";
+      const status = /required|not found|incorrect|invalid|expired|confirm|already/i.test(message) ? 400 : 500;
+      res.status(status).json({ message });
+    }
+  },
+
+  // ===== UNLOCK ACCOUNT =====
+  unlockAccount: async (req, res) => {
+    try {
+      const { email, password } = req.body || {};
+      const result = await userService.unlockAccount(email, password);
+      res.json(result);
+    } catch (err) {
+      const message = err.message || "Failed to unlock account";
+      const status = /required|not found|incorrect|not locked/i.test(message) ? 400 : 500;
+      res.status(status).json({ message });
+    }
+  },
 
   // ===== REGISTRATION WITH OTP =====
   registerRequestOtp: async (req, res) => {
@@ -187,7 +268,27 @@ getUserById: async (req, res) => {
       const message = err.message || "Failed to complete registration";
       const status = /required|verification|expired|exists|already/i.test(message) ? 400 : 500;
       res.status(status).json({ message });
-    }  }
+    }  },
+
+  // ===== LOGIN HISTORY =====
+  getLoginHistory: async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const limit = parseInt(req.query.limit) || 20;
+
+      // Only allow users to see their own login history
+      if (!req.user?.userId || String(req.user.userId) !== String(userId)) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+
+      const history = await userService.getLoginHistory(userId, limit);
+      res.json(history);
+    } catch (err) {
+      const message = err.message || "Failed to get login history";
+      const status = /required|not found/i.test(message) ? 400 : 500;
+      res.status(status).json({ message });
+    }
+  },
 
 }
 module.exports = userController;

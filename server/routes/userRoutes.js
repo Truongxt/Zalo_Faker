@@ -111,7 +111,11 @@ router.post("/forgot-password/reset", userController.forgotPasswordReset);
 router.post("/register/request-otp", userController.registerRequestOtp);
 router.post("/register/verify-otp", userController.registerVerifyOtp);
 router.post("/register/complete", userController.registerComplete);
+router.post("/unlock-account", userController.unlockAccount);
 router.post("/:userId/change-password", auth, userController.changePassword);
+router.post("/:userId/lock-account", auth, userController.lockAccount);
+router.post("/:userId/lock-account/request-otp", auth, userController.requestPermanentLockOtp);
+router.post("/:userId/lock-account/permanent", auth, userController.permanentLockAccount);
 
 
 /**
@@ -216,5 +220,30 @@ router.get("/phone/:phone", auth, userController.getUserByPhone);
  *         description: Thành công
  */
 router.get("/id/:userId", auth, userController.getUserById);
+
+/**
+ * @swagger
+ * /users/{userId}/login-history:
+ *   get:
+ *     summary: Lấy lịch sử đăng nhập
+ *     tags: [User]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 20
+ *     responses:
+ *       200:
+ *         description: Danh sách lịch sử đăng nhập
+ */
+router.get("/:userId/login-history", auth, userController.getLoginHistory);
 
 module.exports = router;

@@ -17,7 +17,8 @@
     "db:create-chat-meta": "npm run db:create-participant ; npm run db:create-reaction",
     "db:seed-users": "node scripts/seed-users.js",
     "db:seed-demo": "node scripts/seed-demo.js",
-    "db:reset-test-passwords": "node scripts/reset-test-user-passwords.js"
+    "db:reset-test-passwords": "node scripts/reset-test-user-passwords.js",
+    "db:create-login-history": "node scripts/create-login-history-table.js"
   },
   "keywords": [],
   "author": "",
