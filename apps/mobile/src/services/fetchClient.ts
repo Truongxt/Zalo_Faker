@@ -71,10 +71,34 @@ const getStoredAccessToken = async () => {
   return token;
 };
 
+const getStoredRefreshToken = async () => {
+  let token: string | null = null;
+
+  try {
+    token = useAuthStore.getState().refreshToken;
+  } catch (error) {
+    console.warn("[fetchClient] Cannot read refresh token from store:", error);
+  }
+
+  if (!token) {
+    const persistedAuth = await AsyncStorage.getItem("auth-storage");
+    if (persistedAuth) {
+      try {
+        const parsed = JSON.parse(persistedAuth);
+        token = parsed?.state?.refreshToken ?? null;
+      } catch {
+        token = null;
+      }
+    }
+  }
+
+  return token;
+};
+
 const refreshAccessToken = async () => {
   if (!refreshPromise) {
     refreshPromise = (async () => {
-      const refreshToken = useAuthStore.getState().refreshToken;
+      const refreshToken = await getStoredRefreshToken();
 
       if (!refreshToken) {
         throw new Error("No refresh token available");

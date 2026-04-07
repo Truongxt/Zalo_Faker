@@ -1,21 +1,54 @@
 const { Server } = require("socket.io");
 const messageService = require("../services/messageService");
+const conversationService = require("../services/conversationService");
 const conversationModel = require("../models/conversation");
 const GroupService = require("../services/groupService");
 const userRepository = require("../repository/userRepository");
 const { verifyAccessToken } = require("../utils/jwt");
-const { redisClient } = require("../utils/redisClient");
+const { redisClient, getIsRedisReady } = require("../utils/redisClient");
 
-// ─── Redis key helpers ───────────────────────────────────────────────
 const presenceKey = (userId, platform) => `presence:${userId}:${platform}`;
 const allPresencePattern = (userId) => `presence:${userId}:*`;
+
+const MEDIA_FALLBACK_BY_TYPE = {
+  image: "[Hinh anh]",
+  video: "[Video]",
+  voice: "[Tin nhan thoai]",
+  sticker: "[Nhan dan]",
+  file: "[File]",
+};
+
+const toRoomId = (conversationId) => `conv:${String(conversationId)}`;
+
+const normalizeMessage = (message) => ({
+  ...message,
+  id: message?._id || message?.id,
+  reactions: Array.isArray(message?.reactions) ? message.reactions : [],
+  readBy: Array.isArray(message?.readBy) ? message.readBy : [],
+  isDeleted: Boolean(message?.isDeleted),
+});
+
+const getLastMessageText = ({ type, content, metadata }) => {
+  const contentText =
+    typeof content === "string"
+      ? content
+      : typeof content?.text === "string"
+      ? content.text
+      : "";
+
+  if (metadata?.isAnnouncement) {
+    return `[Thong bao] ${contentText}`.trim();
+  }
+
+  if (contentText) return contentText;
+  return MEDIA_FALLBACK_BY_TYPE[type] || "[Tin nhan]";
+};
 
 module.exports = (socketConfig) => {
   const io = new Server(socketConfig, {
     cors: { origin: "*" },
   });
 
-  // ─── Middleware: JWT Authentication ───────────────────────────────
   io.use((socket, next) => {
     try {
       const token = socket.handshake.auth?.token;
@@ -28,305 +61,367 @@ module.exports = (socketConfig) => {
         return next(new Error("Authentication error: Invalid token"));
       }
 
-      // Check account status from JWT payload
       const accountStatus = decoded.accountStatus || "active";
       if (accountStatus === "locked" || accountStatus === "deleted") {
         return next(new Error("Authentication error: Account is not active"));
       }
 
-      // Attach user info to socket
       socket.userId = String(decoded.userId);
       socket.userEmail = decoded.email;
-      // Platform: client sends "mobile" or "web", default to "web"
       socket.platform = socket.handshake.auth?.platform || "web";
 
       next();
     } catch (err) {
-      return next(new Error("Authentication error: " + (err.message || "Token verification failed")));
+      next(new Error(`Authentication error: ${err.message || "Token verification failed"}`));
     }
   });
 
-  // ─── Helper: Check if user is online on any platform ──────────────
   const isUserOnline = async (userId) => {
     try {
-      // Scan for all presence keys of this user
-      const keys = [];
-      for await (const key of redisClient.scanIterator({ MATCH: allPresencePattern(userId), COUNT: 10 })) {
-        keys.push(key);
+      if (!getIsRedisReady()) return false;
+
+      for await (const _key of redisClient.scanIterator({
+        MATCH: allPresencePattern(userId),
+        COUNT: 10,
+      })) {
+        return true;
       }
-      return keys.length > 0;
+
+      return false;
     } catch (err) {
-      console.error("isUserOnline error:", err);
+      console.error("isUserOnline error:", err.message);
       return false;
     }
   };
 
-  // ─── Connection ───────────────────────────────────────────────────
+  const getSocketIdForUser = async (userId) => {
+    if (!getIsRedisReady()) return null;
+
+    for (const platform of ["mobile", "web"]) {
+      const socketId = await redisClient.get(presenceKey(userId, platform));
+      if (socketId) return socketId;
+    }
+
+    return null;
+  };
+
+  const isMemberOfConversation = (conversation, userId) =>
+    Boolean(conversation?.participants?.some((p) => String(p.userId) === String(userId)));
+
+  const ensureConversationMembership = async (conversationId, userId) => {
+    const conversation = await conversationService.getConversation(conversationId);
+    if (!conversation) {
+      const err = new Error("Conversation not found");
+      err.statusCode = 404;
+      throw err;
+    }
+
+    if (!isMemberOfConversation(conversation, userId)) {
+      const err = new Error("Not a member of this conversation");
+      err.statusCode = 403;
+      throw err;
+    }
+
+    return conversation;
+  };
+
+  const joinConversationRoom = async (socket, conversationId) => {
+    const conversation = await ensureConversationMembership(conversationId, socket.userId);
+    socket.join(toRoomId(conversationId));
+    return conversation;
+  };
+
+  const autoJoinConversationRooms = async (socket) => {
+    const conversations = await conversationService.getConversations(socket.userId);
+    const ids = (conversations || []).map((c) => c._id || c.id).filter(Boolean);
+    ids.forEach((id) => socket.join(toRoomId(id)));
+  };
+
   io.on("connection", async (socket) => {
     const { userId, platform } = socket;
     console.log(`Socket connected: ${socket.id} | User: ${userId} | Platform: ${platform}`);
 
-    // ── Single-device-per-platform enforcement ──────────────────────
-    // Check if there's already a socket for this user on the same platform
-    try {
-      const key = presenceKey(userId, platform);
-      const existingSocketId = await redisClient.get(key);
+    socket.join(`user:${userId}`);
 
-      if (existingSocketId && existingSocketId !== socket.id) {
-        // Force disconnect the old socket on the same platform
-        const existingSocket = io.sockets.sockets.get(existingSocketId);
-        if (existingSocket) {
-          existingSocket.emit("session:force_logout", {
-            reason: `Tài khoản của bạn đã được đăng nhập trên một thiết bị ${platform === "mobile" ? "di động" : "web"} khác.`,
-            platform,
-          });
-          // Give client a moment to handle the event before disconnecting
-          setTimeout(() => {
-            existingSocket.disconnect(true);
-          }, 500);
+    try {
+      const wasOnlineBefore = await isUserOnline(userId);
+
+      if (getIsRedisReady()) {
+        const key = presenceKey(userId, platform);
+        const existingSocketId = await redisClient.get(key);
+
+        if (existingSocketId && existingSocketId !== socket.id) {
+          const existingSocket = io.sockets.sockets.get(existingSocketId);
+          if (existingSocket) {
+            existingSocket.emit("session:force_logout", {
+              reason: `Tai khoan cua ban da duoc dang nhap tren mot thiet bi ${platform === "mobile" ? "di dong" : "web"} khac.`,
+              platform,
+            });
+            setTimeout(() => existingSocket.disconnect(true), 500);
+          }
         }
-        console.log(`Force disconnected old ${platform} session for user ${userId} (socket: ${existingSocketId})`);
+
+        await redisClient.set(key, socket.id);
       }
 
-      // ── Register this socket in Redis ────────────────────────────
-      const wasOnline = await isUserOnline(userId);
+      await userRepository
+        .updateUser(String(userId), {
+          presenceStatus: "online",
+        })
+        .catch((err) => console.warn("Failed to update presenceStatus to online:", err?.message));
 
-      // Store: presence:{userId}:{platform} = socketId (no expiry, we clean up on disconnect)
-      await redisClient.set(key, socket.id);
-
-      // Update DB presence
-      await userRepository.updateUser(String(userId), {
-        presenceStatus: "online",
-      }).catch((err) => console.warn("Failed to update presenceStatus to online:", err?.message));
-
-      // If user was not online before (first device connects), broadcast
-      if (!wasOnline) {
+      if (!wasOnlineBefore) {
         socket.broadcast.emit("presence:online", { userId });
       }
 
-      console.log(`User ${userId} is online (${platform})`);
+      await autoJoinConversationRooms(socket);
     } catch (err) {
-      console.error("Connection presence setup error:", err);
+      console.error("Connection setup error:", err.message);
     }
 
-    // ── 2. Join/Leave rooms ─────────────────────────────────────────
-    socket.on("room:join", (conversationId) => {
-      socket.join(conversationId);
-      console.log(`Socket ${socket.id} joined room ${conversationId}`);
+    socket.on("room:join", async (conversationId, callback) => {
+      try {
+        await joinConversationRoom(socket, conversationId);
+        callback?.({ success: true });
+      } catch (err) {
+        callback?.({ success: false, error: err.message });
+      }
     });
 
     socket.on("room:leave", (conversationId) => {
-      socket.leave(conversationId);
+      socket.leave(toRoomId(conversationId));
     });
 
-    // ── 3. Send message ─────────────────────────────────────────────
+    // Backward compatibility
+    socket.on("chat:join", async ({ conversationId }, callback) => {
+      try {
+        await joinConversationRoom(socket, conversationId);
+        callback?.({ success: true });
+      } catch (err) {
+        callback?.({ success: false, error: err.message });
+      }
+    });
+
+    socket.on("chat:leave", ({ conversationId }) => {
+      socket.leave(toRoomId(conversationId));
+    });
+
     socket.on("chat:send", async (data, callback) => {
       try {
-        const { conversationId, type, content, replyTo, metadata } = data;
-        const actualSenderId = socket.userId;
+        const {
+          conversationId,
+          type = "text",
+          content,
+          replyTo = null,
+          metadata = null,
+          clientTempId = null,
+        } = data || {};
 
-        if (!actualSenderId) {
-          return callback && callback({ success: false, error: "Unauthorized socket" });
+        if (!conversationId) {
+          return callback?.({ success: false, error: "conversationId is required" });
         }
 
-        // Permission check
-        const { getConversation } = require("../services/conversationService");
-        const conv = await getConversation(conversationId);
-        if (!conv) {
-          return callback && callback({ success: false, error: "Conversation not found" });
-        }
-        if (!conv.participants || !conv.participants.some(p => p.userId === actualSenderId)) {
-          return callback && callback({ success: false, error: "Not a member of this conversation" });
-        }
+        const conversation = await ensureConversationMembership(conversationId, socket.userId);
 
-        if (conv.type === "group") {
-          GroupService.ensureCanSendMessage(conv, {
-            userId: actualSenderId,
-            type: type || "text",
-            metadata
+        if (conversation.type === "group") {
+          GroupService.ensureCanSendMessage(conversation, {
+            userId: socket.userId,
+            type,
+            metadata,
           });
         }
 
-        // Save to DynamoDB
         const saved = await messageService.createMessage({
           conversationId,
-          senderId: actualSenderId,
-          type: type || "text",
+          senderId: socket.userId,
+          type,
           content,
-          metadata: metadata || null,
-          replyTo: replyTo || null,
+          metadata,
+          replyTo,
           reactions: [],
           readBy: [],
           isDeleted: false,
         });
 
-        // Update lastMessage of conversation
         await conversationModel.updateConversation(conversationId, {
           lastMessage: {
-            content: metadata?.isAnnouncement
-              ? `[Thông báo] ${content.text || ""}`.trim()
-              : content.text || (type === 'image' ? '[Hình ảnh]' : type === 'video' ? '[Video]' : type === 'voice' ? '[Tin nhắn thoại]' : type === 'sticker' ? '[Nhãn dán]' : '[File]'),
-            type: type || "text",
-            senderId: actualSenderId,
+            content: getLastMessageText({ type, content, metadata }),
+            type,
+            senderId: socket.userId,
             timestamp: saved.createdAt,
           },
         });
 
-        const message = { ...saved, id: saved._id };
+        const message = normalizeMessage(saved);
+        const roomId = toRoomId(conversationId);
 
-        // Broadcast to everyone in the room (including sender)
-        io.to(conversationId).emit("chat:message", message);
+        // Sender receives canonical message in ACK, others via room broadcast.
+        socket.to(roomId).emit("chat:message", message);
+        io.to(`user:${socket.userId}`).emit("chat:conversation_updated", {
+          conversationId,
+          lastMessage: {
+            content: getLastMessageText({ type, content, metadata }),
+            type,
+            senderId: socket.userId,
+            timestamp: saved.createdAt,
+          },
+        });
 
-        if (callback) callback({ success: true, message });
-
+        callback?.({
+          success: true,
+          message,
+          clientTempId,
+        });
       } catch (err) {
         console.error("chat:send error:", err);
-        if (callback) callback({ success: false, error: err.message });
+        callback?.({ success: false, error: err.message });
       }
     });
 
-    // ── 4. Typing indicator ─────────────────────────────────────────
-    socket.on("chat:typing", ({ conversationId, userId }) => {
-      socket.to(conversationId).emit("chat:typing", { conversationId, userId });
-    });
-
-    socket.on("chat:stop_typing", ({ conversationId, userId }) => {
-      socket.to(conversationId).emit("chat:stop_typing", { conversationId, userId });
-    });
-
-    // ── 5. Read receipt ────────────────────────────────────────────
-    socket.on("chat:read", async ({ conversationId, messageId, userId }) => {
+    socket.on("chat:typing", async ({ conversationId }) => {
       try {
-        if (messageId && userId) {
-          const message = await messageService.getMessage(messageId);
-          if (message) {
-            let newReadBy = [...(message.readBy || [])];
-            if (!newReadBy.some(r => r.userId === userId)) {
-              newReadBy.push({ userId, readAt: new Date().toISOString() });
-              await messageService.updateMessage(messageId, { readBy: newReadBy });
-            }
-          }
+        if (!conversationId) return;
+        await ensureConversationMembership(conversationId, socket.userId);
+        socket.to(toRoomId(conversationId)).emit("chat:typing", {
+          conversationId,
+          userId: socket.userId,
+        });
+      } catch (err) {
+        console.warn("chat:typing denied:", err.message);
+      }
+    });
+
+    socket.on("chat:stop_typing", async ({ conversationId }) => {
+      try {
+        if (!conversationId) return;
+        await ensureConversationMembership(conversationId, socket.userId);
+        socket.to(toRoomId(conversationId)).emit("chat:stop_typing", {
+          conversationId,
+          userId: socket.userId,
+        });
+      } catch (err) {
+        console.warn("chat:stop_typing denied:", err.message);
+      }
+    });
+
+    socket.on("chat:read", async ({ conversationId, messageId }, callback) => {
+      try {
+        if (!conversationId || !messageId) {
+          return callback?.({ success: false, error: "conversationId and messageId are required" });
         }
 
-        socket.to(conversationId).emit("chat:read", {
+        await ensureConversationMembership(conversationId, socket.userId);
+
+        const message = await messageService.getMessage(messageId);
+        if (!message) {
+          return callback?.({ success: false, error: "Message not found" });
+        }
+        if (String(message.conversationId) !== String(conversationId)) {
+          return callback?.({ success: false, error: "Message does not belong to conversation" });
+        }
+
+        const currentReadBy = Array.isArray(message.readBy) ? message.readBy : [];
+        const alreadyRead = currentReadBy.some((r) => String(r.userId) === socket.userId);
+        const readBy = alreadyRead
+          ? currentReadBy
+          : [...currentReadBy, { userId: socket.userId, readAt: new Date().toISOString() }];
+
+        if (!alreadyRead) {
+          await messageService.updateMessage(messageId, { readBy });
+        }
+
+        io.to(toRoomId(conversationId)).emit("chat:read", {
           conversationId,
           messageId,
-          userId,
+          userId: socket.userId,
+          readBy,
         });
+
+        callback?.({ success: true });
       } catch (err) {
         console.error("chat:read error:", err);
+        callback?.({ success: false, error: err.message });
       }
     });
 
-    // ── 6. Disconnect ──────────────────────────────────────────────
-    socket.on("disconnect", async () => {
-      if (!socket.userId) return;
-
-      try {
-        const key = presenceKey(socket.userId, socket.platform);
-
-        // Only remove if the stored socketId matches this socket
-        // (avoids race condition where a new socket already replaced this one)
-        const storedSocketId = await redisClient.get(key);
-        if (storedSocketId === socket.id) {
-          await redisClient.del(key);
-        }
-
-        // Check if user is still online on another platform
-        const stillOnline = await isUserOnline(socket.userId);
-
-        if (!stillOnline) {
-          // User is fully offline
-          await userRepository.updateUser(String(socket.userId), {
-            presenceStatus: "offline",
-            lastActiveAt: new Date().toISOString(),
-          }).catch((err) => console.warn("Failed to update presenceStatus to offline:", err?.message));
-
-          socket.broadcast.emit("presence:offline", { userId: socket.userId });
-          console.log(`User ${socket.userId} is offline`);
-        } else {
-          console.log(`User ${socket.userId} disconnected ${socket.platform} but still online on another platform`);
-        }
-      } catch (err) {
-        console.error("disconnect presence cleanup error:", err);
-      }
-    });
-
-    // ── Reaction ────────────────────────────────────────────────────
     socket.on("chat:reaction", async (data, callback) => {
       try {
-        const { messageId, conversationId, userId, emoji } = data;
+        const { messageId, conversationId, emoji } = data || {};
+        if (!messageId || !conversationId || !emoji) {
+          return callback?.({ success: false, error: "messageId, conversationId and emoji are required" });
+        }
+
+        await ensureConversationMembership(conversationId, socket.userId);
 
         const message = await messageService.getMessage(messageId);
         if (!message) {
-          return callback?.({ success: false, error: "Tin nhắn không tồn tại" });
+          return callback?.({ success: false, error: "Message not found" });
+        }
+        if (String(message.conversationId) !== String(conversationId)) {
+          return callback?.({ success: false, error: "Message does not belong to conversation" });
         }
 
-        let newReactions = [...(message.reactions || [])];
-        const existingReactionIndex = newReactions.findIndex(r => r.userId === userId);
+        const reactions = Array.isArray(message.reactions) ? [...message.reactions] : [];
+        const existingReactionIndex = reactions.findIndex((r) => String(r.userId) === socket.userId);
 
         if (existingReactionIndex !== -1) {
-          if (newReactions[existingReactionIndex].emoji === emoji) {
-            newReactions.splice(existingReactionIndex, 1);
+          if (reactions[existingReactionIndex].emoji === emoji) {
+            reactions.splice(existingReactionIndex, 1);
           } else {
-            newReactions[existingReactionIndex].emoji = emoji;
+            reactions[existingReactionIndex].emoji = emoji;
           }
         } else {
-          newReactions.push({ userId, emoji });
+          reactions.push({ userId: socket.userId, emoji });
         }
 
-        await messageService.updateMessage(messageId, { reactions: newReactions });
+        await messageService.updateMessage(messageId, { reactions });
 
-        io.to(conversationId).emit("chat:reaction", {
+        io.to(toRoomId(conversationId)).emit("chat:reaction", {
           messageId,
-          reactions: newReactions
+          conversationId,
+          reactions,
         });
 
-        if (callback) callback({ success: true });
-
+        callback?.({ success: true, reactions });
       } catch (err) {
         console.error("chat:reaction error:", err);
-        if (callback) callback({ success: false, error: err.message });
+        callback?.({ success: false, error: err.message });
       }
     });
 
-    // ── Recall message ──────────────────────────────────────────────
     socket.on("chat:recall", async (data, callback) => {
       try {
-        const { messageId, conversationId, senderId } = data;
+        const { messageId, conversationId } = data || {};
+        if (!messageId || !conversationId) {
+          return callback?.({ success: false, error: "messageId and conversationId are required" });
+        }
+
+        await ensureConversationMembership(conversationId, socket.userId);
 
         const message = await messageService.getMessage(messageId);
         if (!message) {
-          return callback?.({ success: false, error: "Tin nhắn không tồn tại" });
+          return callback?.({ success: false, error: "Message not found" });
         }
-        if (message.senderId !== senderId) {
-          return callback?.({ success: false, error: "Bạn không có quyền thu hồi tin nhắn này" });
+        if (String(message.conversationId) !== String(conversationId)) {
+          return callback?.({ success: false, error: "Message does not belong to conversation" });
+        }
+        if (String(message.senderId) !== socket.userId) {
+          return callback?.({ success: false, error: "No permission to recall this message" });
         }
 
         await messageService.updateMessage(messageId, { isDeleted: true });
 
-        io.to(conversationId).emit("chat:recalled", {
+        io.to(toRoomId(conversationId)).emit("chat:recalled", {
           messageId,
           conversationId,
         });
 
         callback?.({ success: true });
-
       } catch (err) {
         console.error("chat:recall error:", err);
         callback?.({ success: false, error: err.message });
       }
     });
-
-    // ── 7. Video Call Signaling ──────────────────────────────────────
-    // Helper: find socketId for a userId (check both platforms)
-    const getSocketIdForUser = async (targetUserId) => {
-      for (const plat of ["mobile", "web"]) {
-        const sid = await redisClient.get(presenceKey(targetUserId, plat));
-        if (sid) return sid;
-      }
-      return null;
-    };
 
     socket.on("video:call-user", async (data) => {
       const toSocketId = await getSocketIdForUser(String(data.toUserId));
@@ -358,17 +453,43 @@ module.exports = (socketConfig) => {
       }
     });
 
-    // ── 8. Get online users ─────────────────────────────────────────
     socket.on("presence:get_online_users", async (userIds, callback) => {
       try {
         const onlineStatuses = {};
-        for (const uid of userIds) {
-          onlineStatuses[uid] = await isUserOnline(uid);
+        for (const uid of userIds || []) {
+          onlineStatuses[uid] = await isUserOnline(String(uid));
         }
-        if (callback) callback({ success: true, onlineStatuses });
+
+        callback?.({ success: true, onlineStatuses });
       } catch (err) {
         console.error("presence:get_online_users error:", err);
-        if (callback) callback({ success: false, error: err.message });
+        callback?.({ success: false, error: err.message });
+      }
+    });
+
+    socket.on("disconnect", async () => {
+      try {
+        if (getIsRedisReady()) {
+          const key = presenceKey(socket.userId, socket.platform);
+          const storedSocketId = await redisClient.get(key);
+          if (storedSocketId === socket.id) {
+            await redisClient.del(key);
+          }
+        }
+
+        const stillOnline = await isUserOnline(socket.userId);
+        if (!stillOnline) {
+          await userRepository
+            .updateUser(String(socket.userId), {
+              presenceStatus: "offline",
+              lastActiveAt: new Date().toISOString(),
+            })
+            .catch((err) => console.warn("Failed to update presenceStatus to offline:", err?.message));
+
+          socket.broadcast.emit("presence:offline", { userId: socket.userId });
+        }
+      } catch (err) {
+        console.error("disconnect presence cleanup error:", err);
       }
     });
   });

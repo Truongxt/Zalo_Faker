@@ -51,6 +51,7 @@ const server = http.createServer(app);
 
 // ===== Socket.IO =====
 const io = socketConfig(server);
+app.set("io", io);
 
 
 

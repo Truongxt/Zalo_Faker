@@ -1,17 +1,16 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import {
   View,
   Text,
   FlatList,
-  TextInput,
-  TouchableOpacity,
   RefreshControl,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useFocusEffect } from "@react-navigation/native";
 import { useChatStore } from "@/stores/chatStore";
 import { useAuthStore } from "@/stores/authStore";
 import { ConversationItem } from "@/components/chat/ConversationItem";
+import { chatService } from "@/services/chat";
 
 export default function ChatsScreen() {
   const router = useRouter();
@@ -20,6 +19,17 @@ export default function ChatsScreen() {
 
   const [searchQuery, setSearchQuery] = useState("");
   const [refreshing, setRefreshing] = useState(false);
+
+  useEffect(() => {
+    chatService.init();
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!user?.id) return;
+      chatService.loadConversations();
+    }, [user?.id]),
+  );
 
   const filteredConversations = conversations.filter((conv) => {
     if (!searchQuery) return true;
@@ -32,7 +42,7 @@ export default function ChatsScreen() {
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    // TODO: Reload conversations
+    await chatService.loadConversations();
     setRefreshing(false);
   }, []);
 
