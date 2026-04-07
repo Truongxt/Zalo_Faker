@@ -28,7 +28,22 @@ export interface Message {
     readBy: { userId: string; readAt: string }[]
     isDeleted: boolean
     createdAt: string
+    // Added for helper
+    lastRead?: string
 }
+
+export const normalizeMessage = (msg: any): Message => ({
+    ...msg,
+    id: msg?.id || msg?._id || `temp-${Date.now()}-${Math.random()}`,
+    content: typeof msg?.content === 'string'
+        ? { text: msg.content }
+        : (msg?.content || {}),
+    reactions: Array.isArray(msg?.reactions) ? msg.reactions : [],
+    readBy: Array.isArray(msg?.readBy) ? msg.readBy : [],
+    isDeleted: Boolean(msg?.isDeleted),
+    createdAt: msg?.createdAt || new Date().toISOString(),
+})
+
 
 export interface Participant {
     userId: string
@@ -185,12 +200,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
         messages: { ...state.messages, [conversationId]: messages }
     })),
 
-    addMessage: (conversationId, message) => set((state) => ({
-        messages: {
-            ...state.messages,
-            [conversationId]: [...(state.messages[conversationId] || []), message]
+    addMessage: (conversationId, message) => set((state) => {
+        const current = state.messages[conversationId] || []
+        // Tránh trùng lặp ID
+        if (current.some(m => m.id === message.id)) return state
+        return {
+            messages: {
+                ...state.messages,
+                [conversationId]: [...current, message]
+            }
         }
-    })),
+    }),
 
     updateMessage: (conversationId, messageId, updates) => set((state) => ({
         messages: {

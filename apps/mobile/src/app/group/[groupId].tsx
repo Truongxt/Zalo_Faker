@@ -76,7 +76,7 @@ export default function GroupChatScreen() {
     if (!convId || !user) return;
     const socket = socketService.connect();
     if (!socket) return;
-    socket.emit("chat:join", { conversationId: convId });
+    socketService.joinRoom(convId);
 
     const onTyping = ({ userId, conversationId: cId }: any) => {
       if (cId !== convId || userId === user.id) return;
@@ -86,7 +86,7 @@ export default function GroupChatScreen() {
     socket.on("chat:typing", onTyping);
 
     return () => {
-      socket.emit("chat:leave", { conversationId: convId });
+      socketService.leaveRoom(convId);
       socket.off("chat:typing", onTyping);
     };
   }, [convId, user?.id]);

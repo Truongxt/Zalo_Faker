@@ -93,6 +93,16 @@ export default function Contacts() {
         }
     };
 
+    const handleGroupClick = (group: any) => {
+        if (!group) return;
+        const groupId = group.id;
+        if (!groupId) return;
+
+        const groupToSet = { ...group, id: groupId };
+        setActiveConversation(groupToSet);
+        navigate(`/chat/${groupId}`);
+    };
+
     const groupConversations = conversations.filter(c => c.type === 'group');
 
     const filteredFriends = friends.filter(f => {
@@ -259,7 +269,11 @@ export default function Contacts() {
                                     </div>
                                 ) : (
                                     filteredGroups.map(group => (
-                                        <div key={group.id} className="flex items-center gap-4 p-4 border border-gray-100 dark:border-gray-800 rounded-xl hover:bg-gray-50 dark:hover:bg-dark-200 transition-colors">
+                                        <div
+                                            key={group.id}
+                                            onClick={() => handleGroupClick(group)}
+                                            className="flex items-center gap-4 p-4 border border-gray-100 dark:border-gray-800 rounded-xl hover:bg-gray-50 dark:hover:bg-dark-200 transition-colors cursor-pointer"
+                                        >
                                             <div className="w-12 h-12 rounded-full overflow-hidden flex-shrink-0 bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center">
                                                 {group.avatar ? (
                                                     <img src={group.avatar} alt="" className="w-full h-full object-cover" />
@@ -269,7 +283,7 @@ export default function Contacts() {
                                             </div>
                                             <div className="flex-1 min-w-0">
                                                 <h3 className="font-semibold text-gray-900 dark:text-white truncate">{group.name || 'Nhóm chat'}</h3>
-                                                <p className="text-xs text-gray-500">{group.participants.length} thành viên</p>
+                                                <p className="text-xs text-gray-500">{group.participants?.length || 0} thành viên</p>
                                             </div>
                                         </div>
                                     ))

@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback, FormEvent, ChangeEvent } from 'react'
 import { useParams } from 'react-router-dom'
-import { useChatStore, type Message, type GroupPermissionScope } from '@/stores/chatStore'
+import { useChatStore, type Message, type GroupPermissionScope, normalizeMessage } from '@/stores/chatStore'
 import { useAuthStore } from '@/stores/authStore'
 import { useToast } from '@/contexts/ToastContext'
 import { useMediaUpload } from '@/hooks/useMediaUpload'
@@ -34,7 +34,7 @@ import VirtualizedMessageList from '@/components/chat/VirtualizedMessageList'
 import { getMessages, getConversation, getGroupSettings, pinGroupMessage, unpinGroupMessage } from '@/services/api'
 import { socketService } from '@/lib/socket'
 import EmojiPicker, { EmojiClickData, Theme } from 'emoji-picker-react'
-import { deleteChatHistory, updateParticipantSetting, updateConversationBackground, uploadMedia } from '@/services/api'
+import { deleteChatHistory, updateParticipantSetting, updateConversationBackground, uploadMedia, sendMessage as sendMessageApi } from '@/services/api'
 import GroupManagementModal from '@/components/chat/GroupManagementModal'
 import ForwardMessageModal from '@/components/chat/ForwardMessageModal'
 import BackgroundPickerModal from '@/components/chat/BackgroundPickerModal'
@@ -76,6 +76,11 @@ export default function ChatRoom() {
     const [showBackgroundPicker, setShowBackgroundPicker] = useState(false)
     const [announcementMode, setAnnouncementMode] = useState(false)
     const [isPinningMessage, setIsPinningMessage] = useState(false)
+    const [pendingMedia, setPendingMedia] = useState<{
+        file: File
+        type: 'image' | 'video' | 'file'
+        previewUrl?: string
+    } | null>(null)
 
     // Pagination state
     const pagination = useMessagePagination(conversationId)
@@ -97,6 +102,7 @@ export default function ChatRoom() {
     const stickerPickerRef = useRef<HTMLDivElement>(null)
 
     const typing = conversationId ? typingUsers[conversationId] || [] : []
+
 
     const markMessageAsRead = useCallback((messageId: string) => {
         if (!conversationId || !user?.id) return
@@ -197,6 +203,14 @@ export default function ChatRoom() {
     }, [conversationId])
 
     useEffect(() => {
+        return () => {
+            if (pendingMedia?.previewUrl) {
+                URL.revokeObjectURL(pendingMedia.previewUrl)
+            }
+        }
+    }, [pendingMedia])
+
+    useEffect(() => {
         if (!conversationId || !activeConversation || activeConversation.type !== 'group') return
 
         getGroupSettings(conversationId)
@@ -227,34 +241,12 @@ export default function ChatRoom() {
     // ✅ Vào phòng socket + lắng nghe tin nhắn realtime
     useEffect(() => {
         if (!conversationId) return
+        if (user?.id && !socketService.isConnected()) {
+            socketService.connect(user.id)
+        }
 
         updateConversation(conversationId, { unreadCount: 0 })
         socketService.joinRoom(conversationId)
-
-        const handleNewMessage = (msg: Message) => {
-            // ✅ Bỏ qua tin nhắn của chính mình — đã có optimistic update
-            if (msg.senderId === user?.id) return
-
-            const existing = useChatStore.getState().messages[conversationId] || []
-            const isDuplicate = existing.some(m => m.id === msg.id)
-            if (!isDuplicate) {
-                addMessage(conversationId, msg)
-            }
-
-            // Đang mở đúng phòng thì đánh dấu đã đọc ngay
-            markMessageAsRead(msg.id)
-
-            updateConversation(conversationId, {
-                lastMessage: {
-                    content: msg.content.text || '[Media]',
-                    type: msg.type,
-                    senderId: msg.senderId,
-                    timestamp: msg.createdAt,
-                },
-                unreadCount: 0,
-                updatedAt: msg.createdAt,
-            })
-        }
 
         const handleTyping = ({ userId }: { userId: string }) => {
             if (userId !== user?.id) {
@@ -266,39 +258,15 @@ export default function ChatRoom() {
             useChatStore.getState().removeTypingUser(conversationId, userId)
         }
 
-        // Lắng nghe thu hồi tin nhắn
-        const handleRecalled = ({ messageId }: { messageId: string }) => {
-            const currentMessages = useChatStore.getState().messages[conversationId] || []
-            const msg = currentMessages.find(m => m.id === messageId)
-            if (msg?.isDeleted) return
-
-            useChatStore.getState().updateMessage(conversationId, messageId, {
-                isDeleted: true,
-            })
-        }
-
-        // Lắng nghe reaction tin nhắn (idempotent — trùng event không toggle nhầm)
-        const handleReaction = ({ messageId, reactions }: { messageId: string; reactions: any[] }) => {
-            useChatStore.getState().updateMessage(conversationId, messageId, {
-                reactions
-            })
-        }
-
-        socketService.on('chat:message', handleNewMessage)
         socketService.on('chat:typing', handleTyping)
         socketService.on('chat:stop_typing', handleStopTyping)
-        socketService.on('chat:recalled', handleRecalled)
-        socketService.on('chat:reaction', handleReaction)
 
         return () => {
             socketService.leaveRoom(conversationId)
-            socketService.off('chat:message', handleNewMessage)
             socketService.off('chat:typing', handleTyping)
             socketService.off('chat:stop_typing', handleStopTyping)
-            socketService.off('chat:recalled', handleRecalled)
-            socketService.off('chat:reaction', handleReaction)
         }
-    }, [conversationId, user?.id, markMessageAsRead, addMessage, updateConversation])
+    }, [conversationId, user?.id, updateConversation])
 
     // Sau khi messages được load vào phòng hiện tại, auto read message mới nhất chưa đọc
     useEffect(() => {
@@ -306,7 +274,10 @@ export default function ChatRoom() {
 
         const latestUnreadFromOthers = [...messages]
             .reverse()
-            .find(m => m.senderId !== user.id && !m.readBy.some(r => r.userId === user.id))
+            .find(m => {
+                const readBy = Array.isArray(m.readBy) ? m.readBy : []
+                return m.senderId !== user.id && !readBy.some(r => r.userId === user.id)
+            })
 
         if (latestUnreadFromOthers) {
             markMessageAsRead(latestUnreadFromOthers.id)
@@ -317,11 +288,22 @@ export default function ChatRoom() {
     // ✅ Gửi tin nhắn qua socket (hoặc lưu offline nếu không có kết nối)
     const handleSendMessage = async (e: FormEvent) => {
         e.preventDefault()
-        if (!message.trim() || !conversationId || !user) return
+        if (!conversationId || !user) return
+        if (!message.trim() && !pendingMedia) return
         if (activeConversation?.type === 'group' && announcementMode && !canSendAnnouncementInGroup) {
             addToast('Bạn không có quyền gửi thông báo trong nhóm này.', 'error', 4000)
             return
         }
+        if (pendingMedia) {
+            const caption = message.trim()
+            await sendMediaMessage(pendingMedia.file, pendingMedia.type, undefined, caption || undefined)
+            clearPendingMedia()
+            setMessage('')
+            setReplyTo(null)
+            setAnnouncementMode(false)
+            return
+        }
+
 
         // Dừng trạng thái typing ngay khi đã gửi tin nhắn
         clearTimeout(typingTimeoutRef.current)
@@ -371,26 +353,69 @@ export default function ChatRoom() {
             return
         }
 
-        // Gửi qua socket
-        socketService.sendMessage({
-            conversationId,
-            senderId: user.id,
-            type: 'text',
-            content: { text: messageText },
-            metadata: isAnnouncement ? { isAnnouncement: true } : undefined,
-            replyTo: replyTo || undefined,
-        }, (res) => {
-            if (res.success) {
-                // ✅ Thay tin nhắn tạm bằng tin nhắn thật từ server
+        if (!socketService.isConnected()) {
+            try {
+                const saved = await sendMessageApi({
+                    conversationId,
+                    type: 'text',
+                    content: { text: messageText },
+                    metadata: isAnnouncement ? { isAnnouncement: true } : undefined,
+                    replyTo: replyTo || undefined,
+                })
                 useChatStore.getState().removeMessage(conversationId, tempId)
-                addMessage(conversationId, res.message)
-            } else {
-                // ❌ Gửi thất bại — xóa tin nhắn tạm
+                addMessage(conversationId, normalizeMessage(saved))
+            } catch (httpError) {
                 useChatStore.getState().removeMessage(conversationId, tempId)
-                console.error('Gửi tin nhắn thất bại:', res.error)
+                console.error('Gửi tin nhắn thất bại (no-socket):', httpError)
                 addToast('Không thể gửi tin nhắn. Vui lòng thử lại.', 'error', 3000)
             }
+            return
+        }
+
+        // Gửi qua socket với ACK timeout + fallback HTTP để đảm bảo persistence
+        const ack = await new Promise<{ success: boolean; message?: Message; error?: string }>((resolve) => {
+            let done = false
+            const timeout = setTimeout(() => {
+                if (done) return
+                done = true
+                resolve({ success: false, error: 'ACK_TIMEOUT' })
+            }, 2000)
+
+            socketService.sendMessage({
+                conversationId,
+                senderId: user.id,
+                type: 'text',
+                content: { text: messageText },
+                metadata: isAnnouncement ? { isAnnouncement: true } : undefined,
+                replyTo: replyTo || undefined,
+            }, (res) => {
+                if (done) return
+                done = true
+                clearTimeout(timeout)
+                resolve(res)
+            })
         })
+
+        if (ack.success && ack.message) {
+            useChatStore.getState().removeMessage(conversationId, tempId)
+            addMessage(conversationId, normalizeMessage(ack.message))
+        } else {
+            try {
+                const saved = await sendMessageApi({
+                    conversationId,
+                    type: 'text',
+                    content: { text: messageText },
+                    metadata: isAnnouncement ? { isAnnouncement: true } : undefined,
+                    replyTo: replyTo || undefined,
+                })
+                useChatStore.getState().removeMessage(conversationId, tempId)
+                addMessage(conversationId, normalizeMessage(saved))
+            } catch (httpError) {
+                useChatStore.getState().removeMessage(conversationId, tempId)
+                console.error('Gửi tin nhắn thất bại:', ack.error, httpError)
+                addToast('Không thể gửi tin nhắn. Vui lòng thử lại.', 'error', 3000)
+            }
+        }
 
         // Cập nhật lastMessage trong sidebar ngay
         updateConversation(conversationId, {
@@ -556,7 +581,19 @@ export default function ChatRoom() {
         })
     }
 
-    const sendMediaMessage = async (file: File, type: 'image' | 'video' | 'file' | 'voice', duration?: number) => {
+    const clearPendingMedia = () => {
+        if (pendingMedia?.previewUrl) {
+            URL.revokeObjectURL(pendingMedia.previewUrl)
+        }
+        setPendingMedia(null)
+    }
+
+    const sendMediaMessage = async (
+        file: File,
+        type: 'image' | 'video' | 'file' | 'voice',
+        duration?: number,
+        caption?: string
+    ) => {
         if (!conversationId || !user) return
         if (activeConversation?.type === 'group' && !canSendMediaInGroup) {
             addToast('Bạn không có quyền gửi media trong nhóm này.', 'error', 4000)
@@ -578,6 +615,7 @@ export default function ChatRoom() {
                 addToast('Bạn đang offline. Không thể gửi media lúc này.', 'warning', 3000)
                 return
             }
+            const canUseSocket = socketService.isConnected()
 
             // Upload media qua HTTP SDK (S3) thay vì Base64 socket cực tốn băng thông
             let mediaUrl = ''
@@ -597,25 +635,102 @@ export default function ChatRoom() {
                 fileName: file.name,
                 fileSize: file.size,
             }
+            if (caption) {
+                content.text = caption
+            }
 
             // Add duration for voice messages
             if (type === 'voice' && duration !== undefined) {
                 content.duration = duration
             }
 
-            socketService.sendMessage({
+            const tempId = `temp-media-${Date.now()}`
+            const optimisticMsg: Message = {
+                id: tempId,
                 conversationId,
                 senderId: user.id,
                 type,
                 content,
-            }, (res) => {
-                if (res.success) {
+                replyTo: replyTo || undefined,
+                reactions: [],
+                readBy: [],
+                isDeleted: false,
+                createdAt: new Date().toISOString(),
+            }
+            addMessage(conversationId, optimisticMsg)
+
+            if (canUseSocket) {
+                const ack = await new Promise<{ success: boolean; message?: Message; error?: string }>((resolve) => {
+                    let done = false
+                    const timeout = setTimeout(() => {
+                        if (done) return
+                        done = true
+                        resolve({ success: false, error: 'ACK_TIMEOUT' })
+                    }, 2000)
+
+                    socketService.sendMessage({
+                        conversationId,
+                        senderId: user.id,
+                        type,
+                        content,
+                        replyTo: replyTo || undefined,
+                    }, (res) => {
+                        if (done) return
+                        done = true
+                        clearTimeout(timeout)
+                        resolve(res)
+                    })
+                })
+
+                if (ack.success && ack.message) {
+                    useChatStore.getState().removeMessage(conversationId, tempId)
+                    addMessage(conversationId, normalizeMessage(ack.message))
                     addToast('Gửi thành công!', 'success', 3000)
                 } else {
-                    addToast(`Gửi thất bại: ${res.error || 'Vui lòng thử lại.'}`, 'error', 5000)
-                    console.error('Gửi media thất bại:', res.error)
+                    // Socket ACK timeout/failure fallback: persist via HTTP API
+                    try {
+                        const saved = await sendMessageApi({
+                            conversationId,
+                            type,
+                            content,
+                            replyTo: replyTo || undefined,
+                        })
+
+                        const normalizedSaved = normalizeMessage(saved)
+                        useChatStore.getState().removeMessage(conversationId, tempId)
+                        addMessage(conversationId, normalizedSaved)
+                        addToast('Đã gửi thành công (qua kênh dự phòng).', 'success', 3000)
+                    } catch (httpError) {
+                        useChatStore.getState().removeMessage(conversationId, tempId)
+                        const errMsg = ack.error === 'ACK_TIMEOUT'
+                            ? 'Không nhận được xác nhận từ máy chủ. Vui lòng thử gửi lại.'
+                            : (ack.error || 'Vui lòng thử lại.')
+                        addToast(`Gửi thất bại: ${errMsg}`, 'error', 5000)
+                        console.error('Media fallback HTTP failed:', httpError)
+                        return
+                    }
                 }
-            })
+            } else {
+                // Socket ACK timeout/failure fallback: persist via HTTP API
+                try {
+                    const saved = await sendMessageApi({
+                        conversationId,
+                        type,
+                        content,
+                        replyTo: replyTo || undefined,
+                    })
+
+                    const normalizedSaved = normalizeMessage(saved)
+                    useChatStore.getState().removeMessage(conversationId, tempId)
+                    addMessage(conversationId, normalizedSaved)
+                    addToast('Đã gửi thành công.', 'success', 3000)
+                } catch (httpError) {
+                    useChatStore.getState().removeMessage(conversationId, tempId)
+                    addToast('Gửi thất bại: Vui lòng thử lại.', 'error', 5000)
+                    console.error('Media fallback HTTP failed:', httpError)
+                    return
+                }
+            }
 
             updateConversation(conversationId, {
                 lastMessage: {
@@ -637,14 +752,41 @@ export default function ChatRoom() {
         const file = e.target.files?.[0]
         if (!file) return
         const type = file.type.startsWith('video/') ? 'video' : 'image'
-        await sendMediaMessage(file, type)
+        const validation = validateFile(file, type)
+        if (!validation.valid) {
+            e.target.value = ''
+            return
+        }
+
+        if (pendingMedia?.previewUrl) {
+            URL.revokeObjectURL(pendingMedia.previewUrl)
+        }
+
+        setPendingMedia({
+            file,
+            type,
+            previewUrl: URL.createObjectURL(file),
+        })
         e.target.value = ''
     }
 
     const handlePickFile = async (e: ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0]
         if (!file) return
-        await sendMediaMessage(file, 'file')
+        const validation = validateFile(file, 'file')
+        if (!validation.valid) {
+            e.target.value = ''
+            return
+        }
+
+        if (pendingMedia?.previewUrl) {
+            URL.revokeObjectURL(pendingMedia.previewUrl)
+        }
+
+        setPendingMedia({
+            file,
+            type: 'file',
+        })
         e.target.value = ''
     }
 
@@ -732,7 +874,7 @@ export default function ChatRoom() {
         }, (res) => {
             if (res.success) {
                 useChatStore.getState().removeMessage(conversationId, stickerMsg.id)
-                addMessage(conversationId, res.message)
+                addMessage(conversationId, normalizeMessage(res.message))
             } else {
                 useChatStore.getState().removeMessage(conversationId, stickerMsg.id)
                 console.error('Gửi sticker thất bại:', res.error)
@@ -1281,6 +1423,51 @@ export default function ChatRoom() {
 
             {/* Input */}
             <div className="p-4 border-t border-gray-200 dark:border-gray-800">
+                {pendingMedia && (
+                    <div className="mb-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-dark-300 p-2.5">
+                        <div className="flex items-start gap-3">
+                            {pendingMedia.type === 'image' && pendingMedia.previewUrl && (
+                                <img
+                                    src={pendingMedia.previewUrl}
+                                    alt="Preview"
+                                    className="w-16 h-16 rounded-lg object-cover border border-gray-200 dark:border-gray-700"
+                                />
+                            )}
+                            {pendingMedia.type === 'video' && pendingMedia.previewUrl && (
+                                <video
+                                    src={pendingMedia.previewUrl}
+                                    className="w-24 h-16 rounded-lg object-cover border border-gray-200 dark:border-gray-700"
+                                />
+                            )}
+                            {pendingMedia.type === 'file' && (
+                                <div className="w-16 h-16 rounded-lg bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center text-primary-600 font-semibold text-xs px-1 text-center">
+                                    {pendingMedia.file.name.split('.').pop()?.toUpperCase() || 'FILE'}
+                                </div>
+                            )}
+
+                            <div className="min-w-0 flex-1">
+                                <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                                    {pendingMedia.file.name}
+                                </p>
+                                <p className="text-xs text-gray-500 mt-0.5">
+                                    {(pendingMedia.file.size / 1024 / 1024).toFixed(2)} MB
+                                </p>
+                                <p className="text-xs text-primary-600 dark:text-primary-400 mt-1">
+                                    Xem trước tệp. Nhấn gửi để gửi vào đoạn chat.
+                                </p>
+                            </div>
+
+                            <button
+                                type="button"
+                                onClick={clearPendingMedia}
+                                className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg"
+                                title="Hủy tệp"
+                            >
+                                <X className="w-4 h-4 text-gray-500" />
+                            </button>
+                        </div>
+                    </div>
+                )}
                 <form onSubmit={handleSendMessage} className="flex items-center gap-2">
                     <div className="flex items-center gap-1">
                         <button
@@ -1425,7 +1612,7 @@ export default function ChatRoom() {
                         )}
                     </div>
 
-                    {message.trim() && !isRecording ? (
+                    {(message.trim() || pendingMedia) && !isRecording ? (
                         <button
                             type="submit"
                             className="p-3 bg-primary-500 text-white rounded-full hover:bg-primary-600 transition-colors flex-shrink-0"

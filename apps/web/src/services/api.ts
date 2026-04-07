@@ -73,6 +73,15 @@ export const mapUser = (u: any): User => ({
     gender: (u.gender === 'male' || u.gender === 'female' || u.gender === 'other') ? u.gender : 'other',
 });
 
+const normalizeMessage = (msg: any) => ({
+    ...msg,
+    id: msg.id || msg._id,
+    content: msg.content || {},
+    reactions: Array.isArray(msg.reactions) ? msg.reactions : [],
+    readBy: Array.isArray(msg.readBy) ? msg.readBy : [],
+    isDeleted: Boolean(msg.isDeleted),
+});
+
 const getConversation = async () => {
     const response = await fetchWithAuth(`/conversations`);
     const data = await response.json();
@@ -83,7 +92,7 @@ const getMessages = async (conversationId: string) => {
     if (!conversationId || conversationId === 'undefined') return [];
     const response = await fetchWithAuth(`/messages/conversation/${conversationId}`);
     const data = await response.json();
-    return (data || []).map((msg: any) => ({ ...msg, id: msg._id }));
+    return (data || []).map((msg: any) => normalizeMessage(msg));
 }
 
 const sendMessage = async (message: any) => {
@@ -91,7 +100,8 @@ const sendMessage = async (message: any) => {
         method: "POST",
         body: JSON.stringify(message),
     });
-    return response.json();
+    const data = await response.json();
+    return normalizeMessage(data);
 }
 
 const getUsers = async (): Promise<User[]> => {
@@ -134,10 +144,12 @@ const updateConversationBackground = async (conversationId: string, backgroundUr
 }
 
 const uploadMedia = async (file: File) => {
+    const formData = new FormData();
+    formData.append("file", file, file.name);
+
     const response = await fetchWithAuth(`/upload`, {
         method: "POST",
-        body: file as any, // fetchWithAuth handles FormData if body is FormData
-        // We'll update uploadMedia to use FormData correctly
+        body: formData,
     });
     return await response.json();
 }

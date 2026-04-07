@@ -1,4 +1,4 @@
-const uploadService = require("../services/uploadService");
+const { uploadFile: uploadFileToStorage } = require("../services/file.service");
 
 const uploadFile = async (req, res) => {
     try {
@@ -6,7 +6,7 @@ const uploadFile = async (req, res) => {
             return res.status(400).json({ message: "No file uploaded" });
         }
         
-        const fileUrl = await uploadService.uploadFile(req.file);
+        const fileUrl = await uploadFileToStorage(req.file, { folder: "uploads", subfolder: "chat" });
         
         res.json({ 
             url: fileUrl, 
