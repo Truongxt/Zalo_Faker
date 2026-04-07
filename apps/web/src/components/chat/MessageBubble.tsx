@@ -135,7 +135,7 @@ export default function MessageBubble({
                 return (
                     <div className="relative group">
                         <video
-                            src={message.content.mediaUrl}
+                            src={message.content.mediaUrl + (message.content.mediaUrl?.includes('#t=') ? '' : '#t=0.001')}
                             poster={message.content.thumbnail}
                             controls
                             className="max-w-[300px] rounded-lg"

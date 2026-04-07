@@ -201,6 +201,8 @@ export default function ChatRoom() {
 
         getGroupSettings(conversationId)
             .then((settings) => {
+                if (!settings) return;
+                
                 useChatStore.getState().updateConversation(conversationId, {
                     groupSettings: {
                         invite: {
@@ -818,7 +820,7 @@ export default function ChatRoom() {
 
     const getOtherParticipant = () => {
         if (!activeConversation || activeConversation.type === 'group') return null
-        return activeConversation.participants.find(p => p.userId !== user?.id)
+        return activeConversation.participants.find(p => String(p.userId) !== String(user?.id))
     }
 
     const handleDeleteHistory = async () => {
@@ -842,7 +844,7 @@ export default function ChatRoom() {
     }
 
     const otherUser = getOtherParticipant()
-    const currentP = activeConversation?.participants.find(p => p.userId === user?.id)
+    const currentP = activeConversation?.participants.find(p => String(p.userId) === String(user?.id))
     const activeNickname = currentP?.nickname
     const isMuted = currentP?.isMuted
     const currentGroupRole = currentP?.role
@@ -884,7 +886,7 @@ export default function ChatRoom() {
             await updateParticipantSetting(conversationId, user.id, { nickname: newNickname.trim() })
             useChatStore.getState().updateConversation(conversationId, {
                 participants: activeConversation!.participants.map(part =>
-                    part.userId === user.id ? { ...part, nickname: newNickname.trim() } : part
+                    String(part.userId) === String(user.id) ? { ...part, nickname: newNickname.trim() } : part
                 )
             })
             setShowMenu(false)
@@ -1207,7 +1209,7 @@ export default function ChatRoom() {
                                         filteredMessages[index - 1].senderId !== msg.senderId
                                     )
                                     const sender = activeConversation?.participants.find(
-                                        p => p.userId === msg.senderId
+                                        p => String(p.userId) === String(msg.senderId)
                                     )
 
                                     return (
@@ -1222,7 +1224,7 @@ export default function ChatRoom() {
                                             replySenderName={msg.replyTo ? (() => {
                                                 const repliedMsg = messages.find(m => m.id === msg.replyTo)
                                                 if (!repliedMsg) return undefined
-                                                const repliedSender = activeConversation?.participants.find(p => p.userId === repliedMsg.senderId)
+                                                const repliedSender = activeConversation?.participants.find(p => String(p.userId) === String(repliedMsg.senderId))
                                                 return repliedSender?.fullName
                                             })() : undefined}
                                             onReply={() => setReplyTo(msg.id)}
@@ -1252,7 +1254,7 @@ export default function ChatRoom() {
             {replyTo && (() => {
                 const repliedMsg = messages.find(m => m.id === replyTo)
                 const repliedSender = repliedMsg
-                    ? activeConversation?.participants.find(p => p.userId === repliedMsg.senderId)
+                    ? activeConversation?.participants.find(p => String(p.userId) === String(repliedMsg.senderId))
                     : null
                 return (
                     <div className="px-4 py-2 bg-gray-50 dark:bg-dark-300 border-t border-gray-200 dark:border-gray-800 flex items-center justify-between">

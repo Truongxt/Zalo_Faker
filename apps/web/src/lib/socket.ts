@@ -1,4 +1,5 @@
 import { io, Socket } from 'socket.io-client'
+import { useAuthStore } from '@/stores/authStore'
 
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3000'
 
@@ -28,6 +29,9 @@ class SocketService {
                 transports: ['websocket', 'polling'],
                 reconnectionAttempts: 5,
                 reconnectionDelay: 1000,
+                auth: {
+                    token: useAuthStore.getState().accessToken
+                }
             })
 
             this.socket.on('connect', refreshPresenceAndRooms)

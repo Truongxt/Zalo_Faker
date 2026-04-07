@@ -114,40 +114,43 @@ export default function GroupManagementModal({ isOpen, onClose, group }: GroupMa
             try {
                 const [users, latestSettings, joinRequests] = await Promise.all([
                     getUsers(),
-                    getGroupSettings(group.id),
-                    getGroupJoinRequests(group.id).catch(() => ({ requests: [] })),
+                    group.id && group.id !== 'undefined' ? getGroupSettings(group.id) : null,
+                    group.id && group.id !== 'undefined' ? getGroupJoinRequests(group.id).catch(() => ({ requests: [] })) : { requests: [] },
                 ])
 
                 setAllUsers(users || [])
-                setSettings({
-                    invite: {
-                        code: latestSettings?.invite?.code || '',
-                        approvalRequired: Boolean(latestSettings?.invite?.approvalRequired),
-                        inviteUrl: latestSettings?.invite?.inviteUrl || '',
-                    },
-                    permissions: {
-                        sendMedia: latestSettings?.permissions?.sendMedia || 'all',
-                        pinMessage: latestSettings?.permissions?.pinMessage || 'admin_deputy',
-                        sendAnnouncement: latestSettings?.permissions?.sendAnnouncement || 'admin_deputy',
-                    },
-                    pendingJoinRequests: joinRequests?.requests || latestSettings?.pendingJoinRequests || [],
-                })
-
-                updateConversation(group.id, {
-                    groupSettings: {
+                
+                if (latestSettings) {
+                    setSettings({
                         invite: {
                             code: latestSettings?.invite?.code || '',
                             approvalRequired: Boolean(latestSettings?.invite?.approvalRequired),
+                            inviteUrl: latestSettings?.invite?.inviteUrl || '',
                         },
-                        joinRequests: joinRequests?.requests || latestSettings?.pendingJoinRequests || [],
                         permissions: {
                             sendMedia: latestSettings?.permissions?.sendMedia || 'all',
                             pinMessage: latestSettings?.permissions?.pinMessage || 'admin_deputy',
                             sendAnnouncement: latestSettings?.permissions?.sendAnnouncement || 'admin_deputy',
                         },
-                        pinnedMessage: latestSettings?.pinnedMessage || null,
-                    }
-                })
+                        pendingJoinRequests: joinRequests?.requests || latestSettings?.pendingJoinRequests || [],
+                    })
+
+                    updateConversation(group.id, {
+                        groupSettings: {
+                            invite: {
+                                code: latestSettings?.invite?.code || '',
+                                approvalRequired: Boolean(latestSettings?.invite?.approvalRequired),
+                            },
+                            joinRequests: joinRequests?.requests || latestSettings?.pendingJoinRequests || [],
+                            permissions: {
+                                sendMedia: latestSettings?.permissions?.sendMedia || 'all',
+                                pinMessage: latestSettings?.permissions?.pinMessage || 'admin_deputy',
+                                sendAnnouncement: latestSettings?.permissions?.sendAnnouncement || 'admin_deputy',
+                            },
+                            pinnedMessage: latestSettings?.pinnedMessage || null,
+                        }
+                    })
+                }
             } catch (error) {
                 console.error('Error loading group settings:', error)
             }
