@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { X, Search, Users, Check } from 'lucide-react'
-import { getUsers, createGroup } from '@/services/api'
+import { getUsers, createGroup, getFriends } from '@/services/api'
 import { useAuthStore } from '@/stores/authStore'
 import { useChatStore } from '@/stores/chatStore'
 import { useNavigate } from 'react-router-dom'
@@ -22,16 +22,15 @@ export default function CreateGroupModal({ isOpen, onClose }: CreateGroupModalPr
     const [isLoading, setIsLoading] = useState(false)
     const [isCreating, setIsCreating] = useState(false)
 
-    // Tạm thời lấy danh sách all users để dùng như friends
+    // Lấy danh sách bạn bè
     useEffect(() => {
-        if (isOpen) {
+        if (isOpen && user?.id) {
             setIsLoading(true)
-            getUsers()
+            getFriends(user.id)
                 .then((data: any) => {
-                    // Loại bỏ chính mình ra khỏi list
-                    setContacts(data.filter((u: any) => u.id !== user?.id && u._id !== user?.id))
+                    setContacts(data)
                 })
-                .catch((err: Error) => console.error('Error fetching users:', err))
+                .catch((err: Error) => console.error('Error fetching friends:', err))
                 .finally(() => setIsLoading(false))
         } else {
             // Reset state khi bị đóng
