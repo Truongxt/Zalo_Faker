@@ -47,11 +47,12 @@ export default function Sidebar() {
     }, [user, setLabels])
 
     const filteredConversations = conversations.filter(conv => {
+        const participants = conv.participants || []
         // Search filter
         if (searchQuery) {
             const name = conv.type === 'group'
                 ? conv.name
-                : conv.participants.find(p => p.userId !== user?.id)?.fullName
+                : participants.find(p => p.userId !== user?.id)?.fullName
             if (!name?.toLowerCase().includes(searchQuery.toLowerCase())) {
                 return false
             }
@@ -63,7 +64,7 @@ export default function Sidebar() {
 
         // Label filter
         if (activeLabelId) {
-            const currentP = conv.participants.find(p => p.userId === user?.id)
+            const currentP = participants.find(p => p.userId === user?.id)
             if (!currentP?.labelIds?.includes(activeLabelId)) return false
         }
 
@@ -71,23 +72,26 @@ export default function Sidebar() {
     })
 
     const getConversationName = (conv: Conversation) => {
-        const currentP = conv.participants.find(p => p.userId === user?.id)
+        const participants = conv.participants || []
+        const currentP = participants.find(p => p.userId === user?.id)
         if (currentP?.nickname) return currentP.nickname
 
         if (conv.type === 'group') return conv.name || 'Nhóm chat'
-        const other = conv.participants.find(p => p.userId !== user?.id)
+        const other = participants.find(p => p.userId !== user?.id)
         return other?.fullName || 'Người dùng'
     }
 
     const getConversationAvatar = (conv: Conversation) => {
+        const participants = conv.participants || []
         if (conv.type === 'group') return conv.avatar
-        const other = conv.participants.find(p => p.userId !== user?.id)
+        const other = participants.find(p => p.userId !== user?.id)
         return other?.avatarUrl
     }
 
     const getOnlineStatus = (conv: Conversation) => {
+        const participants = conv.participants || []
         if (conv.type === 'group') return false
-        const other = conv.participants.find(p => p.userId !== user?.id)
+        const other = participants.find(p => p.userId !== user?.id)
         return other?.status === 'online'
     }
 
@@ -126,12 +130,13 @@ export default function Sidebar() {
     const handleTogglePin = async (e: React.MouseEvent, conv: Conversation) => {
         e.stopPropagation()
         if (!user) return
-        const p = conv.participants.find(p => p.userId === user.id)
+        const participants = conv.participants || []
+        const p = participants.find(p => p.userId === user.id)
         const isPinned = !(p?.isPinned)
         try {
             await updateParticipantSetting(conv.id, user.id, { isPinned })
             useChatStore.getState().updateConversation(conv.id, {
-                participants: conv.participants.map(part =>
+                participants: participants.map(part =>
                     part.userId === user.id ? { ...part, isPinned } : part
                 )
             })
@@ -143,12 +148,13 @@ export default function Sidebar() {
     const handleToggleMute = async (e: React.MouseEvent, conv: Conversation) => {
         e.stopPropagation()
         if (!user) return
-        const p = conv.participants.find(p => p.userId === user.id)
+        const participants = conv.participants || []
+        const p = participants.find(p => p.userId === user.id)
         const isMuted = !(p?.isMuted)
         try {
             await updateParticipantSetting(conv.id, user.id, { isMuted })
             useChatStore.getState().updateConversation(conv.id, {
-                participants: conv.participants.map(part =>
+                participants: participants.map(part =>
                     part.userId === user.id ? { ...part, isMuted } : part
                 )
             })
@@ -158,8 +164,8 @@ export default function Sidebar() {
     }
 
     const sortedConversations = [...filteredConversations].sort((a, b) => {
-        const pA = a.participants.find(p => p.userId === user?.id)
-        const pB = b.participants.find(p => p.userId === user?.id)
+        const pA = (a.participants || []).find(p => p.userId === user?.id)
+        const pB = (b.participants || []).find(p => p.userId === user?.id)
 
         if (pA?.isPinned && !pB?.isPinned) return -1
         if (!pA?.isPinned && pB?.isPinned) return 1
@@ -322,7 +328,8 @@ export default function Sidebar() {
                             </div>
                         ) : (
                             sortedConversations.map((conv) => {
-                                const currentP = conv.participants.find(p => p.userId === user?.id)
+                                const participants = conv.participants || []
+                                const currentP = participants.find(p => p.userId === user?.id)
                                 const isPinned = currentP?.isPinned
                                 const isMuted = currentP?.isMuted
 

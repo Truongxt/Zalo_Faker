@@ -281,6 +281,13 @@ const getUserByPhone = async (phone: string): Promise<User> => {
     return mapUser(data);
 }
 
+const getFriends = async (userId: string): Promise<User[]> => {
+    if (!userId || userId === 'undefined') return [];
+    const response = await fetchWithAuth(`/friends/${userId}`);
+    const result = await response.json();
+    return (result.data || []).map(mapUser);
+}
+
 export {
     getConversation,
     getMessages,
@@ -308,5 +315,6 @@ export {
     createLabel,
     updateLabel,
     deleteLabel,
-    getUserByPhone
+    getUserByPhone,
+    getFriends
 }

@@ -2,10 +2,32 @@ const conversationService = require("../services/conversationService")
 
 const createConversation = async (req, res) => {
     try {
-        const conversation = await conversationService.createConversation(req.body)
-        res.json(conversation)
+        const senderId = req.user.userId;
+        const { participantIds, type, name, avatar, background, groupSettings } = req.body;
+        
+        let participants = [];
+        if (participantIds) {
+            // Ensure unique IDs, including the sender
+            const allUserIds = [...new Set([String(senderId), ...(participantIds || []).map(String)])];
+            
+            participants = allUserIds.map(uid => ({
+                userId: uid,
+                role: uid === String(senderId) && type === 'group' ? 'admin' : 'member',
+                joinedAt: new Date().toISOString()
+            }));
+        }
+
+        const conversationData = {
+            ...req.body,
+            participants,
+            createdBy: senderId
+        };
+
+        const conversation = await conversationService.createConversation(conversationData);
+        // Ensure returning populated format
+        res.json({ ...conversation, participants: conversation.participants || participants });
     } catch (error) {
-        res.status(500).json({ message: error.message })
+        res.status(500).json({ message: error.message });
     }
 }
 

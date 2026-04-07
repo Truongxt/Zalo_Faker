@@ -2,15 +2,19 @@ import { useState, useEffect } from 'react';
 import { useAuthStore } from '@/stores/authStore';
 import { useChatStore } from '@/stores/chatStore';
 import { friendsService } from '@/services/friendsService';
+import { getFriends } from '@/services/api';
 import { FriendRequest } from '@/types/friends';
-import { User as UserIcon, UserPlus, Users, Check, X, Search } from 'lucide-react';
+import { User as UserIcon, UserPlus, Users, Check, X, Search, MessageCircle } from 'lucide-react';
 import { useToast } from '@/contexts/ToastContext';
+import { useNavigate } from 'react-router-dom';
+import { chatService } from '@/services/chat';
 
 type ContactTab = 'friends' | 'groups' | 'requests';
 
 export default function Contacts() {
+    const navigate = useNavigate();
     const { user } = useAuthStore();
-    const { conversations } = useChatStore();
+    const { conversations, setActiveConversation } = useChatStore();
     const { addToast } = useToast();
     
     const [activeTab, setActiveTab] = useState<ContactTab>('friends');
@@ -24,7 +28,7 @@ export default function Contacts() {
         setIsLoading(true);
         try {
             const [friendsData, requestsData] = await Promise.all([
-                friendsService.getFriend(user.id),
+                getFriends(user.id),
                 friendsService.getPendingRequests(user.id)
             ]);
             setFriends(friendsData);
@@ -50,10 +54,49 @@ export default function Contacts() {
         }
     };
 
+    const handleMessageClick = async (friendId: string) => {
+        if (!friendId) return;
+
+        console.log('Handle message click for friendId:', friendId);
+        console.log('Current conversations:', conversations);
+
+        // Tìm cuộc hội thoại riêng tư đã có
+        const existingConv = conversations.find(c => 
+            c.type === 'private' && 
+            c.participants.some(p => String(p.userId) === String(friendId))
+        );
+
+        console.log('Existing conversation found:', existingConv);
+
+        if (existingConv) {
+            const convId = existingConv.id || (existingConv as any)._id;
+            console.log('Navigating to existing conversation:', convId);
+            setActiveConversation(existingConv);
+            navigate(`/chat/${convId}`);
+        } else {
+            try {
+                console.log('Creating new conversation with friendId:', friendId);
+                // Tạo mới nếu chưa có
+                const newConv = await chatService.createConversation([String(friendId)], 'private');
+                console.log('New conversation created:', newConv);
+                
+                // Đảm bảo ID được map đúng
+                const convToSet = { ...newConv, id: newConv.id || (newConv as any)._id };
+                console.log('Navigating to new conversation:', convToSet.id);
+                
+                setActiveConversation(convToSet);
+                navigate(`/chat/${convToSet.id}`);
+            } catch (error) {
+                console.error('Error creating conversation:', error);
+                addToast('Không thể tạo cuộc hội thoại', 'error');
+            }
+        }
+    };
+
     const groupConversations = conversations.filter(c => c.type === 'group');
 
     const filteredFriends = friends.filter(f => {
-        const name = f.user?.fullName || '';
+        const name = f.fullName || '';
         return name.toLowerCase().includes(searchQuery.toLowerCase());
     });
 
@@ -131,29 +174,35 @@ export default function Contacts() {
                                         Không tìm thấy bạn bè nào.
                                     </div>
                                 ) : (
-                                    filteredFriends.map(friend => (
-                                        <div key={friend.id} className="flex items-center gap-4 p-4 border border-gray-100 dark:border-gray-800 rounded-xl hover:bg-gray-50 dark:hover:bg-dark-200 transition-colors group">
+                                    filteredFriends.map((friend, idx) => (
+                                        <div key={friend.id || idx} className="flex items-center gap-4 p-4 border border-gray-100 dark:border-gray-800 rounded-xl hover:bg-gray-50 dark:hover:bg-dark-200 transition-colors group">
                                             <div className="w-12 h-12 rounded-full overflow-hidden flex-shrink-0 bg-primary-100 dark:bg-primary-900/30">
-                                                {friend.user?.avatarUrl ? (
-                                                    <img src={friend.user.avatarUrl} alt="" className="w-full h-full object-cover" />
+                                                {friend.avatarUrl ? (
+                                                    <img src={friend.avatarUrl} alt="" className="w-full h-full object-cover" />
                                                 ) : (
                                                     <div className="w-full h-full flex items-center justify-center text-primary-600 font-bold">
-                                                        {friend.user?.fullName?.charAt(0).toUpperCase()}
+                                                        {friend.fullName?.charAt(0).toUpperCase() || '?'}
                                                     </div>
                                                 )}
                                             </div>
                                              <div className="flex-1 min-w-0 pointer-events-none">
                                                  <h3 className="font-semibold text-gray-900 dark:text-white truncate">
-                                                     {friend.user?.fullName}
+                                                     {friend.fullName || 'Người dùng'}
                                                  </h3>
                                                  <div className="flex items-center gap-1.5 mt-0.5">
-                                                     <div className={`w-2 h-2 rounded-full ${['online', 'active'].includes(friend.user?.status?.toLowerCase()) ? 'bg-green-500' : 'bg-gray-400'}`} />
+                                                     <div className={`w-2 h-2 rounded-full ${['online', 'active'].includes(friend.status?.toLowerCase() || '') ? 'bg-green-500' : 'bg-gray-400'}`} />
                                                      <p className="text-[11px] text-gray-500 truncate capitalize">
-                                                         {['online', 'active'].includes(friend.user?.status?.toLowerCase()) ? 'Đang hoạt động' : 'Ngoại tuyến'}
+                                                         {['online', 'active'].includes(friend.status?.toLowerCase() || '') ? 'Đang hoạt động' : 'Ngoại tuyến'}
                                                      </p>
                                                  </div>
                                              </div>
-                                            <button className="p-2 opacity-0 group-hover:opacity-100 transition-opacity text-primary-500 hover:bg-primary-50 dark:hover:bg-primary-900/20 rounded-lg">
+                                            <button 
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    if (friend.id) handleMessageClick(String(friend.id));
+                                                }}
+                                                className="p-2 opacity-0 group-hover:opacity-100 transition-opacity text-primary-500 hover:bg-primary-50 dark:hover:bg-primary-900/20 rounded-lg pointer-events-auto cursor-pointer"
+                                            >
                                                 <MessageCircle className="w-5 h-5" />
                                             </button>
                                         </div>
@@ -232,23 +281,4 @@ export default function Contacts() {
             </div>
         </div>
     );
-}
-
-function MessageCircle(props: any) {
-  return (
-    <svg
-      {...props}
-      xmlns="http://www.w3.org/2000/svg"
-      width="24"
-      height="24"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z" />
-    </svg>
-  )
 }

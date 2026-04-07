@@ -201,6 +201,8 @@ export default function ChatRoom() {
 
         getGroupSettings(conversationId)
             .then((settings) => {
+                if (!settings) return;
+                
                 useChatStore.getState().updateConversation(conversationId, {
                     groupSettings: {
                         invite: {
