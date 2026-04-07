@@ -73,15 +73,17 @@ export default function CreateGroupModal({ isOpen, onClose }: CreateGroupModalPr
                 createdBy: user.id
             })
 
-            // add conversation to store
-            addConversation({
+            // add conversation to store (map _id to id)
+            const groupWithId = {
                 ...newGroup,
+                id: newGroup.id || newGroup._id,
                 unreadCount: 0
-            })
+            }
+            addConversation(groupWithId)
             
             // set active and navigate
-            setActiveConversation(newGroup)
-            navigate(`/chat/${newGroup.id}`)
+            setActiveConversation(groupWithId)
+            navigate(`/chat/${groupWithId.id}`)
 
             onClose()
         } catch (error) {

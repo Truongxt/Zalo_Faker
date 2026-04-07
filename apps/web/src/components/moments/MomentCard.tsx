@@ -29,9 +29,11 @@ const REACTION_OPTIONS = [
 ];
 
 const isVideoUrl = (url?: string | null) => {
-  const normalizedUrl = String(url || '').split('?')[0].toLowerCase();
-  return ['.mp4', '.mov', '.webm', '.m4v'].some((extension) =>
-    normalizedUrl.endsWith(extension),
+  if (!url) return false;
+  // Handle URLs with query parameters or fragments
+  const cleanUrl = url.split(/[?#]/)[0].toLowerCase();
+  return ['.mp4', '.mov', '.webm', '.m4v', '.ogv'].some((extension) =>
+    cleanUrl.endsWith(extension),
   );
 };
 
@@ -45,9 +47,12 @@ function MomentMedia({
   className: string;
 }) {
   if (isVideoUrl(url)) {
+    // Append #t=0.001 to force browser to load the first frame as the poster/thumbnail
+    const videoUrl = url.includes('#t=') ? url : `${url}#t=0.001`;
+    
     return (
       <video
-        src={url}
+        src={videoUrl}
         className={className}
         controls
         playsInline
