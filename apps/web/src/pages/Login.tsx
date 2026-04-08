@@ -1,4 +1,4 @@
-import { useState, FormEvent } from 'react'
+﻿import { useState, FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '@/stores/authStore'
 import { authService } from '@/services/auth'
@@ -13,10 +13,12 @@ export default function Login() {
     const [showPassword, setShowPassword] = useState(false)
     const [isLoading, setIsLoading] = useState(false)
     const [error, setLocalError] = useState('')
+    const [isLockedError, setIsLockedError] = useState(false)
 
     const handleSubmit = async (e: FormEvent) => {
         e.preventDefault()
         setLocalError('')
+        setIsLockedError(false)
         setIsLoading(true)
 
         try {
@@ -27,24 +29,20 @@ export default function Login() {
             navigate('/chat')
         } catch (err: any) {
             const message = err.message || 'Đăng nhập thất bại. Vui lòng thử lại.'
-            setLocalError(message)
-            setError(message)
+            const locked = /locked|khóa/i.test(message)
+            setIsLockedError(locked)
+            const displayMessage = locked
+                ? 'Tài khoản đang bị khóa. Vui lòng mở khóa để tiếp tục.'
+                : message
+            setLocalError(displayMessage)
+            setError(displayMessage)
         } finally {
             setIsLoading(false)
         }
     }
 
-    const handleGoogleLogin = async () => {
-        try {
-            await authService.loginWithGoogle()
-        } catch (err: any) {
-            setLocalError(err.message || 'Đăng nhập Google thất bại')
-        }
-    }
-
     return (
         <div className="min-h-screen flex">
-            {/* Left side - Branding */}
             <div className="hidden lg:flex lg:w-1/2 gradient-primary items-center justify-center p-12">
                 <div className="max-w-md text-white">
                     <div className="flex items-center gap-3 mb-8">
@@ -82,10 +80,8 @@ export default function Login() {
                 </div>
             </div>
 
-            {/* Right side - Login form */}
             <div className="flex-1 flex items-center justify-center p-8 bg-gray-50 dark:bg-dark-100">
                 <div className="w-full max-w-md">
-                    {/* Mobile branding */}
                     <div className="lg:hidden text-center mb-8">
                         <div className="inline-flex items-center gap-3 mb-4">
                             <div className="w-12 h-12 gradient-primary rounded-xl flex items-center justify-center">
@@ -106,13 +102,21 @@ export default function Login() {
                         {error && (
                             <div className="mb-6 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
                                 <p className="text-red-600 dark:text-red-400 text-sm">{error}</p>
+                                {isLockedError ? (
+                                    <Link
+                                        to="/unlock-account"
+                                        className="inline-block mt-2 text-amber-600 hover:text-amber-700 text-sm font-medium"
+                                    >
+                                        Mở khóa tài khoản ngay
+                                    </Link>
+                                ) : null}
                             </div>
                         )}
 
                         <form onSubmit={handleSubmit} className="space-y-5">
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                    Email hoặc số điện thoại
+                                    Email
                                 </label>
                                 <input
                                     type="text"
@@ -159,6 +163,12 @@ export default function Login() {
                                 </Link>
                             </div>
 
+                            <div className="text-right -mt-2">
+                                <Link to="/unlock-account" className="text-sm text-amber-600 hover:text-amber-700 font-medium">
+                                    Mở khóa tài khoản
+                                </Link>
+                            </div>
+
                             <button
                                 type="submit"
                                 disabled={isLoading}
@@ -172,7 +182,7 @@ export default function Login() {
                             </button>
                         </form>
 
-                        <div className="relative my-8">
+                        {/* <div className="relative my-8">
                             <div className="absolute inset-0 flex items-center">
                                 <div className="w-full border-t border-gray-200 dark:border-gray-700" />
                             </div>
@@ -205,7 +215,7 @@ export default function Login() {
                                 </svg>
                                 Facebook
                             </button>
-                        </div>
+                        </div> */}
                     </div>
 
                     <p className="text-center mt-8 text-gray-600 dark:text-gray-400">

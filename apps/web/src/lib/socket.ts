@@ -33,7 +33,8 @@ class SocketService {
                 reconnectionAttempts: Infinity,
                 reconnectionDelay: 1000,
                 auth: {
-                    token: latestToken
+                    token: latestToken,
+                    platform: 'web'
                 }
             })
 
@@ -48,12 +49,12 @@ class SocketService {
                 console.error('Socket connection error:', error.message)
                 // Ensure reconnect always uses latest access token
                 if (this.socket) {
-                    this.socket.auth = { token: useAuthStore.getState().accessToken }
+                    this.socket.auth = { token: useAuthStore.getState().accessToken, platform: 'web' }
                 }
             })
         } else {
             // Keep auth token fresh for existing socket instance
-            this.socket.auth = { token: latestToken }
+            this.socket.auth = { token: latestToken, platform: 'web' }
             if (this.socket.connected) {
                 refreshPresenceAndRooms()
             } else {

@@ -1,5 +1,8 @@
 const { verifyAccessToken } = require("../utils/jwt.js");
 const userRepository = require("../repository/userRepository");
+const { safeGet } = require("../utils/redisClient");
+
+const buildSessionKey = (userId) => `auth:session:${String(userId)}`;
 
 const normalizeUserPayload = (decoded = {}) => {
   const rawUserId = decoded.userId ?? decoded.id ?? decoded.sub;
@@ -58,6 +61,16 @@ const authMiddleware = async (req, res, next) => {
     const currentAccountStatus = currentUser.accountStatus || currentUser.status || "active";
     if (currentAccountStatus === "locked" || currentAccountStatus === "deleted") {
       return res.status(403).json({ message: "Account is not allowed to access this resource" });
+    }
+
+    const sessionId = normalizedUser.sessionId;
+    if (!sessionId) {
+      return res.status(401).json({ message: "Session expired" });
+    }
+
+    const activeSessionId = await safeGet(buildSessionKey(normalizedUser.userId));
+    if (!activeSessionId || activeSessionId !== sessionId) {
+      return res.status(401).json({ message: "Session expired" });
     }
 
     req.user = normalizedUser;

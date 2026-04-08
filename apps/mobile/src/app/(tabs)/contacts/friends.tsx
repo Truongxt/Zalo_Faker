@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
-import { View, Text, FlatList, TouchableOpacity } from "react-native";
+import { View, Text, FlatList, TouchableOpacity, Alert } from "react-native";
 import { useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 import { CenterLoading, GrayToast } from "@/components/ui";
 import { Friends } from "@/types";
 import { friendsService, userService } from "@/services";
 import { useAuthStore } from "@/stores";
+import { useChatStore } from "@/stores/chatStore";
 import FriendsRequest from "@/components/ui/FriendsRequest";
 import { Friend } from "@/components/ui/Friend";
 import { socketService } from "@/lib/socket";
+import { chatService } from "@/services/chat";
 
 export default function ContactsScreen() {
   const router = useRouter();
@@ -23,15 +25,22 @@ export default function ContactsScreen() {
     const result = await friendsService.getPendingRequests(user.id);
     const withUserInfo = await Promise.all(
       result.map(async (f: any) => {
-        const fromUser = await userService.getUserById(String(f.fromUserId));
-        return {
-          ...f,
-          fromUser,
-        } as Friends;
+        try {
+          if (!f?.fromUserId) {
+            return null;
+          }
+          const fromUser = await userService.getUserById(String(f.fromUserId));
+          return {
+            ...f,
+            fromUser,
+          } as Friends;
+        } catch {
+          return null;
+        }
       }),
     );
 
-    setRequestFriends(withUserInfo);
+    setRequestFriends(withUserInfo.filter(Boolean) as Friends[]);
   }, [user?.id]);
 
   const getListFriends = useCallback(async () => {
@@ -40,20 +49,36 @@ export default function ContactsScreen() {
     const result = await friendsService.getFriend(user.id);
     const withUserInfo = await Promise.all(
       result.map(async (f: any) => {
-        const friendUserId =
-          String(f.fromUserId) === String(user.id)
-            ? String(f.toUserId)
-            : String(f.fromUserId);
+        try {
+          if (f?.fromUser?.id || f?.fromUser?.fullName) {
+            return f as Friends;
+          }
 
-        const friendUser = await userService.getUserById(friendUserId);
-        return {
-          ...f,
-          fromUser: friendUser,
-        } as Friends;
+          if (!f?.fromUserId && !f?.toUserId) {
+            return null;
+          }
+
+          const friendUserId =
+            String(f.fromUserId) === String(user.id)
+              ? String(f.toUserId)
+              : String(f.fromUserId);
+
+          if (!friendUserId || friendUserId === "undefined") {
+            return null;
+          }
+
+          const friendUser = await userService.getUserById(friendUserId);
+          return {
+            ...f,
+            fromUser: friendUser,
+          } as Friends;
+        } catch {
+          return null;
+        }
       }),
     );
 
-    setListFriends(withUserInfo);
+    setListFriends(withUserInfo.filter(Boolean) as Friends[]);
   }, [user?.id]);
 
   const loadAll = useCallback(async () => {
@@ -63,7 +88,8 @@ export default function ContactsScreen() {
     try {
       await Promise.all([getFriendsRequests(), getListFriends()]);
     } catch (error) {
-      console.error("Loi khi tai danh sach ban be:", error);
+      console.warn("Loi khi tai danh sach ban be:", error);
+      GrayToast("Khong the tai danh sach ban be");
     } finally {
       setLoading(false);
     }
@@ -80,6 +106,168 @@ export default function ContactsScreen() {
       loadAll();
     }, [user?.id, loadAll]),
   );
+
+  useEffect(() => {
+    if (!user?.id) return;
+
+    if (!socketService.getSocket()?.connected) {
+      socketService.connect();
+    }
+
+    const removeByFriendId = (friendId: string) => {
+      setListFriends((prev) =>
+        prev.filter((f) => {
+          const candidateId =
+            String(f.fromUserId) === String(user.id)
+              ? String(f.toUserId)
+              : String(f.fromUserId);
+          return String(candidateId) !== String(friendId);
+        }),
+      );
+    };
+
+    const handleFriendRemoved = ({ friendId }: { friendId: string }) => {
+      removeByFriendId(friendId);
+    };
+
+    const handleFriendBlocked = ({
+      targetUserId,
+    }: {
+      targetUserId: string;
+    }) => {
+      removeByFriendId(targetUserId);
+    };
+
+    const handleBlockedBy = ({
+      blockedByUserId,
+    }: {
+      blockedByUserId: string;
+    }) => {
+      removeByFriendId(blockedByUserId);
+      GrayToast("Ban da bi chan boi nguoi dung nay");
+    };
+
+    socketService.on("friend:removed", handleFriendRemoved);
+    socketService.on("friend:blocked", handleFriendBlocked);
+    socketService.on("friend:blocked_by", handleBlockedBy);
+
+    return () => {
+      socketService.off("friend:removed", handleFriendRemoved);
+      socketService.off("friend:blocked", handleFriendBlocked);
+      socketService.off("friend:blocked_by", handleBlockedBy);
+    };
+  }, [user?.id]);
+
+  const getFriendUserId = (friend: Friends) =>
+    String(friend.fromUserId) === String(user?.id)
+      ? String(friend.toUserId)
+      : String(friend.fromUserId);
+
+  const handleOpenChat = async (friend: Friends) => {
+    try {
+      const friendId = getFriendUserId(friend);
+      if (!friendId || friendId === "undefined") return;
+
+      const existing = useChatStore
+        .getState()
+        .conversations.find(
+          (c) =>
+            c.type === "private" &&
+            c.participants.some((p) => String(p.userId) === String(friendId)),
+        );
+
+      if (existing?.id) {
+        router.push({
+          pathname: "/(tabs)/chat/[conversationId]",
+          params: { conversationId: String(existing.id) },
+        });
+        return;
+      }
+
+      const created = await chatService.createConversation(
+        [String(friendId)],
+        "private",
+      );
+      router.push({
+        pathname: "/(tabs)/chat/[conversationId]",
+        params: { conversationId: String(created.id) },
+      });
+    } catch (error) {
+      console.warn("Khong the mo chat voi ban be:", error);
+      GrayToast("Khong the mo cuoc tro chuyen");
+    }
+  };
+
+  const handleRemoveFriend = async (friend: Friends) => {
+    try {
+      const friendId = getFriendUserId(friend);
+      if (!friendId || friendId === "undefined") return;
+      await friendsService.removeFriend(friendId);
+      setListFriends((prev) =>
+        prev.filter((f) => getFriendUserId(f) !== friendId),
+      );
+      GrayToast("Da huy ket ban");
+    } catch (error) {
+      console.warn("Khong the huy ket ban:", error);
+      GrayToast("Khong the huy ket ban");
+    }
+  };
+
+  const handleBlockFriend = async (friend: Friends) => {
+    try {
+      const friendId = getFriendUserId(friend);
+      if (!friendId || friendId === "undefined") return;
+      await friendsService.blockUser(friendId);
+      setListFriends((prev) =>
+        prev.filter((f) => getFriendUserId(f) !== friendId),
+      );
+      GrayToast("Da chan nguoi dung");
+    } catch (error) {
+      console.warn("Khong the chan ban be:", error);
+      GrayToast("Khong the chan nguoi dung");
+    }
+  };
+
+  const handleFriendActions = (friend: Friends) => {
+    const friendName = friend.fromUser?.fullName || "Nguoi dung";
+    Alert.alert(friendName, "Chon thao tac", [
+      {
+        text: "Nhan tin",
+        onPress: () => {
+          handleOpenChat(friend);
+        },
+      },
+      {
+        text: "Huy ket ban",
+        style: "destructive",
+        onPress: () => {
+          Alert.alert("Xac nhan", `Huy ket ban voi ${friendName}?`, [
+            { text: "Huy", style: "cancel" },
+            {
+              text: "Dong y",
+              style: "destructive",
+              onPress: () => handleRemoveFriend(friend),
+            },
+          ]);
+        },
+      },
+      {
+        text: "Chan",
+        style: "destructive",
+        onPress: () => {
+          Alert.alert("Xac nhan", `Chan ${friendName}?`, [
+            { text: "Huy", style: "cancel" },
+            {
+              text: "Dong y",
+              style: "destructive",
+              onPress: () => handleBlockFriend(friend),
+            },
+          ]);
+        },
+      },
+      { text: "Dong", style: "cancel" },
+    ]);
+  };
 
   return (
     <View className="flex-1 bg-white">
@@ -184,7 +372,11 @@ export default function ContactsScreen() {
             data={listFriends}
             keyExtractor={(item) => `${item.fromUserId}-${item.toUserId}`}
             renderItem={({ item }) => (
-              <TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => handleOpenChat(item)}
+                onLongPress={() => handleFriendActions(item)}
+                delayLongPress={250}
+              >
                 <Friend
                   avatarUrl={item.fromUser?.avatarUrl}
                   name={item.fromUser?.fullName || "Unknown"}

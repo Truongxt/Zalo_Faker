@@ -73,6 +73,15 @@ const FriendRepository= {
     return direct.Item || reverse.Item || null;
   },
 
+  async getDirectFriend(fromUserId, toUserId) {
+    const result = await dynamodb.get({
+      TableName: TABLE_NAME,
+      Key: { fromUserId: Number(fromUserId), toUserId: Number(toUserId) },
+    }).promise();
+
+    return result.Item || null;
+  },
+
   // accept request
   async acceptRequest(fromUserId, toUserId) {
     const params = {
@@ -111,6 +120,51 @@ const FriendRepository= {
       },
     };
     await dynamodb.delete(params).promise();
+  },
+
+  async deleteDirectFriend(fromUserId, toUserId) {
+    const params = {
+      TableName: TABLE_NAME,
+      Key: {
+        fromUserId: Number(fromUserId),
+        toUserId: Number(toUserId),
+      },
+    };
+    await dynamodb.delete(params).promise();
+  },
+
+  async upsertBlock(fromUserId, toUserId, message = "") {
+    const params = {
+      TableName: TABLE_NAME,
+      Item: {
+        fromUserId: Number(fromUserId),
+        toUserId: Number(toUserId),
+        message: message || "",
+        status: "blocked",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      },
+    };
+
+    await dynamodb.put(params).promise();
+    return params.Item;
+  },
+
+  async getBlockedUsers(userId) {
+    const params = {
+      TableName: TABLE_NAME,
+      FilterExpression: "fromUserId = :uid AND #s = :status",
+      ExpressionAttributeNames: {
+        "#s": "status",
+      },
+      ExpressionAttributeValues: {
+        ":uid": Number(userId),
+        ":status": "blocked",
+      },
+    };
+
+    const result = await dynamodb.scan(params).promise();
+    return result.Items || [];
   },
   // async getStatusFriend(userId, friendId,status) {
   //  const result = await dynamodb.scan({

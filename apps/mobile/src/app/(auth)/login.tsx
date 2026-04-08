@@ -88,9 +88,9 @@ export default function LoginScreen() {
           {/* Logo */}
           <View className="items-center mb-12">
             <View className="w-20 h-20 rounded-2xl bg-[#0068FF] items-center justify-center mb-4 shadow-lg">
-              <Text className="text-white text-3xl font-bold">UIA</Text>
+              <Text className="text-white text-3xl font-bold">ZF</Text>
             </View>
-            <Text className="text-2xl font-bold text-gray-900">Hehe Haha</Text>
+            <Text className="text-2xl font-bold text-gray-900">Zalo Faker</Text>
             <Text className="text-gray-500 mt-1 text-sm">
               Đăng nhập để tiếp tục
             </Text>

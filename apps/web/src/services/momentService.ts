@@ -37,8 +37,11 @@ class MomentService {
       return response.json();
     }
 
-    const response = await fetchWithAuth('/moments', {
-      method: 'POST',
+    const response = await fetchWithAuth(`/moments`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({
         content,
         mediaUrls,
