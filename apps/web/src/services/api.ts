@@ -73,10 +73,41 @@ export const mapUser = (u: any): User => ({
     gender: (u.gender === 'male' || u.gender === 'female' || u.gender === 'other') ? u.gender : 'other',
 });
 
+const normalizeContent = (rawContent: any) => {
+    if (typeof rawContent === 'string') {
+        return { text: rawContent };
+    }
+
+    if (!rawContent || typeof rawContent !== 'object') {
+        return {};
+    }
+
+    return {
+        text: typeof rawContent.text === 'string'
+            ? rawContent.text
+            : typeof rawContent.message === 'string'
+                ? rawContent.message
+                : typeof rawContent.content === 'string'
+                    ? rawContent.content
+                    : undefined,
+        mediaUrl: typeof rawContent.mediaUrl === 'string'
+            ? rawContent.mediaUrl
+            : typeof rawContent.url === 'string'
+                ? rawContent.url
+                : typeof rawContent.fileUrl === 'string'
+                    ? rawContent.fileUrl
+                    : undefined,
+        thumbnail: typeof rawContent.thumbnail === 'string' ? rawContent.thumbnail : undefined,
+        fileName: typeof rawContent.fileName === 'string' ? rawContent.fileName : undefined,
+        fileSize: typeof rawContent.fileSize === 'number' ? rawContent.fileSize : undefined,
+        duration: typeof rawContent.duration === 'number' ? rawContent.duration : undefined,
+    };
+};
+
 const normalizeMessage = (msg: any) => ({
     ...msg,
     id: msg.id || msg._id,
-    content: msg.content || {},
+    content: normalizeContent(msg.content),
     reactions: Array.isArray(msg.reactions) ? msg.reactions : [],
     readBy: Array.isArray(msg.readBy) ? msg.readBy : [],
     isDeleted: Boolean(msg.isDeleted),

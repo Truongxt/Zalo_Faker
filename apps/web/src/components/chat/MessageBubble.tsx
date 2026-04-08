@@ -25,6 +25,36 @@ interface MessageBubbleProps {
 
 const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '😡']
 
+const normalizeContent = (rawContent: any) => {
+    if (typeof rawContent === 'string') {
+        return { text: rawContent }
+    }
+
+    if (!rawContent || typeof rawContent !== 'object') {
+        return {}
+    }
+
+    return {
+        text: typeof rawContent.text === 'string'
+            ? rawContent.text
+            : typeof rawContent.message === 'string'
+                ? rawContent.message
+                : typeof rawContent.content === 'string'
+                    ? rawContent.content
+                    : undefined,
+        mediaUrl: typeof rawContent.mediaUrl === 'string'
+            ? rawContent.mediaUrl
+            : typeof rawContent.url === 'string'
+                ? rawContent.url
+                : typeof rawContent.fileUrl === 'string'
+                    ? rawContent.fileUrl
+                    : undefined,
+        thumbnail: typeof rawContent.thumbnail === 'string' ? rawContent.thumbnail : undefined,
+        fileName: typeof rawContent.fileName === 'string' ? rawContent.fileName : undefined,
+        fileSize: typeof rawContent.fileSize === 'number' ? rawContent.fileSize : undefined,
+        duration: typeof rawContent.duration === 'number' ? rawContent.duration : undefined,
+    }
+}
 export default function MessageBubble({
     message,
     isSent,
@@ -49,7 +79,7 @@ export default function MessageBubble({
     const isAnnouncement = Boolean(message.metadata?.isAnnouncement)
     const reactions = Array.isArray(message.reactions) ? message.reactions : []
     const readBy = Array.isArray(message.readBy) ? message.readBy : []
-    const content = message.content || {}
+    const content = normalizeContent(message.content)
 
     // Format read receipt info for tooltip
     const getReadReceiptInfo = () => {
@@ -413,3 +443,4 @@ export default function MessageBubble({
         </div>
     )
 }
+
