@@ -21,6 +21,8 @@ const PERMANENT_LOCK_OTP_TTL_SECONDS = 300;
 const PERMANENT_LOCK_RESEND_LIMIT_SECONDS = 60;
 
 const normalizeEmail = (email) => String(email || "").trim().toLowerCase();
+const buildSessionKey = (userId) => `auth:session:${String(userId)}`;
+const generateSessionId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 
 const generateOtp = () => String(Math.floor(100000 + Math.random() * 900000));
 
@@ -92,7 +94,9 @@ const UserService = {
       userName: userData.userName
     };
 
-    return await userRepository.register(user);
+    const createdUser = await userRepository.register(user);
+    const { password: _, ...safeUser } = createdUser;
+    return safeUser;
   },
 
   getUsers: async () => {
@@ -177,14 +181,18 @@ const UserService = {
     const isMatch = await bcrypt.compare(password + "nhan123@@", user.password);
     if (!isMatch) throw new Error("Invalid password");
 
+    const sessionId = generateSessionId();
     const payload = {
       userId: user.userId,
       email: user.email,
       accountStatus,
+      sessionId,
     };
 
     const accessToken = signAccessToken(payload);
     const refreshToken = signRefreshToken(payload);
+
+    await safeSet(buildSessionKey(user.userId), sessionId);
 
     await refreshTokenRepository.deleteByUserId(user.userId);
     await refreshTokenRepository.create({
@@ -216,6 +224,22 @@ const UserService = {
     };
   },
   logout: async refreshToken => {
+    try {
+      const { verifyRefreshToken } = require("../utils/jwt");
+      const decoded = verifyRefreshToken(refreshToken);
+      const userId = decoded?.userId;
+      const sessionId = decoded?.sessionId;
+
+      if (userId && sessionId) {
+        const activeSessionId = await safeGet(buildSessionKey(userId));
+        if (activeSessionId === sessionId) {
+          await safeDel(buildSessionKey(userId));
+        }
+      }
+    } catch (_err) {
+      // Ignore invalid refresh token at this step; token cleanup still runs below.
+    }
+
     await refreshTokenRepository.delete(refreshToken);
     return { message: "Logged out" };
   },
@@ -243,7 +267,15 @@ const UserService = {
     if (accountStatus === "deleted") throw new Error("Account is deleted");
 
     // 3. Tạo access token mới
-    const payload = { userId: decoded.userId, email: decoded.email, accountStatus };
+    const sessionId = decoded.sessionId;
+    if (!sessionId) throw new Error("Session expired");
+
+    const activeSessionId = await safeGet(buildSessionKey(decoded.userId));
+    if (!activeSessionId || activeSessionId !== sessionId) {
+      throw new Error("Session expired");
+    }
+
+    const payload = { userId: decoded.userId, email: decoded.email, accountStatus, sessionId };
     const newAccessToken = signAccessToken(payload);
 
     return { accessToken: newAccessToken };
@@ -686,9 +718,10 @@ const UserService = {
     };
 
     const createdUser = await userRepository.register(user);
+    const { password: _, ...safeUser } = createdUser;
     await safeDel(verifiedKey);
 
-    return { message: "Registration completed", user: createdUser };
+    return { message: "Registration completed", user: safeUser };
   }
 
 };

@@ -20,6 +20,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
+import { Audio, type AVPlaybackStatus } from "expo-av";
 import { Ionicons } from "@expo/vector-icons";
 import { useChatStore } from "@/stores/chatStore";
 import { useAuthStore } from "@/stores/authStore";
@@ -58,6 +59,158 @@ function formatTime(iso: string) {
   return d.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
 }
 
+function formatAudioTime(millis: number) {
+  const totalSeconds = Math.max(0, Math.floor((millis || 0) / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+type VoiceMessagePlayerProps = {
+  audioUrl: string;
+  durationSeconds?: number;
+  textColor: string;
+};
+
+function VoiceMessagePlayer({ audioUrl, durationSeconds, textColor }: VoiceMessagePlayerProps) {
+  const soundRef = useRef<Audio.Sound | null>(null);
+  const mountedRef = useRef(true);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [positionMillis, setPositionMillis] = useState(0);
+  const [durationMillis, setDurationMillis] = useState(
+    durationSeconds && durationSeconds > 0 ? durationSeconds * 1000 : 0,
+  );
+  const [hasError, setHasError] = useState(false);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      const sound = soundRef.current;
+      soundRef.current = null;
+      if (sound) {
+        sound.unloadAsync().catch(() => null);
+      }
+    };
+  }, []);
+
+  const updateStatus = useCallback((status: AVPlaybackStatus) => {
+    if (!mountedRef.current) return;
+
+    if (!status.isLoaded) {
+      if ((status as any).error) {
+        setHasError(true);
+        setIsLoading(false);
+      }
+      return;
+    }
+
+    setHasError(false);
+    setIsPlaying(Boolean(status.isPlaying));
+    setPositionMillis(status.positionMillis || 0);
+    if (typeof status.durationMillis === "number" && status.durationMillis > 0) {
+      setDurationMillis(status.durationMillis);
+    }
+    if (status.didJustFinish) {
+      setIsPlaying(false);
+      setPositionMillis(0);
+    }
+  }, []);
+
+  const ensureLoadedSound = useCallback(async () => {
+    if (soundRef.current) return soundRef.current;
+
+    await Audio.setAudioModeAsync({
+      allowsRecordingIOS: false,
+      playsInSilentModeIOS: true,
+      shouldDuckAndroid: true,
+      playThroughEarpieceAndroid: false,
+      staysActiveInBackground: false,
+    });
+
+    const sound = new Audio.Sound();
+    sound.setOnPlaybackStatusUpdate(updateStatus);
+    await sound.loadAsync(
+      { uri: audioUrl },
+      { shouldPlay: false, progressUpdateIntervalMillis: 200 },
+    );
+    soundRef.current = sound;
+    return sound;
+  }, [audioUrl, updateStatus]);
+
+  const togglePlayPause = useCallback(async () => {
+    if (isLoading || hasError) return;
+
+    try {
+      setIsLoading(true);
+      const sound = await ensureLoadedSound();
+      const status = await sound.getStatusAsync();
+      if (!status.isLoaded) {
+        setHasError(true);
+        return;
+      }
+
+      if (status.isPlaying) {
+        await sound.pauseAsync();
+      } else {
+        await sound.playAsync();
+      }
+    } catch (error) {
+      console.error("Khong the phat tin nhan thoai:", error);
+      setHasError(true);
+    } finally {
+      if (mountedRef.current) setIsLoading(false);
+    }
+  }, [ensureLoadedSound, hasError, isLoading]);
+
+  const progress = durationMillis > 0 ? (positionMillis / durationMillis) * 100 : 0;
+
+  return (
+    <TouchableOpacity
+      activeOpacity={0.8}
+      onPress={togglePlayPause}
+      style={{ flexDirection: "row", alignItems: "center", minWidth: 180, gap: 8 }}
+    >
+      <View
+        style={{
+          width: 28,
+          height: 28,
+          borderRadius: 14,
+          backgroundColor: "rgba(255,255,255,0.25)",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        {isLoading ? (
+          <ActivityIndicator size="small" color={textColor} />
+        ) : (
+          <Ionicons name={isPlaying ? "pause" : "play"} size={16} color={textColor} />
+        )}
+      </View>
+
+      <View style={{ flex: 1 }}>
+        <View style={{ height: 4, borderRadius: 2, backgroundColor: "rgba(255,255,255,0.35)" }}>
+          <View
+            style={{
+              width: `${Math.max(0, Math.min(progress, 100))}%`,
+              height: 4,
+              borderRadius: 2,
+              backgroundColor: textColor,
+            }}
+          />
+        </View>
+      </View>
+
+      <Text style={{ color: textColor, fontSize: 12 }}>
+        {formatAudioTime(positionMillis)} / {formatAudioTime(durationMillis)}
+      </Text>
+
+      {hasError ? <Ionicons name="warning-outline" size={14} color={textColor} /> : null}
+    </TouchableOpacity>
+  );
+}
+
 type MessageItemProps = {
   msg: Message;
   isMe: boolean;
@@ -67,12 +220,19 @@ type MessageItemProps = {
 function MessageItem({ msg, isMe, onLongPress }: MessageItemProps) {
   const bg = isMe ? "#0068FF" : "#F3F4F6";
   const textColor = isMe ? "#fff" : "#111827";
+  const voiceAttachment = (msg.attachments || []).find((attachment) => attachment.type === "voice");
+  const fallbackVoiceUrl =
+    typeof msg.content === "string" && /^https?:\/\//i.test(msg.content)
+      ? msg.content
+      : undefined;
+  const voiceUrl = voiceAttachment?.url || fallbackVoiceUrl;
+  const voiceDuration = voiceAttachment?.duration;
 
   const renderContent = () => {
     if (msg.isDeleted) {
       return (
         <Text style={{ color: isMe ? "#cce4ff" : "#9CA3AF", fontStyle: "italic" }}>
-          Tin nhắn đã bị thu hồi
+          Tin nhan da bi thu hoi
         </Text>
       );
     }
@@ -87,12 +247,19 @@ function MessageItem({ msg, isMe, onLongPress }: MessageItemProps) {
           />
         );
       case "voice":
+        if (voiceUrl) {
+          return (
+            <VoiceMessagePlayer
+              audioUrl={voiceUrl}
+              durationSeconds={voiceDuration}
+              textColor={textColor}
+            />
+          );
+        }
         return (
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-            <Ionicons name="mic" size={18} color={textColor} />
-            <Text style={{ color: textColor }}>
-              Tin nhắn thoại {(msg as any).attachments?.[0]?.duration ? `(${(msg as any).attachments[0].duration}s)` : ""}
-            </Text>
+            <Ionicons name="mic-off" size={18} color={textColor} />
+            <Text style={{ color: textColor }}>Tin nhan thoai (khong co duong dan)</Text>
           </View>
         );
       case "file":
@@ -100,7 +267,7 @@ function MessageItem({ msg, isMe, onLongPress }: MessageItemProps) {
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
             <Ionicons name="document-outline" size={18} color={textColor} />
             <Text style={{ color: textColor, flex: 1 }} numberOfLines={1}>
-              {(msg as any).attachments?.[0]?.name || "File đính kèm"}
+              {(msg as any).attachments?.[0]?.name || "File dinh kem"}
             </Text>
           </View>
         );
@@ -208,6 +375,33 @@ export default function ChatRoomScreen() {
     conversation?.type === "group"
       ? conversation.avatarUrl
       : otherParticipant?.avatarUrl;
+
+  const startCall = useCallback(
+    (callType: "audio" | "video") => {
+      if (!user?.id || !convId || !otherParticipant?.userId) {
+        GrayToast("Khong the bat dau cuoc goi");
+        return;
+      }
+
+      const callId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      router.push({
+        pathname: "/call/[callId]",
+        params: {
+          callId,
+          callType,
+          conversationId: convId,
+          fromUserId: String(user.id),
+          toUserId: String(otherParticipant.userId),
+          toUserName: otherParticipant.fullName || "Nguoi dung",
+          toUserAvatar: otherParticipant.avatarUrl || "",
+          callerName: user.fullName || "Nguoi dung",
+          callerAvatar: user.avatarUrl || "",
+          isCaller: "true",
+        },
+      });
+    },
+    [convId, otherParticipant?.avatarUrl, otherParticipant?.fullName, otherParticipant?.userId, router, user?.avatarUrl, user?.fullName, user?.id],
+  );
 
   // Load messages on mount
   useEffect(() => {
@@ -419,10 +613,18 @@ export default function ChatRoomScreen() {
           )}
         </View>
 
-        <TouchableOpacity style={{ padding: 6 }}>
+        <TouchableOpacity
+          style={{ padding: 6 }}
+          onPress={() => startCall("audio")}
+          disabled={conversation?.type === "group"}
+        >
           <Ionicons name="call-outline" size={22} color="#6B7280" />
         </TouchableOpacity>
-        <TouchableOpacity style={{ padding: 6 }}>
+        <TouchableOpacity
+          style={{ padding: 6 }}
+          onPress={() => startCall("video")}
+          disabled={conversation?.type === "group"}
+        >
           <Ionicons name="videocam-outline" size={22} color="#6B7280" />
         </TouchableOpacity>
         <TouchableOpacity style={{ padding: 6 }}>
@@ -542,3 +744,4 @@ export default function ChatRoomScreen() {
     </KeyboardAvoidingView>
   );
 }
+

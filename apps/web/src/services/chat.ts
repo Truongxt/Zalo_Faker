@@ -241,7 +241,11 @@ export const chatService = {
 
         if (!response.ok) throw new Error('Failed to create conversation')
 
-        const conversation: Conversation = await response.json()
+        const rawConversation: any = await response.json()
+        const conversation: Conversation = {
+            ...rawConversation,
+            id: rawConversation.id || rawConversation._id,
+        }
 
         const { addConversation } = useChatStore.getState()
         addConversation(conversation)

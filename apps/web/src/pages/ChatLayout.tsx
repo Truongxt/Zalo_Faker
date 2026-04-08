@@ -39,6 +39,14 @@ export default function ChatLayout() {
                 const { setIncomingCall } = useCallStore.getState();
                 setIncomingCall(data);
             };
+            const handleCallEnded = () => {
+                const { clearCall } = useCallStore.getState();
+                clearCall();
+            };
+            const handleCallRejected = () => {
+                const { clearCall } = useCallStore.getState();
+                clearCall();
+            };
 
             // Lắng nghe tin nhắn mới REAL-TIME TOÀN CỤC
             const handleNewMessageGlobal = (msg: any) => {
@@ -103,6 +111,8 @@ export default function ChatLayout() {
             if (socket) {
                 console.log('🔌 Attaching global listeners to socket:', socket.id)
                 socket.on('video:incoming-call', handleIncomingCall)
+                socket.on('video:call-ended', handleCallEnded)
+                socket.on('video:call-rejected', handleCallRejected)
                 socket.on('chat:message', handleNewMessageGlobal)
                 socket.on('chat:recalled', handleRecalledGlobal)
                 socket.on('chat:reaction', handleReactionGlobal)
@@ -115,11 +125,12 @@ export default function ChatLayout() {
             const socket = socketService.getSocket()
             if (socket) {
                 socket.off('video:incoming-call')
+                socket.off('video:call-ended')
+                socket.off('video:call-rejected')
                 socket.off('chat:message')
                 socket.off('chat:recalled')
                 socket.off('chat:reaction')
             }
-            socketService.disconnect()
         }
     }, [user?.id, setConversations, addMessage, updateMessage, updateConversation])
 

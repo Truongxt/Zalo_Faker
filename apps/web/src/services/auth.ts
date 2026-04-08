@@ -1,6 +1,15 @@
 import { User, useAuthStore } from '@/stores/authStore'
 import { baseAPI, fetchWithAuth } from './api'
 
+export interface LoginHistoryItem {
+    loginId: string
+    userId: string
+    loginAt: string
+    platform: string
+    deviceInfo: string
+    ipAddress: string
+}
+
 export const authService = {
     async register(data: {
         fullName: string;
@@ -200,6 +209,60 @@ export const authService = {
 
     async getSession() {
         return null;
+    },
+
+    async changePassword(userId: string, oldPassword: string, newPassword: string): Promise<{ message: string; user: User }> {
+        const response = await fetchWithAuth(`/users/${userId}/change-password`, {
+            method: 'POST',
+            body: JSON.stringify({ oldPassword, newPassword }),
+        })
+        return response.json()
+    },
+
+    async lockAccount(userId: string, currentPassword: string): Promise<{ message: string; user: User }> {
+        const response = await fetchWithAuth(`/users/${userId}/lock-account`, {
+            method: 'POST',
+            body: JSON.stringify({ currentPassword }),
+        })
+        return response.json()
+    },
+
+    async requestPermanentLockOtp(userId: string): Promise<{ message: string; expiresIn: number }> {
+        const response = await fetchWithAuth(`/users/${userId}/lock-account/request-otp`, {
+            method: 'POST',
+        })
+        return response.json()
+    },
+
+    async permanentLockAccount(
+        userId: string,
+        password: string,
+        otp: string,
+        confirmIrreversible: boolean,
+    ): Promise<{ message: string; user: User }> {
+        const response = await fetchWithAuth(`/users/${userId}/lock-account/permanent`, {
+            method: 'POST',
+            body: JSON.stringify({ password, otp, confirmIrreversible }),
+        })
+        return response.json()
+    },
+
+    async getLoginHistory(userId: string, limit = 20): Promise<LoginHistoryItem[]> {
+        const response = await fetchWithAuth(`/users/${userId}/login-history?limit=${limit}`)
+        return response.json()
+    },
+
+    async unlockAccount(email: string, password: string): Promise<{ message: string; user: User }> {
+        const response = await fetch(`${baseAPI}/users/unlock-account`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password }),
+        })
+        if (!response.ok) {
+            const error = await response.json()
+            throw new Error(error.message || 'Mở khóa tài khoản thất bại')
+        }
+        return response.json()
     },
 
     onAuthStateChange(_callback: (event: string, session: any) => void) {

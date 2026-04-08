@@ -369,7 +369,7 @@ export default function CreateGroupScreen() {
         </View>
 
         <View className="mb-3 flex-row items-center justify-between px-1">
-          <Text className="text-sm font-semibold text-gray-700">Ban be</Text>
+          <Text className="text-sm font-semibold text-gray-700">Bạn bè</Text>
           <Text className="text-sm text-gray-500">{filteredFriends.length} ket qua</Text>
         </View>
 

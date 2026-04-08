@@ -9,6 +9,7 @@ const userRepository = {
             TableName: tableName,
             Item: normalizedUser
         }).promise();
+        return normalizedUser;
     },
     async getAll() {
         const result = await dynamodb.scan({

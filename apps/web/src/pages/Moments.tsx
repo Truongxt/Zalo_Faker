@@ -48,9 +48,9 @@ const updateMomentCommentCount = (
   moments.map((moment) =>
     moment.momentId === momentId
       ? {
-          ...moment,
-          commentCount: Math.max(0, moment.commentCount + delta),
-        }
+        ...moment,
+        commentCount: Math.max(0, moment.commentCount + delta),
+      }
       : moment,
   );
 
@@ -130,7 +130,7 @@ export default function Moments() {
       await momentService.reactToMoment(momentId, emoji);
     } catch (error: any) {
       setMoments(previousMoments);
-      addToast(error?.message || 'Không thể thả cảm xúc', 'error');
+      addToast(error?.message || 'Khong the tha cam xuc', 'error');
     }
   };
 
@@ -223,11 +223,10 @@ export default function Moments() {
             <button
               type="button"
               onClick={() => setActiveFeed('friends')}
-              className={`flex items-center gap-2 whitespace-nowrap rounded-full px-4 py-2 text-sm font-medium transition-colors ${
-                activeFeed === 'friends'
+              className={`flex items-center gap-2 whitespace-nowrap rounded-full px-4 py-2 text-sm font-medium transition-colors ${activeFeed === 'friends'
                   ? 'bg-primary-500 text-white'
                   : 'border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-800 dark:bg-dark-200 dark:text-gray-300 dark:hover:bg-dark-300'
-              }`}
+                }`}
             >
               <Users className="h-4 w-4" />
               Bạn bè
@@ -236,11 +235,10 @@ export default function Moments() {
             <button
               type="button"
               onClick={() => setActiveFeed('me')}
-              className={`flex items-center gap-2 whitespace-nowrap rounded-full px-4 py-2 text-sm font-medium transition-colors ${
-                activeFeed === 'me'
+              className={`flex items-center gap-2 whitespace-nowrap rounded-full px-4 py-2 text-sm font-medium transition-colors ${activeFeed === 'me'
                   ? 'bg-primary-500 text-white'
                   : 'border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-800 dark:bg-dark-200 dark:text-gray-300 dark:hover:bg-dark-300'
-              }`}
+                }`}
             >
               <UserIcon className="h-4 w-4" />
               Của tôi
@@ -249,11 +247,10 @@ export default function Moments() {
             <button
               type="button"
               onClick={() => setActiveFeed('reacted')}
-              className={`flex items-center gap-2 whitespace-nowrap rounded-full px-4 py-2 text-sm font-medium transition-colors ${
-                activeFeed === 'reacted'
+              className={`flex items-center gap-2 whitespace-nowrap rounded-full px-4 py-2 text-sm font-medium transition-colors ${activeFeed === 'reacted'
                   ? 'bg-primary-500 text-white'
                   : 'border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-800 dark:bg-dark-200 dark:text-gray-300 dark:hover:bg-dark-300'
-              }`}
+                }`}
             >
               <Heart className="h-4 w-4" />
               Đã thả cảm xúc
@@ -331,3 +328,4 @@ export default function Moments() {
     </div>
   );
 }
+
