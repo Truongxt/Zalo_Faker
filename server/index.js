@@ -5,6 +5,7 @@ const cors = require("cors");
 const http = require("http");
 const { connectRedis } = require("./utils/redisClient");
 const socketConfig = require("./config/socket");
+const { setSocketIO } = require("./utils/socketEmitter");
 
 
 const userRoutes = require("./routes/userRoutes");
@@ -51,6 +52,7 @@ const server = http.createServer(app);
 
 // ===== Socket.IO =====
 const io = socketConfig(server);
+setSocketIO(io);
 
 
 

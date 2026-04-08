@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -14,6 +14,7 @@ import { friendsService, userService } from "@/services";
 import { useAuthStore } from "@/stores";
 import FriendsRequest from "@/components/ui/FriendsRequest";
 import { Friend } from "@/components/ui/Friend";
+import { socketService } from "@/lib/socket";
 
 export default function ContactsScreen() {
   const router = useRouter();
@@ -22,9 +23,10 @@ export default function ContactsScreen() {
   const [loading, setLoading] = useState(false);
   const { user } = useAuthStore();
   const [listFriends, setListFriends] = useState<Friends[]>([]);
-  const getFriendsRequests = async () => {
+  const getFriendsRequests = useCallback(async () => {
+    if (!user?.id) return;
     try {
-      const result = await friendsService.getPendingRequests(user!.id);
+      const result = await friendsService.getPendingRequests(user.id);
 
       const withUserInfo = await Promise.all(
         result.map(async (f: any) => {
@@ -40,11 +42,12 @@ export default function ContactsScreen() {
     } catch (error) {
       console.error("Lỗi khi lấy danh sách yêu cầu kết bạn:", error);
     }
-  };
+  }, [user?.id]);
 
-  const getListFriends = async () => {
+  const getListFriends = useCallback(async () => {
+    if (!user?.id) return;
     try {
-      const result = await friendsService.getFriend(user!.id);
+      const result = await friendsService.getFriend(user.id);
 
       const withUserInfo = await Promise.all(
         result.map(async (f: any) => {
@@ -65,14 +68,60 @@ export default function ContactsScreen() {
     } catch (error) {
       console.error("Lỗi khi lấy danh sách bạn bè:", error);
     }
-  };
+  }, [user?.id]);
 
   useEffect(() => {
     if (user?.id) {
       getFriendsRequests();
       getListFriends();
     }
-  }, [user?.id]);
+  }, [user?.id, getFriendsRequests, getListFriends]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+
+    socketService.connect();
+
+    const refreshContacts = () => {
+      getFriendsRequests();
+      getListFriends();
+    };
+
+    const handleRequestReceived = (payload: { toUserId?: number | string }) => {
+      if (String(payload?.toUserId) !== String(user.id)) return;
+      refreshContacts();
+    };
+
+    const handleRequestAccepted = (payload: { fromUserId?: number | string; toUserId?: number | string }) => {
+      if (
+        String(payload?.fromUserId) !== String(user.id) &&
+        String(payload?.toUserId) !== String(user.id)
+      ) {
+        return;
+      }
+      refreshContacts();
+    };
+
+    const handleRequestRejected = (payload: { fromUserId?: number | string; toUserId?: number | string }) => {
+      if (
+        String(payload?.fromUserId) !== String(user.id) &&
+        String(payload?.toUserId) !== String(user.id)
+      ) {
+        return;
+      }
+      refreshContacts();
+    };
+
+    socketService.on("friend:request_received", handleRequestReceived);
+    socketService.on("friend:request_accepted", handleRequestAccepted);
+    socketService.on("friend:request_rejected", handleRequestRejected);
+
+    return () => {
+      socketService.off("friend:request_received", handleRequestReceived);
+      socketService.off("friend:request_accepted", handleRequestAccepted);
+      socketService.off("friend:request_rejected", handleRequestRejected);
+    };
+  }, [user?.id, getFriendsRequests, getListFriends]);
 
   return (
     <View className="flex-1 bg-white">
