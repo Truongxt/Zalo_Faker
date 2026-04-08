@@ -6,7 +6,11 @@ const momentCommentRepository = require("../repository/momentCommentRepository")
 const momentReactionRepository = require("../repository/momentReactionRepository");
 const friendRepository = require("../repository/friendsRepository");
 const userRepository = require("../repository/userRepository");
-const { deleteFiles, getAccessibleFileUrls } = require("./file.service");
+const {
+  deleteFiles,
+  extractS3ObjectKey,
+  getAccessibleFileUrls
+} = require("./file.service");
 
 const MOMENT_TYPES = {
   POST: "post",
@@ -135,7 +139,7 @@ const attachMomentMeta = async (moments, currentUserId) => {
   );
 };
 
-const attachCommentMeta = async (comments, currentUserId) => {
+const attachCommentMeta = async (comments, currentUserId, momentOwnerId = null) => {
   const normalized = comments.map(normalizeComment);
   const userIds = [
     ...normalized.map((comment) => comment.userId),
@@ -161,6 +165,9 @@ const attachCommentMeta = async (comments, currentUserId) => {
         : null,
       reactions,
       reactionCount: reactions.length,
+      canDelete:
+        comment.userId === String(currentUserId) ||
+        String(momentOwnerId || "") === String(currentUserId),
       currentUserReaction:
         reactions.find((reaction) => reaction.userId === String(currentUserId))?.emoji || null
     };
@@ -207,6 +214,32 @@ const ensureMomentOwner = (moment, userId) => {
   if (moment.authorId !== String(userId)) {
     throw createError("Only the owner can delete this moment", 403);
   }
+};
+
+const ensureCommentDeletePermission = (moment, comment, userId) => {
+  const currentUserId = String(userId);
+
+  if (
+    comment.userId === currentUserId ||
+    moment.authorId === currentUserId
+  ) {
+    return true;
+  }
+
+  throw createError("You do not have permission to delete this comment", 403);
+};
+
+const resolveRetainedMediaUrls = (existingMediaUrls = [], requestedMediaUrls = []) => {
+  const requestedKeys = new Set(
+    (Array.isArray(requestedMediaUrls) ? requestedMediaUrls : [])
+      .map((mediaRef) => extractS3ObjectKey(mediaRef) || String(mediaRef || "").trim())
+      .filter(Boolean)
+  );
+
+  return (Array.isArray(existingMediaUrls) ? existingMediaUrls : []).filter((mediaRef) => {
+    const mediaKey = extractS3ObjectKey(mediaRef) || String(mediaRef || "").trim();
+    return requestedKeys.has(mediaKey);
+  });
 };
 
 const ensureValidMomentPayload = ({ content, mediaUrls }) => {
@@ -320,6 +353,48 @@ const MomentService = {
     };
   },
 
+  async updateMoment(momentId, userId, { content, retainMediaUrls = [], newMediaUrls = [] }) {
+    if (!userId) {
+      throw createError("Unauthorized", 401);
+    }
+
+    const moment = await getMomentOrThrow(momentId);
+    ensureMomentOwner(moment, userId);
+
+    const retainedMediaUrls = resolveRetainedMediaUrls(moment.mediaUrls, retainMediaUrls);
+    const nextMediaUrls = [...retainedMediaUrls, ...(Array.isArray(newMediaUrls) ? newMediaUrls : [])];
+    const nextContent = content !== undefined ? content : moment.content;
+
+    ensureValidMomentPayload({
+      content: nextContent,
+      mediaUrls: nextMediaUrls
+    });
+
+    const removedMediaUrls = moment.mediaUrls.filter(
+      (mediaRef) => !retainedMediaUrls.includes(mediaRef)
+    );
+
+    const updated = await momentRepository.update(momentId, {
+      content: nextContent,
+      mediaUrls: nextMediaUrls,
+      updatedAt: new Date().toISOString()
+    });
+
+    if (removedMediaUrls.length > 0) {
+      try {
+        await deleteFiles(removedMediaUrls);
+      } catch (error) {
+        console.warn("Failed to delete removed moment media from S3:", {
+          momentId,
+          error: error.message
+        });
+      }
+    }
+
+    const [enriched] = await attachMomentMeta([updated], userId);
+    return enriched;
+  },
+
   async reactToMoment(momentId, userId, emoji) {
     if (!userId) {
       throw createError("Unauthorized", 401);
@@ -396,7 +471,7 @@ const MomentService = {
 
     await momentCommentRepository.create(comment);
     await incrementMomentField(moment, "commentCount", 1);
-    const [enriched] = await attachCommentMeta([comment], userId);
+    const [enriched] = await attachCommentMeta([comment], userId, moment.authorId);
     return enriched;
   },
 
@@ -409,7 +484,7 @@ const MomentService = {
     await ensureMomentVisible(moment, userId);
 
     const comments = await momentCommentRepository.getByMomentId(momentId);
-    return attachCommentMeta(comments, userId);
+    return attachCommentMeta(comments, userId, moment.authorId);
   },
 
   async reactToComment(momentId, commentId, userId, emoji) {
@@ -449,8 +524,29 @@ const MomentService = {
 
     comment.updatedAt = new Date().toISOString();
     const updated = await momentCommentRepository.update(comment);
-    const [enriched] = await attachCommentMeta([updated], userId);
+    const [enriched] = await attachCommentMeta([updated], userId, moment.authorId);
     return enriched;
+  },
+
+  async deleteComment(momentId, commentId, userId) {
+    if (!userId) {
+      throw createError("Unauthorized", 401);
+    }
+
+    const moment = await getMomentOrThrow(momentId);
+    await ensureMomentVisible(moment, userId);
+
+    const comment = await getMomentCommentOrThrow(momentId, commentId);
+    ensureCommentDeletePermission(moment, comment, userId);
+
+    await momentCommentRepository.delete(momentId, commentId);
+    await incrementMomentField(moment, "commentCount", -1);
+
+    return {
+      message: "Comment deleted successfully",
+      momentId,
+      commentId
+    };
   },
 
   async shareMoment(momentId, userId, caption) {

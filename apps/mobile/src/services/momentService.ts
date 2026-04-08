@@ -32,6 +32,12 @@ export interface CreateMomentPayload {
   mediaFiles?: MomentMediaFile[];
 }
 
+export interface UpdateMomentPayload {
+  content?: string;
+  retainMediaUrls?: string[];
+  mediaFiles?: MomentMediaFile[];
+}
+
 class MomentService {
   async createMoment(payload: CreateMomentPayload): Promise<Moment> {
     const { content = "", mediaUrls = [], mediaFiles = [] } = payload;
@@ -67,6 +73,38 @@ class MomentService {
 
   async getFriendMoments(): Promise<Moment[]> {
     return apiFetch<Moment[]>("/api/moments/friends");
+  }
+
+  async updateMoment(momentId: string, payload: UpdateMomentPayload): Promise<Moment> {
+    const { content = "", retainMediaUrls = [], mediaFiles = [] } = payload;
+
+    if (mediaFiles.length > 0) {
+      const formData = new FormData();
+      formData.append("content", content);
+      formData.append("retainMediaUrls", JSON.stringify(retainMediaUrls));
+      mediaFiles.forEach((mediaFile, index) => {
+        const mimeType = getMomentMimeType(mediaFile);
+        const fallbackExtension = mimeType.startsWith("video/") ? "mp4" : "jpg";
+        formData.append("files", {
+          uri: mediaFile.uri,
+          name: mediaFile.name || `moment-edit-${Date.now()}-${index}.${fallbackExtension}`,
+          type: mimeType,
+        } as any);
+      });
+
+      return apiFetch<Moment>(`/api/moments/${momentId}`, {
+        method: "PUT",
+        body: formData,
+      });
+    }
+
+    return apiFetch<Moment>(`/api/moments/${momentId}`, {
+      method: "PUT",
+      body: {
+        content,
+        retainMediaUrls,
+      },
+    });
   }
 
   async getMyProfile(): Promise<MomentProfile> {
@@ -108,6 +146,18 @@ class MomentService {
       method: "PUT",
       body: { emoji },
     });
+  }
+
+  async deleteComment(
+    momentId: string,
+    commentId: string,
+  ): Promise<{ message: string; momentId: string; commentId: string }> {
+    return apiFetch<{ message: string; momentId: string; commentId: string }>(
+      `/api/moments/${momentId}/comments/${commentId}`,
+      {
+        method: "DELETE",
+      },
+    );
   }
 
   async shareMoment(momentId: string, caption = ""): Promise<Moment> {

@@ -56,6 +56,7 @@ export interface MomentComment {
   }>;
   reactionCount: number;
   currentUserReaction: string | null;
+  canDelete?: boolean;
   createdAt: string;
   updatedAt: string;
   author: MomentAuthor | null;
