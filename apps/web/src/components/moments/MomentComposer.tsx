@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
-import { Image as ImageIcon, Loader2, Send, Video, X } from 'lucide-react';
-import type { MomentMediaFile } from '@/services/momentService';
-import { useAuthStore } from '@/stores/authStore';
+import { useEffect, useRef, useState } from "react";
+import { Image as ImageIcon, Loader2, Send, Video, X } from "lucide-react";
+import type { MomentMediaFile } from "@/services/momentService";
+import { useAuthStore } from "@/stores/authStore";
 
 interface MomentComposerProps {
   onPost: (content: string, mediaFiles: MomentMediaFile[]) => Promise<void>;
@@ -12,7 +12,7 @@ type ComposerMediaItem = {
   id: string;
   file: File;
   url: string;
-  type: 'image' | 'video';
+  type: "image" | "video";
 };
 
 const MAX_MEDIA_ITEMS = 10;
@@ -28,7 +28,7 @@ export default function MomentComposer({
   const { user } = useAuthStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mediaRef = useRef<ComposerMediaItem[]>([]);
-  const [content, setContent] = useState('');
+  const [content, setContent] = useState("");
   const [mediaItems, setMediaItems] = useState<ComposerMediaItem[]>([]);
 
   useEffect(() => {
@@ -37,7 +37,8 @@ export default function MomentComposer({
 
   useEffect(() => () => revokeMediaUrls(mediaRef.current), []);
 
-  const canPost = Boolean(content.trim() || mediaItems.length > 0) && !isPosting;
+  const canPost =
+    Boolean(content.trim() || mediaItems.length > 0) && !isPosting;
 
   const handleMediaChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files || []);
@@ -50,9 +51,9 @@ export default function MomentComposer({
         id: `new-${Date.now()}-${index}-${file.name}-${file.lastModified}`,
         file,
         url: URL.createObjectURL(file),
-        type: (file.type.startsWith('video/') ? 'video' : 'image') as
-          | 'image'
-          | 'video',
+        type: (file.type.startsWith("video/") ? "video" : "image") as
+          | "image"
+          | "video",
       }));
 
       const merged = [...prev, ...nextItems];
@@ -78,7 +79,7 @@ export default function MomentComposer({
       return deduped;
     });
 
-    event.target.value = '';
+    event.target.value = "";
   };
 
   const handleRemoveMedia = (mediaId: string) => {
@@ -101,7 +102,7 @@ export default function MomentComposer({
     await onPost(content.trim(), submitMedia);
 
     revokeMediaUrls(mediaItems);
-    setContent('');
+    setContent("");
     setMediaItems([]);
   };
 
@@ -117,7 +118,7 @@ export default function MomentComposer({
         ) : (
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary-100 dark:bg-primary-900/30">
             <span className="text-sm font-medium text-primary-600 dark:text-primary-400">
-              {user?.fullName?.charAt(0).toUpperCase() || 'U'}
+              {user?.fullName?.charAt(0).toUpperCase() || "U"}
             </span>
           </div>
         )}
@@ -127,8 +128,8 @@ export default function MomentComposer({
             value={content}
             onChange={(event) => setContent(event.target.value)}
             placeholder={`${
-              user?.fullName?.split(' ').pop() || 'B\u1ea1n'
-            } \u01a1i, h\u00f4m nay b\u1ea1n th\u1ea5y th\u1ebf n\u00e0o?`}
+              user?.fullName?.split(" ").pop() || "Bạn"
+            } ơi, hôm nay bạn thấy thế nào?`}
             className="w-full resize-none rounded-xl bg-gray-50 p-3 text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:bg-dark-300 dark:text-white"
             rows={content ? 3 : 2}
           />
@@ -140,7 +141,7 @@ export default function MomentComposer({
                   key={item.id}
                   className="relative overflow-hidden rounded-2xl bg-gray-100 dark:bg-dark-300"
                 >
-                  {item.type === 'video' ? (
+                  {item.type === "video" ? (
                     <video
                       src={item.url}
                       className="h-56 w-full object-cover"
@@ -160,13 +161,13 @@ export default function MomentComposer({
                     type="button"
                     onClick={() => handleRemoveMedia(item.id)}
                     className="absolute right-3 top-3 rounded-full bg-black/60 p-2 text-white transition hover:bg-black/80"
-                    title="X\u00f3a media"
+                    title="Xóa media"
                   >
                     <X className="h-4 w-4" />
                   </button>
 
                   <div className="absolute bottom-3 left-3 rounded-full bg-black/60 px-3 py-1 text-xs font-semibold text-white">
-                    {item.type === 'video' ? 'Video' : '\u1ea2nh'}
+                    {item.type === "video" ? "Video" : "Ảnh"}
                   </div>
                 </div>
               ))}
@@ -191,7 +192,7 @@ export default function MomentComposer({
                 <ImageIcon className="h-4 w-4 text-green-500" />
                 <Video className="h-4 w-4 text-blue-500" />
                 <span>
-                  {mediaItems.length > 0 ? 'Th\u00eam media' : '\u1ea2nh/Video'}
+                  {mediaItems.length > 0 ? "Thêm media" : "Ảnh/Video"}
                 </span>
               </button>
             </div>
@@ -201,8 +202,8 @@ export default function MomentComposer({
               disabled={!canPost}
               className={`flex items-center gap-2 rounded-lg px-4 py-1.5 text-sm font-medium transition-colors ${
                 canPost
-                  ? 'bg-primary-500 text-white hover:bg-primary-600'
-                  : 'cursor-not-allowed bg-primary-500/50 text-white/80'
+                  ? "bg-primary-500 text-white hover:bg-primary-600"
+                  : "cursor-not-allowed bg-primary-500/50 text-white/80"
               }`}
             >
               {isPosting ? (
@@ -210,7 +211,7 @@ export default function MomentComposer({
               ) : (
                 <Send className="h-4 w-4" />
               )}
-              <span>\u0110\u0103ng</span>
+              <span>Đăng</span>
             </button>
           </div>
         </div>

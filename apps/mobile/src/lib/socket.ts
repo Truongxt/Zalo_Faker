@@ -1,20 +1,25 @@
 import { io, Socket } from "socket.io-client";
 import { useAuthStore } from "@/stores/authStore";
-//  process.env.EXPO_PUBLIC_SOCKET_URL || "http://localhost:4000";
-const SOCKET_URL = process.env.EXPO_PUBLIC_SOCKET_URL || "http://localhost:3000";
+import { SOCKET_URL } from "@/constants/config";
 class SocketService {
   private socket: Socket | null = null;
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
+  private joinedRooms = new Set<string>();
 
   connect() {
     const { accessToken } = useAuthStore.getState();
 
-    if (this.socket?.connected) return;
+    if (this.socket?.connected) return this.socket;
+    if (this.socket && !this.socket.connected) {
+      this.socket.auth = { token: accessToken, platform: "mobile" };
+      this.socket.connect();
+      return this.socket;
+    }
 
     this.socket = io(SOCKET_URL, {
-      auth: { token: accessToken },
-      transports: ["websocket"],
+      auth: { token: accessToken, platform: "mobile" },
+      transports: ["websocket", "polling"],
       reconnection: true,
       reconnectionAttempts: this.maxReconnectAttempts,
       reconnectionDelay: 1000,
@@ -23,6 +28,9 @@ class SocketService {
     this.socket.on("connect", () => {
       console.log("Socket connected");
       this.reconnectAttempts = 0;
+      this.joinedRooms.forEach((conversationId) => {
+        this.socket?.emit("room:join", conversationId);
+      });
     });
 
     this.socket.on("disconnect", (reason) => {
@@ -30,7 +38,7 @@ class SocketService {
     });
 
     this.socket.on("connect_error", (error) => {
-      console.error("Socket connection error:", error);
+      console.error("Socket connection error:", error?.message || error);
       this.reconnectAttempts++;
     });
 
@@ -39,9 +47,20 @@ class SocketService {
 
   disconnect() {
     if (this.socket) {
+      this.joinedRooms.clear();
       this.socket.disconnect();
       this.socket = null;
     }
+  }
+
+  joinRoom(conversationId: string) {
+    this.joinedRooms.add(conversationId);
+    this.socket?.emit("room:join", conversationId);
+  }
+
+  leaveRoom(conversationId: string) {
+    this.joinedRooms.delete(conversationId);
+    this.socket?.emit("room:leave", conversationId);
   }
 
   getSocket() {

@@ -1,4 +1,5 @@
 import { View, Text, ScrollView, TouchableOpacity, Alert } from "react-native";
+import { useRef } from "react";
 import { useRouter } from "expo-router";
 import { useAuthStore } from "@/stores/authStore";
 import { userService } from "@/services";
@@ -7,6 +8,7 @@ import { Avatar } from "@/components/ui/Avatar";
 export default function ProfileScreen() {
   const router = useRouter();
   const { user, logout, refreshToken } = useAuthStore();
+  const isLoggingOutRef = useRef(false);
 
   const handleLogout = () => {
     Alert.alert("Đăng xuất", "Bạn có chắc muốn đăng xuất?", [
@@ -15,15 +17,23 @@ export default function ProfileScreen() {
         text: "Đăng xuất",
         style: "destructive",
         onPress: async () => {
+          if (isLoggingOutRef.current) {
+            return;
+          }
+
+          isLoggingOutRef.current = true;
+          const tokenToRevoke = refreshToken;
+
+          // Always clear local auth state immediately for responsive UX.
+          logout();
+          router.replace("/(auth)/login");
+
           try {
-            if (refreshToken) {
-              await userService.logout(refreshToken);
+            if (tokenToRevoke) {
+              await userService.logout(tokenToRevoke);
             }
           } catch {
-            // ignore logout errors
-          } finally {
-            logout();
-            router.replace("/(auth)/login");
+            // Ignore revoke errors because user is already logged out locally.
           }
         },
       },
@@ -31,14 +41,14 @@ export default function ProfileScreen() {
   };
 
   const menuItems = [
-    { icon: "🔔", title: "Thông báo", onPress: () => {} },
-    { icon: "🌙", title: "Giao diện", onPress: () => {} },
+    { icon: "🔔", title: "Thông báo", onPress: () => router.push("/profile/notifications") },
+    { icon: "🌙", title: "Giao diện", onPress: () => router.push("/profile/appearance") },
     {
       icon: "🔒",
       title: "Bảo mật",
-      onPress: () => router.push("../profile/security"),
+      onPress: () => router.push("/profile/security"),
     },
-    { icon: "💾", title: "Dữ liệu & Lưu trữ", onPress: () => {} },
+    { icon: "💾", title: "Dữ liệu & Lưu trữ", onPress: () => router.push("/profile/data-storage") },
     { icon: "❓", title: "Trợ giúp", onPress: () => {} },
     { icon: "ℹ️", title: "Về ứng dụng", onPress: () => {} },
   ];

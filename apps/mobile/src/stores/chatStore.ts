@@ -71,27 +71,60 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({ activeConversation: conversation }),
 
   setMessages: (conversationId, messages) =>
-    set((state) => ({
-      messages: { ...state.messages, [conversationId]: messages },
-    })),
+    set((state) => {
+      const deduped: Message[] = [];
+      const seen = new Set<string>();
+      for (const message of messages || []) {
+        const id = String(message?.id || "");
+        if (!id || seen.has(id)) continue;
+        seen.add(id);
+        deduped.push(message);
+      }
+      return {
+        messages: { ...state.messages, [conversationId]: deduped },
+      };
+    }),
 
   addMessage: (conversationId, message) =>
-    set((state) => ({
-      messages: {
-        ...state.messages,
-        [conversationId]: [...(state.messages[conversationId] || []), message],
-      },
-    })),
+    set((state) => {
+      const current = state.messages[conversationId] || [];
+      const incomingId = String(message?.id || "");
+      if (!incomingId) return state;
+
+      const existed = current.some((m) => String(m?.id || "") === incomingId);
+      if (existed) return state;
+
+      return {
+        messages: {
+          ...state.messages,
+          [conversationId]: [...current, message],
+        },
+      };
+    }),
 
   updateMessage: (conversationId, messageId, updates) =>
-    set((state) => ({
-      messages: {
-        ...state.messages,
-        [conversationId]: (state.messages[conversationId] || []).map((m) =>
-          m.id === messageId ? { ...m, ...updates } : m,
-        ),
-      },
-    })),
+    set((state) => {
+      const current = state.messages[conversationId] || [];
+      const updatedList = current.map((m) =>
+        m.id === messageId ? { ...m, ...updates } : m,
+      );
+
+      const deduped: Message[] = [];
+      const seen = new Set<string>();
+      for (const message of updatedList) {
+        const id = String(message?.id || "");
+        if (!id || seen.has(id)) continue;
+        seen.add(id);
+        deduped.push(message);
+      }
+
+      return {
+        messages: {
+          ...state.messages,
+          [conversationId]: deduped,
+        },
+      };
+    }),
 
   addTypingUser: (conversationId, userId) =>
     set((state) => {

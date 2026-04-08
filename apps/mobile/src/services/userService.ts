@@ -1,4 +1,5 @@
 import apiClient from "./apiClient";
+import { Platform } from "react-native";
 import { API_URL, STORAGE_KEYS } from "@/constants/config";
 import type {
   User,
@@ -7,7 +8,8 @@ import type {
   UpdateUserData,
   RegisterData,
   ForgotPasswordResponse,
-  UploadResponse
+  UploadResponse,
+  LoginHistoryItem
 } from "@/types";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuthStore } from "@/stores/authStore";
@@ -44,8 +46,10 @@ const mapServerUser = (u: ServerUser): User => ({
   birthday: u.birthday,
   gender: u.gender,
   bio: null,
-  status: u.status === "active" ? "online" : "offline",
-  lastSeen: null,
+  status: (u.presenceStatus === "online" || u.presenceStatus === "offline")
+    ? u.presenceStatus
+    : (u.status === "active" ? "online" : "offline"),
+  lastSeen: u.lastActiveAt ?? null,
   createdAt: u.createdAt,
 });
 
@@ -75,9 +79,12 @@ class UserService {
   // POST /api/users/login - đăng nhập
   async login(email: string, password: string): Promise<LoginResponse> {
     console.log(email, password);
+
+    const deviceInfo = `${Platform.OS} ${Platform.Version}`;
+
     const response = await apiClient.post<{ user: ServerUser; accessToken: string; refreshToken: string }>(
       "/api/users/login",
-      { email, password },
+      { email, password, platform: "mobile", deviceInfo },
     );
     const { user, accessToken, refreshToken } = response.data;
     console.log(email, password);
@@ -211,6 +218,46 @@ class UserService {
     return { message: response.data.message, user: mapServerUser(response.data.user) };
   }
 
+  // POST /api/users/:userId/lock-account - khóa tài khoản (yêu cầu xác thực mật khẩu)
+  async lockAccount(userId: string, currentPassword: string): Promise<{ message: string; user: User }> {
+    const response = await apiClient.post<{ message: string; user: ServerUser }>(
+      `/api/users/${userId}/lock-account`,
+      { currentPassword },
+    );
+    return { message: response.data.message, user: mapServerUser(response.data.user) };
+  }
+
+  // POST /api/users/:userId/lock-account/request-otp - gửi OTP khóa vĩnh viễn
+  async requestPermanentLockOtp(userId: string): Promise<{ message: string; expiresIn: number }> {
+    const response = await apiClient.post<{ message: string; expiresIn: number }>(
+      `/api/users/${userId}/lock-account/request-otp`,
+    );
+    return response.data;
+  }
+
+  // POST /api/users/:userId/lock-account/permanent - khóa vĩnh viễn (không thể khôi phục)
+  async permanentLockAccount(
+    userId: string,
+    password: string,
+    otp: string,
+    confirmIrreversible: boolean,
+  ): Promise<{ message: string; user: User }> {
+    const response = await apiClient.post<{ message: string; user: ServerUser }>(
+      `/api/users/${userId}/lock-account/permanent`,
+      { password, otp, confirmIrreversible },
+    );
+    return { message: response.data.message, user: mapServerUser(response.data.user) };
+  }
+
+  // POST /api/users/unlock-account - mở khóa tài khoản
+  async unlockAccount(email: string, password: string): Promise<{ message: string; user: User }> {
+    const response = await apiClient.post<{ message: string; user: ServerUser }>(
+      "/api/users/unlock-account",
+      { email, password },
+    );
+    return { message: response.data.message, user: mapServerUser(response.data.user) };
+  }
+
   // POST /api/users/register/request-otp - gửi OTP khi đăng ký
   async registerRequestOtp(email: string): Promise<{ message: string; expiresIn: number }> {
     const response = await apiClient.post<{ message: string; expiresIn: number }>(
@@ -236,6 +283,15 @@ class UserService {
       data,
     );
     return { message: response.data.message, user: mapServerUser(response.data.user) };
+  }
+
+  // GET /api/users/:userId/login-history - lấy lịch sử đăng nhập
+  async getLoginHistory(userId: string, limit: number = 20): Promise<LoginHistoryItem[]> {
+    const response = await apiClient.get<LoginHistoryItem[]>(
+      `/api/users/${userId}/login-history`,
+      { params: { limit } },
+    );
+    return response.data;
   }
 
 }

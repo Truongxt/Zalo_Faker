@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Image as ImageIcon, Loader2, X, Video } from 'lucide-react';
+import { Image as ImageIcon, Loader2, Video, X } from 'lucide-react';
 import { Moment } from '@/types/moment';
 import type {
   MomentMediaFile,
   UpdateMomentPayload,
 } from '@/services/momentService';
+import { isVideoUrl } from './momentHelpers';
 
 interface MomentEditModalProps {
   moment: Moment | null;
@@ -27,13 +28,6 @@ type EditableWebMedia =
       file: File;
       type: 'image' | 'video';
     };
-
-const isVideoUrl = (url?: string | null) => {
-  const normalizedUrl = String(url || '').split('?')[0].toLowerCase();
-  return ['.mp4', '.mov', '.webm', '.m4v'].some((extension) =>
-    normalizedUrl.endsWith(extension),
-  );
-};
 
 const mapMomentMediaToEditable = (
   url: string,
@@ -163,6 +157,7 @@ export default function MomentEditModal({
             </p>
           </div>
           <button
+            type="button"
             onClick={handleClose}
             className="rounded-full p-2 text-gray-500 transition-colors hover:bg-gray-100 dark:hover:bg-dark-300"
           >
@@ -202,6 +197,7 @@ export default function MomentEditModal({
                   )}
 
                   <button
+                    type="button"
                     onClick={() => handleRemoveMedia(media.id)}
                     className="absolute right-3 top-3 rounded-full bg-black/60 p-2 text-white transition-colors hover:bg-black/80"
                     title="Xóa media"
@@ -243,13 +239,15 @@ export default function MomentEditModal({
 
         <div className="flex items-center justify-end gap-3 border-t border-gray-200 px-6 py-4 dark:border-gray-800">
           <button
+            type="button"
             onClick={handleClose}
             className="rounded-full px-5 py-2.5 text-sm font-semibold text-gray-600 transition hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-dark-300"
           >
             Hủy
           </button>
           <button
-            onClick={handleSubmit}
+            type="button"
+            onClick={() => void handleSubmit()}
             disabled={!canSave}
             className={`inline-flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold text-white transition ${
               canSave

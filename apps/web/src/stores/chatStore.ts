@@ -28,7 +28,59 @@ export interface Message {
     readBy: { userId: string; readAt: string }[]
     isDeleted: boolean
     createdAt: string
+    // Added for helper
+    lastRead?: string
 }
+
+const normalizeMessageContent = (rawContent: unknown): Message['content'] => {
+    if (typeof rawContent === 'string') {
+        return { text: rawContent }
+    }
+
+    if (!rawContent || typeof rawContent !== 'object') {
+        return {}
+    }
+
+    const content = rawContent as Record<string, unknown>
+
+    const text =
+        typeof content.text === 'string'
+            ? content.text
+            : typeof content.message === 'string'
+                ? content.message
+                : typeof content.content === 'string'
+                    ? content.content
+                    : undefined
+
+    const mediaUrl =
+        typeof content.mediaUrl === 'string'
+            ? content.mediaUrl
+            : typeof content.url === 'string'
+                ? content.url
+                : typeof content.fileUrl === 'string'
+                    ? content.fileUrl
+                    : undefined
+
+    return {
+        text,
+        mediaUrl,
+        thumbnail: typeof content.thumbnail === 'string' ? content.thumbnail : undefined,
+        fileName: typeof content.fileName === 'string' ? content.fileName : undefined,
+        fileSize: typeof content.fileSize === 'number' ? content.fileSize : undefined,
+        duration: typeof content.duration === 'number' ? content.duration : undefined,
+    }
+}
+
+export const normalizeMessage = (msg: any): Message => ({
+    ...msg,
+    id: msg?.id || msg?._id || `temp-${Date.now()}-${Math.random()}`,
+    content: normalizeMessageContent(msg?.content),
+    reactions: Array.isArray(msg?.reactions) ? msg.reactions : [],
+    readBy: Array.isArray(msg?.readBy) ? msg.readBy : [],
+    isDeleted: Boolean(msg?.isDeleted),
+    createdAt: msg?.createdAt || new Date().toISOString(),
+})
+
 
 export interface Participant {
     userId: string
@@ -182,15 +234,23 @@ export const useChatStore = create<ChatState>((set, get) => ({
     setActiveConversation: (conversation) => set({ activeConversation: conversation }),
 
     setMessages: (conversationId, messages) => set((state) => ({
-        messages: { ...state.messages, [conversationId]: messages }
-    })),
-
-    addMessage: (conversationId, message) => set((state) => ({
         messages: {
             ...state.messages,
-            [conversationId]: [...(state.messages[conversationId] || []), message]
+            [conversationId]: (messages || []).map(normalizeMessage)
         }
     })),
+
+    addMessage: (conversationId, message) => set((state) => {
+        const normalizedMessage = normalizeMessage(message)
+        const current = state.messages[conversationId] || []
+        if (current.some(m => m.id === normalizedMessage.id)) return state
+        return {
+            messages: {
+                ...state.messages,
+                [conversationId]: [...current, normalizedMessage]
+            }
+        }
+    }),
 
     updateMessage: (conversationId, messageId, updates) => set((state) => ({
         messages: {
@@ -237,3 +297,5 @@ export const useChatStore = create<ChatState>((set, get) => ({
     getConversationById: (id) => get().conversations.find((c) => c.id === id),
     getMessagesForConversation: (id) => get().messages[id] || [],
 }))
+
+

@@ -4,13 +4,40 @@ import { useAuthStore } from "@/stores/authStore";
 import { API_URL } from "@/constants/config";
 import type { Message, Conversation } from "@/types";
 
+let isRealtimeInitialized = false;
+
+const normalizeMessage = (msg: any): Message => ({
+  ...msg,
+  id: msg?.id || msg?._id || `temp-${Date.now()}`,
+  content:
+    typeof msg?.content === "string"
+      ? msg.content
+      : msg?.content?.text || msg?.content?.mediaUrl || "",
+  reactions: Array.isArray(msg?.reactions) ? msg.reactions : [],
+  readBy: Array.isArray(msg?.readBy) ? msg.readBy : [],
+  isDeleted: Boolean(msg?.isDeleted),
+  isEdited: Boolean(msg?.isEdited),
+  senderName: msg?.senderName || "",
+  senderAvatar: msg?.senderAvatar || null,
+});
+
+const toServerContent = (type: Message["type"], content: string) => {
+  if (type === "text") {
+    return { text: content };
+  }
+  return { mediaUrl: content };
+};
+
 export const chatService = {
-  /** Initialize real-time socket listeners */
   init() {
+    if (isRealtimeInitialized) return;
+
     const socket = socketService.connect();
     if (!socket) return;
+    isRealtimeInitialized = true;
 
-    socket.on("chat:message", (message: Message) => {
+    socket.on("chat:message", (rawMessage: Message) => {
+      const message = normalizeMessage(rawMessage);
       const { addMessage, updateConversation } = useChatStore.getState();
       addMessage(message.conversationId, message);
 
@@ -25,59 +52,40 @@ export const chatService = {
       });
     });
 
-    socket.on(
-      "chat:typing",
-      ({
-        conversationId,
-        userId,
-      }: {
-        conversationId: string;
-        userId: string;
-      }) => {
-        const { addTypingUser, removeTypingUser } = useChatStore.getState();
-        addTypingUser(conversationId, userId);
+    socket.on("chat:typing", ({ conversationId, userId }: { conversationId: string; userId: string }) => {
+      const { addTypingUser, removeTypingUser } = useChatStore.getState();
+      addTypingUser(conversationId, userId);
 
-        setTimeout(() => {
-          removeTypingUser(conversationId, userId);
-        }, 3000);
-      },
-    );
+      setTimeout(() => {
+        removeTypingUser(conversationId, userId);
+      }, 3000);
+    });
 
-    socket.on(
-      "chat:read",
-      ({
-        conversationId,
-        messageId,
-      }: {
-        conversationId: string;
-        messageId: string;
-        userId: string;
-      }) => {
-        const { updateMessage } = useChatStore.getState();
-        updateMessage(conversationId, messageId, {});
-      },
-    );
+    socket.on("chat:read", ({ conversationId, messageId }: { conversationId: string; messageId: string }) => {
+      const { updateMessage } = useChatStore.getState();
+      updateMessage(conversationId, messageId, {});
+    });
 
-    socket.on(
-      "chat:deleted",
-      ({
-        conversationId,
-        messageId,
-      }: {
-        conversationId: string;
-        messageId: string;
-      }) => {
-        const { updateMessage } = useChatStore.getState();
-        updateMessage(conversationId, messageId, { isDeleted: true });
-      },
-    );
+    socket.on("chat:recalled", ({ conversationId, messageId }: { conversationId: string; messageId: string }) => {
+      const { updateMessage } = useChatStore.getState();
+      updateMessage(conversationId, messageId, { isDeleted: true });
+    });
+
+    socket.on("chat:reaction", ({ messageId, reactions }: { messageId: string; reactions: any[] }) => {
+      const state = useChatStore.getState();
+      for (const [convId, messages] of Object.entries(state.messages)) {
+        const msg = (messages as Message[]).find((m) => m.id === messageId);
+        if (msg) {
+          state.updateMessage(convId, messageId, { reactions });
+          break;
+        }
+      }
+    });
   },
 
-  /** Load all conversations */
   async loadConversations() {
     const { accessToken } = useAuthStore.getState();
-    const { setConversations, setLoadingConversations } =
-      useChatStore.getState();
+    const { setConversations, setLoadingConversations } = useChatStore.getState();
 
     setLoadingConversations(true);
 
@@ -86,7 +94,7 @@ export const chatService = {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
 
-      if (!response.ok) throw new Error("Không thể tải cuộc trò chuyện");
+      if (!response.ok) throw new Error("Khong the tai cuoc tro chuyen");
 
       const conversations: Conversation[] = await response.json();
       setConversations(conversations);
@@ -97,7 +105,6 @@ export const chatService = {
     }
   },
 
-  /** Load messages for a specific conversation */
   async loadMessages(conversationId: string, before?: string) {
     const { accessToken } = useAuthStore.getState();
     const { setMessages, setLoadingMessages } = useChatStore.getState();
@@ -105,16 +112,16 @@ export const chatService = {
     setLoadingMessages(true);
 
     try {
-      let url = `${API_URL}/api/conversations/${conversationId}/messages?limit=30`;
-      if (before) url += `&before=${before}`;
+      let url = `${API_URL}/api/messages/conversation/${conversationId}`;
+      if (before) url += `?before=${encodeURIComponent(before)}`;
 
       const response = await fetch(url, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
 
-      if (!response.ok) throw new Error("Không thể tải tin nhắn");
+      if (!response.ok) throw new Error("Khong the tai tin nhan");
 
-      const messages: Message[] = await response.json();
+      const messages: Message[] = (await response.json()).map(normalizeMessage);
       setMessages(conversationId, messages);
     } catch (error) {
       console.error("Failed to load messages:", error);
@@ -123,7 +130,6 @@ export const chatService = {
     }
   },
 
-  /** Send a message (optimistic + socket + HTTP) */
   async sendMessage(
     conversationId: string,
     data: {
@@ -133,11 +139,10 @@ export const chatService = {
     },
   ) {
     const { accessToken, user } = useAuthStore.getState();
-    const { addMessage } = useChatStore.getState();
+    const { addMessage, updateMessage } = useChatStore.getState();
 
     if (!user) return;
 
-    // Optimistic local add
     const tempMessage: Message = {
       id: `temp-${Date.now()}`,
       conversationId,
@@ -154,83 +159,82 @@ export const chatService = {
     };
     addMessage(conversationId, tempMessage);
 
-    // Socket emit for real-time
-    socketService.emit("chat:send", {
+    const socket = socketService.getSocket();
+    const canUseSocket = Boolean(socket?.connected);
+    const payload = {
       conversationId,
-      ...data,
-    });
+      type: data.type,
+      content: toServerContent(data.type, data.content),
+      replyTo: data.replyTo,
+      clientTempId: tempMessage.id,
+    };
 
-    // HTTP for persistence
-    try {
-      const response = await fetch(
-        `${API_URL}/api/conversations/${conversationId}/messages`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${accessToken}`,
+    if (canUseSocket) {
+      await new Promise<void>((resolve) => {
+        socketService.emit(
+          "chat:send",
+          payload,
+          (ack: { success: boolean; message?: any }) => {
+            if (ack?.success && ack.message) {
+              const saved = normalizeMessage(ack.message);
+              updateMessage(conversationId, tempMessage.id, saved);
+            } else {
+              console.error("chat:send ack failed:", ack);
+            }
+            resolve();
           },
-          body: JSON.stringify(data),
-        },
-      );
+        );
+      });
+      return;
+    }
 
-      if (!response.ok) throw new Error("Không thể gửi tin nhắn");
+    try {
+      const response = await fetch(`${API_URL}/api/messages`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          conversationId,
+          type: data.type,
+          content: toServerContent(data.type, data.content),
+          replyTo: data.replyTo,
+        }),
+      });
+      if (!response.ok) throw new Error("Khong the gui tin nhan");
+      const saved = normalizeMessage(await response.json());
+      updateMessage(conversationId, tempMessage.id, saved);
     } catch (error) {
       console.error("Failed to send message:", error);
     }
   },
 
-  /** Send typing indicator */
   sendTyping(conversationId: string) {
     socketService.emit("chat:typing", { conversationId });
   },
 
-  /** Mark a message as read */
   async markAsRead(conversationId: string, messageId: string) {
-    const { accessToken } = useAuthStore.getState();
     socketService.emit("chat:read", { conversationId, messageId });
-
-    try {
-      await fetch(
-        `${API_URL}/api/conversations/${conversationId}/messages/${messageId}/read`,
-        {
-          method: "POST",
-          headers: { Authorization: `Bearer ${accessToken}` },
-        },
-      );
-    } catch (error) {
-      console.error("Failed to mark as read:", error);
-    }
   },
 
-  /** Delete a message */
   async deleteMessage(conversationId: string, messageId: string) {
-    const { accessToken } = useAuthStore.getState();
     const { updateMessage } = useChatStore.getState();
 
     updateMessage(conversationId, messageId, { isDeleted: true });
 
     try {
-      await fetch(
-        `${API_URL}/api/conversations/${conversationId}/messages/${messageId}`,
-        {
-          method: "DELETE",
-          headers: { Authorization: `Bearer ${accessToken}` },
-        },
-      );
-      socketService.emit("chat:delete", { conversationId, messageId });
+      socketService.emit("chat:recall", { conversationId, messageId });
     } catch (error) {
       console.error("Failed to delete message:", error);
       updateMessage(conversationId, messageId, { isDeleted: false });
     }
   },
 
-  /** React to a message */
   async addReaction(conversationId: string, messageId: string, emoji: string) {
     socketService.emit("chat:reaction", { conversationId, messageId, emoji });
   },
 
-  /** Create a new conversation */
   async createConversation(
     participantIds: string[],
     type: "private" | "group" = "private",
@@ -247,7 +251,7 @@ export const chatService = {
       body: JSON.stringify({ participantIds, type, name }),
     });
 
-    if (!response.ok) throw new Error("Không thể tạo cuộc trò chuyện");
+    if (!response.ok) throw new Error("Khong the tao cuoc tro chuyen");
 
     const conversation: Conversation = await response.json();
     const { addConversation } = useChatStore.getState();
@@ -256,7 +260,6 @@ export const chatService = {
     return conversation;
   },
 
-  /** Cleanup socket listeners */
   destroy() {
     socketService.disconnect();
   },

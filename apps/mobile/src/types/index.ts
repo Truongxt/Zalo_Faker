@@ -25,6 +25,9 @@ export interface ServerUser {
   birthday: string | null;
   gender: string;
   status: string;
+  accountStatus?: "active" | "locked" | "deleted";
+  presenceStatus?: "online" | "offline";
+  lastActiveAt?: string | null;
   createdAt: string;
 }
 
@@ -43,6 +46,7 @@ export interface UpdateUserData {
   gender?: string;
   password?: string;
   status?: string;
+  bio?: string;
 }
 
 export interface RegisterData {
@@ -63,6 +67,18 @@ export interface ForgotPasswordResponse {
 
 export interface UploadResponse {
   url: string;
+}
+
+// ========================
+// Login History
+// ========================
+export interface LoginHistoryItem {
+  userId: string;
+  loginId: string;
+  loginAt: string;
+  platform: string;   // "mobile" | "web" | "unknown"
+  deviceInfo: string;
+  ipAddress: string;
 }
 
 // ========================

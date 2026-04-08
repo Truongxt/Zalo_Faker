@@ -1,4 +1,5 @@
 const friendRepository = require("../repository/friendsRepository")
+const userRepository = require("../repository/userRepository")
 
 const createError = (message, statusCode) => {
   const error = new Error(message);
@@ -50,9 +51,17 @@ const FriendService = {
     return await friendRepository.acceptRequest(fromUserId, toUserId);
   },
 
-  // lấy danh sách bạn
+  // lấy danh sách bạn (kèm profile)
   async getFriends(userId) {
-    return await friendRepository.getFriends(Number(userId));
+    const friendships = await friendRepository.getFriends(Number(userId));
+    
+    // Ánh xạ thành danh sách user profile
+    const friends = await Promise.all(friendships.map(async (f) => {
+      const friendId = f.fromUserId === Number(userId) ? f.toUserId : f.fromUserId;
+      return await userRepository.getById(friendId);
+    }));
+
+    return friends.filter(u => u != null);
   },
 
   // lấy danh sách request đang chờ
@@ -61,6 +70,19 @@ const FriendService = {
   },
   async getExitingFriend(fromUserId, toUserId) {
     return await friendRepository.getExitingFriend(Number(fromUserId), Number(toUserId));
+  },
+
+  // từ chối lời mời kết bạn
+  async rejectFriendRequest(fromUserId, toUserId) {
+    fromUserId = Number(fromUserId);
+    toUserId = Number(toUserId);
+
+    const request = await friendRepository.getFriend(fromUserId, toUserId);
+    if (!request) {
+      throw new Error("Friend request not found");
+    }
+
+    await friendRepository.rejectRequest(fromUserId, toUserId);
   }
 
 }

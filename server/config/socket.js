@@ -1,222 +1,430 @@
 const { Server } = require("socket.io");
 const messageService = require("../services/messageService");
+const conversationService = require("../services/conversationService");
 const conversationModel = require("../models/conversation");
 const GroupService = require("../services/groupService");
+const userRepository = require("../repository/userRepository");
+const { verifyAccessToken } = require("../utils/jwt");
+const { redisClient, getIsRedisReady } = require("../utils/redisClient");
 
+const presenceKey = (userId, platform) => `presence:${userId}:${platform}`;
+const allPresencePattern = (userId) => `presence:${userId}:*`;
+
+const MEDIA_FALLBACK_BY_TYPE = {
+  image: "[Hinh anh]",
+  video: "[Video]",
+  voice: "[Tin nhan thoai]",
+  sticker: "[Nhan dan]",
+  file: "[File]",
+};
+
+const toRoomId = (conversationId) => `conv:${String(conversationId)}`;
+
+const normalizeMessage = (message) => ({
+  ...message,
+  id: message?._id || message?.id,
+  reactions: Array.isArray(message?.reactions) ? message.reactions : [],
+  readBy: Array.isArray(message?.readBy) ? message.readBy : [],
+  isDeleted: Boolean(message?.isDeleted),
+});
+
+const getLastMessageText = ({ type, content, metadata }) => {
+  const contentText =
+    typeof content === "string"
+      ? content
+      : typeof content?.text === "string"
+      ? content.text
+      : "";
+
+  if (metadata?.isAnnouncement) {
+    return `[Thong bao] ${contentText}`.trim();
+  }
+
+  if (contentText) return contentText;
+  return MEDIA_FALLBACK_BY_TYPE[type] || "[Tin nhan]";
+};
 
 module.exports = (socketConfig) => {
   const io = new Server(socketConfig, {
-    cors: { origin: "*" }
+    cors: { origin: "*" },
   });
-let chatHistory = [];
-  // Lưu userId → socketId để biết ai đang online
-  const onlineUsers = new Map();
 
-  io.on("connection", (socket) => {
-    console.log("Socket connected:", socket.id);
+  io.use((socket, next) => {
+    try {
+      const token = socket.handshake.auth?.token;
+      if (!token) {
+        return next(new Error("Authentication error: No token provided"));
+      }
 
-    // ── 1. User online ──────────────────────────────────────
-    socket.on("user:join", (userId) => {
-      onlineUsers.set(userId, socket.id);
-      socket.userId = userId;
+      const decoded = verifyAccessToken(token);
+      if (!decoded || !decoded.userId) {
+        return next(new Error("Authentication error: Invalid token"));
+      }
 
-      // Thông báo cho tất cả biết user này online
-      socket.broadcast.emit("presence:online", { userId });
-      console.log(`User ${userId} is online`);
+      const accountStatus = decoded.accountStatus || "active";
+      if (accountStatus === "locked" || accountStatus === "deleted") {
+        return next(new Error("Authentication error: Account is not active"));
+      }
+
+      socket.userId = String(decoded.userId);
+      socket.userEmail = decoded.email;
+      socket.platform = socket.handshake.auth?.platform || "web";
+
+      next();
+    } catch (err) {
+      next(new Error(`Authentication error: ${err.message || "Token verification failed"}`));
+    }
+  });
+
+  const isUserOnline = async (userId) => {
+    try {
+      if (!getIsRedisReady()) return false;
+
+      for await (const _key of redisClient.scanIterator({
+        MATCH: allPresencePattern(userId),
+        COUNT: 10,
+      })) {
+        return true;
+      }
+
+      return false;
+    } catch (err) {
+      console.error("isUserOnline error:", err.message);
+      return false;
+    }
+  };
+
+  const getSocketIdForUser = async (userId) => {
+    if (!getIsRedisReady()) return null;
+
+    for (const platform of ["mobile", "web"]) {
+      const socketId = await redisClient.get(presenceKey(userId, platform));
+      if (socketId) return socketId;
+    }
+
+    return null;
+  };
+
+  const isMemberOfConversation = (conversation, userId) =>
+    Boolean(conversation?.participants?.some((p) => String(p.userId) === String(userId)));
+
+  const ensureConversationMembership = async (conversationId, userId) => {
+    const conversation = await conversationService.getConversation(conversationId);
+    if (!conversation) {
+      const err = new Error("Conversation not found");
+      err.statusCode = 404;
+      throw err;
+    }
+
+    if (!isMemberOfConversation(conversation, userId)) {
+      const err = new Error("Not a member of this conversation");
+      err.statusCode = 403;
+      throw err;
+    }
+
+    return conversation;
+  };
+
+  const joinConversationRoom = async (socket, conversationId) => {
+    const conversation = await ensureConversationMembership(conversationId, socket.userId);
+    socket.join(toRoomId(conversationId));
+    return conversation;
+  };
+
+  const autoJoinConversationRooms = async (socket) => {
+    const conversations = await conversationService.getConversations(socket.userId);
+    const ids = (conversations || []).map((c) => c._id || c.id).filter(Boolean);
+    ids.forEach((id) => socket.join(toRoomId(id)));
+  };
+
+  io.on("connection", async (socket) => {
+    const { userId, platform } = socket;
+    console.log(`Socket connected: ${socket.id} | User: ${userId} | Platform: ${platform}`);
+
+    socket.join(`user:${userId}`);
+
+    try {
+      const wasOnlineBefore = await isUserOnline(userId);
+
+      if (getIsRedisReady()) {
+        const key = presenceKey(userId, platform);
+        const existingSocketId = await redisClient.get(key);
+
+        if (existingSocketId && existingSocketId !== socket.id) {
+          const existingSocket = io.sockets.sockets.get(existingSocketId);
+          if (existingSocket) {
+            existingSocket.emit("session:force_logout", {
+              reason: `Tai khoan cua ban da duoc dang nhap tren mot thiet bi ${platform === "mobile" ? "di dong" : "web"} khac.`,
+              platform,
+            });
+            setTimeout(() => existingSocket.disconnect(true), 500);
+          }
+        }
+
+        await redisClient.set(key, socket.id);
+      }
+
+      await userRepository
+        .updateUser(String(userId), {
+          presenceStatus: "online",
+        })
+        .catch((err) => console.warn("Failed to update presenceStatus to online:", err?.message));
+
+      if (!wasOnlineBefore) {
+        socket.broadcast.emit("presence:online", { userId });
+      }
+
+      await autoJoinConversationRooms(socket);
+    } catch (err) {
+      console.error("Connection setup error:", err.message);
+    }
+
+    socket.on("room:join", async (conversationId, callback) => {
+      try {
+        await joinConversationRoom(socket, conversationId);
+        callback?.({ success: true });
+      } catch (err) {
+        callback?.({ success: false, error: err.message });
+      }
     });
 
-    // ── 2. Vào phòng chat ───────────────────────────────────
-    socket.on("room:join", (conversationId) => {
-      socket.join(conversationId);
-      console.log(`Socket ${socket.id} joined room ${conversationId}`);
-    });
-
-    // Rời phòng chat
     socket.on("room:leave", (conversationId) => {
-      socket.leave(conversationId);
+      socket.leave(toRoomId(conversationId));
     });
 
-    // ── 3. Gửi tin nhắn ────────────────────────────────────
+    // Backward compatibility
+    socket.on("chat:join", async ({ conversationId }, callback) => {
+      try {
+        await joinConversationRoom(socket, conversationId);
+        callback?.({ success: true });
+      } catch (err) {
+        callback?.({ success: false, error: err.message });
+      }
+    });
+
+    socket.on("chat:leave", ({ conversationId }) => {
+      socket.leave(toRoomId(conversationId));
+    });
+
     socket.on("chat:send", async (data, callback) => {
       try {
-        const { conversationId, type, content, replyTo, metadata } = data;
-        const actualSenderId = socket.userId || data.senderId; // Dự phòng data.senderId nếu socket chưa store auth kịp
+        const {
+          conversationId,
+          type = "text",
+          content,
+          replyTo = null,
+          metadata = null,
+          clientTempId = null,
+        } = data || {};
 
-        if (!actualSenderId) {
-          return callback && callback({ success: false, error: "Unauthorized socket" });
+        if (!conversationId) {
+          return callback?.({ success: false, error: "conversationId is required" });
         }
 
-        // Permission check
-        const { getConversation } = require("../services/conversationService");
-        const conv = await getConversation(conversationId);
-        if (!conv) {
-          return callback && callback({ success: false, error: "Conversation not found" });
-        }
-        if (!conv.participants || !conv.participants.some(p => p.userId === actualSenderId)) {
-          return callback && callback({ success: false, error: "Not a member of this conversation" });
-        }
+        const conversation = await ensureConversationMembership(conversationId, socket.userId);
 
-        if (conv.type === "group") {
-          GroupService.ensureCanSendMessage(conv, {
-            userId: actualSenderId,
-            type: type || "text",
-            metadata
+        if (conversation.type === "group") {
+          GroupService.ensureCanSendMessage(conversation, {
+            userId: socket.userId,
+            type,
+            metadata,
           });
         }
 
-        // Lưu vào DynamoDB
         const saved = await messageService.createMessage({
           conversationId,
-          senderId: actualSenderId,
-          type: type || "text",
+          senderId: socket.userId,
+          type,
           content,
-          metadata: metadata || null,
-          replyTo: replyTo || null,
+          metadata,
+          replyTo,
           reactions: [],
           readBy: [],
           isDeleted: false,
         });
 
-        // Cập nhật lastMessage của conversation
         await conversationModel.updateConversation(conversationId, {
           lastMessage: {
-            content: metadata?.isAnnouncement
-              ? `[Thông báo] ${content.text || ""}`.trim()
-              : content.text || (type === 'image' ? '[Hình ảnh]' : type === 'video' ? '[Video]' : type === 'voice' ? '[Tin nhắn thoại]' : type === 'sticker' ? '[Nhãn dán]' : '[File]'),
-            type: type || "text",
-            senderId: actualSenderId,
+            content: getLastMessageText({ type, content, metadata }),
+            type,
+            senderId: socket.userId,
             timestamp: saved.createdAt,
           },
         });
 
-        const message = { ...saved, id: saved._id };
+        const message = normalizeMessage(saved);
+        const roomId = toRoomId(conversationId);
 
-        // Broadcast cho tất cả người trong phòng (kể cả người gửi)
-        io.to(conversationId).emit("chat:message", message);
-
-        // Trả về cho người gửi biết đã lưu thành công
-        if (callback) callback({ success: true, message });
-
-      } catch (err) {
-        console.error("chat:send error:", err);
-        if (callback) callback({ success: false, error: err.message });
-      }
-    });
-
-    // ── 4. Typing indicator ─────────────────────────────────
-    socket.on("chat:typing", ({ conversationId, userId }) => {
-      socket.to(conversationId).emit("chat:typing", { conversationId, userId });
-    });
-
-    socket.on("chat:stop_typing", ({ conversationId, userId }) => {
-      socket.to(conversationId).emit("chat:stop_typing", { conversationId, userId });
-    });
-
-    // ── 5. Đã đọc tin nhắn ──────────────────────────────────
-    socket.on("chat:read", async ({ conversationId, messageId, userId }) => {
-      try {
-        if (messageId && userId) {
-          const message = await messageService.getMessage(messageId);
-          if (message) {
-            let newReadBy = [...(message.readBy || [])];
-            if (!newReadBy.some(r => r.userId === userId)) {
-              newReadBy.push({ userId, readAt: new Date().toISOString() });
-              await messageService.updateMessage(messageId, { readBy: newReadBy });
-            }
-          }
-        }
-
-        socket.to(conversationId).emit("chat:read", {
+        // Sender receives canonical message in ACK, others via room broadcast.
+        socket.to(roomId).emit("chat:message", message);
+        io.to(`user:${socket.userId}`).emit("chat:conversation_updated", {
           conversationId,
-          messageId,
-          userId,
+          lastMessage: {
+            content: getLastMessageText({ type, content, metadata }),
+            type,
+            senderId: socket.userId,
+            timestamp: saved.createdAt,
+          },
+        });
+
+        callback?.({
+          success: true,
+          message,
+          clientTempId,
         });
       } catch (err) {
-        console.error("chat:read error:", err);
+        console.error("chat:send error:", err);
+        callback?.({ success: false, error: err.message });
       }
     });
 
-    // ── 6. Disconnect ────────────────────────────────────────
-    socket.on("disconnect", () => {
-      if (socket.userId) {
-        onlineUsers.delete(socket.userId);
-        socket.broadcast.emit("presence:offline", { userId: socket.userId });
-        console.log(`User ${socket.userId} is offline`);
+    socket.on("chat:typing", async ({ conversationId }) => {
+      try {
+        if (!conversationId) return;
+        await ensureConversationMembership(conversationId, socket.userId);
+        socket.to(toRoomId(conversationId)).emit("chat:typing", {
+          conversationId,
+          userId: socket.userId,
+        });
+      } catch (err) {
+        console.warn("chat:typing denied:", err.message);
       }
     });
-    // ── Reaction tin nhắn ────────────────────────────────
-    socket.on("chat:reaction", async (data, callback) => {
+
+    socket.on("chat:stop_typing", async ({ conversationId }) => {
       try {
-        const { messageId, conversationId, userId, emoji } = data;
+        if (!conversationId) return;
+        await ensureConversationMembership(conversationId, socket.userId);
+        socket.to(toRoomId(conversationId)).emit("chat:stop_typing", {
+          conversationId,
+          userId: socket.userId,
+        });
+      } catch (err) {
+        console.warn("chat:stop_typing denied:", err.message);
+      }
+    });
+
+    socket.on("chat:read", async ({ conversationId, messageId }, callback) => {
+      try {
+        if (!conversationId || !messageId) {
+          return callback?.({ success: false, error: "conversationId and messageId are required" });
+        }
+
+        await ensureConversationMembership(conversationId, socket.userId);
 
         const message = await messageService.getMessage(messageId);
         if (!message) {
-          return callback?.({ success: false, error: "Tin nhắn không tồn tại" });
+          return callback?.({ success: false, error: "Message not found" });
+        }
+        if (String(message.conversationId) !== String(conversationId)) {
+          return callback?.({ success: false, error: "Message does not belong to conversation" });
         }
 
-        let newReactions = [...(message.reactions || [])];
-        const existingReactionIndex = newReactions.findIndex(r => r.userId === userId);
+        const currentReadBy = Array.isArray(message.readBy) ? message.readBy : [];
+        const alreadyRead = currentReadBy.some((r) => String(r.userId) === socket.userId);
+        const readBy = alreadyRead
+          ? currentReadBy
+          : [...currentReadBy, { userId: socket.userId, readAt: new Date().toISOString() }];
 
-        if (existingReactionIndex !== -1) {
-          if (newReactions[existingReactionIndex].emoji === emoji) {
-            newReactions.splice(existingReactionIndex, 1);
-          } else {
-            newReactions[existingReactionIndex].emoji = emoji;
-          }
-        } else {
-          newReactions.push({ userId, emoji });
+        if (!alreadyRead) {
+          await messageService.updateMessage(messageId, { readBy });
         }
 
-        await messageService.updateMessage(messageId, { reactions: newReactions });
-
-        io.to(conversationId).emit("chat:reaction", {
+        io.to(toRoomId(conversationId)).emit("chat:read", {
+          conversationId,
           messageId,
-          reactions: newReactions
+          userId: socket.userId,
+          readBy,
         });
 
-        if (callback) callback({ success: true });
-
+        callback?.({ success: true });
       } catch (err) {
-        console.error("chat:reaction error:", err);
-        if (callback) callback({ success: false, error: err.message });
+        console.error("chat:read error:", err);
+        callback?.({ success: false, error: err.message });
       }
     });
 
-    // ── Thu hồi tin nhắn ────────────────────────────────
-    socket.on("chat:recall", async (data, callback) => {
+    socket.on("chat:reaction", async (data, callback) => {
       try {
-        const { messageId, conversationId, senderId } = data
+        const { messageId, conversationId, emoji } = data || {};
+        if (!messageId || !conversationId || !emoji) {
+          return callback?.({ success: false, error: "messageId, conversationId and emoji are required" });
+        }
 
-        // Chỉ người gửi mới được thu hồi
-        const message = await messageService.getMessage(messageId)
+        await ensureConversationMembership(conversationId, socket.userId);
+
+        const message = await messageService.getMessage(messageId);
         if (!message) {
-          return callback?.({ success: false, error: "Tin nhắn không tồn tại" })
+          return callback?.({ success: false, error: "Message not found" });
         }
-        if (message.senderId !== senderId) {
-          return callback?.({ success: false, error: "Bạn không có quyền thu hồi tin nhắn này" })
+        if (String(message.conversationId) !== String(conversationId)) {
+          return callback?.({ success: false, error: "Message does not belong to conversation" });
         }
 
-        // Cập nhật isDeleted trong DB
-        await messageService.updateMessage(messageId, { isDeleted: true })
+        const reactions = Array.isArray(message.reactions) ? [...message.reactions] : [];
+        const existingReactionIndex = reactions.findIndex((r) => String(r.userId) === socket.userId);
 
-        // Broadcast cho cả phòng
-        io.to(conversationId).emit("chat:recalled", {
+        if (existingReactionIndex !== -1) {
+          if (reactions[existingReactionIndex].emoji === emoji) {
+            reactions.splice(existingReactionIndex, 1);
+          } else {
+            reactions[existingReactionIndex].emoji = emoji;
+          }
+        } else {
+          reactions.push({ userId: socket.userId, emoji });
+        }
+
+        await messageService.updateMessage(messageId, { reactions });
+
+        io.to(toRoomId(conversationId)).emit("chat:reaction", {
           messageId,
           conversationId,
-        })
+          reactions,
+        });
 
-        callback?.({ success: true })
-
+        callback?.({ success: true, reactions });
       } catch (err) {
-        console.error("chat:recall error:", err)
-        callback?.({ success: false, error: err.message })
+        console.error("chat:reaction error:", err);
+        callback?.({ success: false, error: err.message });
       }
     });
 
-    // ── 7. Video Call Signaling ──────────────────────────────
-    socket.on("video:call-user", (data) => {
-      // data: { fromUserId, toUserId, conversationId, peerId, callerName, callerAvatar }
-      const toSocketId = onlineUsers.get(String(data.toUserId));
+    socket.on("chat:recall", async (data, callback) => {
+      try {
+        const { messageId, conversationId } = data || {};
+        if (!messageId || !conversationId) {
+          return callback?.({ success: false, error: "messageId and conversationId are required" });
+        }
+
+        await ensureConversationMembership(conversationId, socket.userId);
+
+        const message = await messageService.getMessage(messageId);
+        if (!message) {
+          return callback?.({ success: false, error: "Message not found" });
+        }
+        if (String(message.conversationId) !== String(conversationId)) {
+          return callback?.({ success: false, error: "Message does not belong to conversation" });
+        }
+        if (String(message.senderId) !== socket.userId) {
+          return callback?.({ success: false, error: "No permission to recall this message" });
+        }
+
+        await messageService.updateMessage(messageId, { isDeleted: true });
+
+        io.to(toRoomId(conversationId)).emit("chat:recalled", {
+          messageId,
+          conversationId,
+        });
+
+        callback?.({ success: true });
+      } catch (err) {
+        console.error("chat:recall error:", err);
+        callback?.({ success: false, error: err.message });
+      }
+    });
+
+    socket.on("video:call-user", async (data) => {
+      const toSocketId = await getSocketIdForUser(String(data.toUserId));
       if (toSocketId) {
         io.to(toSocketId).emit("video:incoming-call", data);
       } else {
@@ -224,111 +432,67 @@ let chatHistory = [];
       }
     });
 
-    socket.on("video:answer-call", (data) => {
-      // data: { toUserId, peerId }
-      // Lưu ý: toUserId ở đây thực chất là người GỌI ĐI ban đầu
-      const toSocketId = onlineUsers.get(String(data.toUserId));
+    socket.on("video:answer-call", async (data) => {
+      const toSocketId = await getSocketIdForUser(String(data.toUserId));
       if (toSocketId) {
         io.to(toSocketId).emit("video:call-answered", data);
       }
     });
 
-    socket.on("video:reject-call", (data) => {
-       const toSocketId = onlineUsers.get(String(data.toUserId));
-       if (toSocketId) {
-         io.to(toSocketId).emit("video:call-rejected", data);
-       }
+    socket.on("video:reject-call", async (data) => {
+      const toSocketId = await getSocketIdForUser(String(data.toUserId));
+      if (toSocketId) {
+        io.to(toSocketId).emit("video:call-rejected", data);
+      }
     });
 
-    socket.on("video:end-call", (data) => {
-       const toSocketId = onlineUsers.get(String(data.toUserId));
-       if (toSocketId) {
-         io.to(toSocketId).emit("video:call-ended", data);
-       }
+    socket.on("video:end-call", async (data) => {
+      const toSocketId = await getSocketIdForUser(String(data.toUserId));
+      if (toSocketId) {
+        io.to(toSocketId).emit("video:call-ended", data);
+      }
     });
-   // lưu history theo từng socket (mỗi user 1 phiên)
-// const userHistories = new Map();
 
-//  socket.on("send:chat-with-ai", async (data) => {
-//     const { message } = data;
+    socket.on("presence:get_online_users", async (userIds, callback) => {
+      try {
+        const onlineStatuses = {};
+        for (const uid of userIds || []) {
+          onlineStatuses[uid] = await isUserOnline(String(uid));
+        }
 
-//     // 📌 lấy history riêng từng user
-//     let chatHistory = userHistories.get(socket.id) || [];
+        callback?.({ success: true, onlineStatuses });
+      } catch (err) {
+        console.error("presence:get_online_users error:", err);
+        callback?.({ success: false, error: err.message });
+      }
+    });
 
-//     // thêm user message
-//     chatHistory.push({
-//       role: "user",
-//       content: message,
-//     });
+    socket.on("disconnect", async () => {
+      try {
+        if (getIsRedisReady()) {
+          const key = presenceKey(socket.userId, socket.platform);
+          const storedSocketId = await redisClient.get(key);
+          if (storedSocketId === socket.id) {
+            await redisClient.del(key);
+          }
+        }
 
-//     // gửi lại message user
-//     socket.emit("receive_message", {
-//       sender: "user",
-//       text: message,
-//     });
+        const stillOnline = await isUserOnline(socket.userId);
+        if (!stillOnline) {
+          await userRepository
+            .updateUser(String(socket.userId), {
+              presenceStatus: "offline",
+              lastActiveAt: new Date().toISOString(),
+            })
+            .catch((err) => console.warn("Failed to update presenceStatus to offline:", err?.message));
 
-//     try {
-//       // 🔍 RAG (tìm dữ liệu liên quan)
-//       const retriever = vectorStore.asRetriever();
-//       const docs = await retriever.invoke(message);
-//       const context = docs.map(d => d.pageContent).join("\n");
-
-//       // 🧠 system prompt
-//       const systemPrompt = {
-//         role: "system",
-//         content: "Bạn là chatbot hỗ trợ người dùng cho ứng dụng zalo, trả lời ngắn gọn, dễ hiểu.",
-//       };
-
-//       // ⚡ STREAMING
-//       const stream = await model.stream([
-//         systemPrompt,
-//         {
-//           role: "user",
-//           content: `
-// Dữ liệu:
-// ${context}
-
-// Câu hỏi:
-// ${message}
-// `,
-//         },
-//       ]);
-
-//       let fullText = "";
-
-//       for await (const chunk of stream) {
-//         const text = chunk.content || "";
-//         fullText += text;
-
-//         socket.emit("ai_stream", {
-//           chunk: text,
-//         });
-//       }
-
-//       // lưu AI response
-//       chatHistory.push({
-//         role: "ai",
-//         content: fullText,
-//       });
-
-//       // giới hạn memory
-//       if (chatHistory.length > 10) {
-//         chatHistory = chatHistory.slice(-10);
-//       }
-
-//       userHistories.set(socket.id, chatHistory);
-
-//       socket.emit("ai_done", {
-//         fullText,
-//       });
-
-//     } catch (err) {
-//       socket.emit("receive_message", {
-//         sender: "ai",
-//         text: "Có lỗi xảy ra 😢",
-//       });
-//     }
-//   });
+          socket.broadcast.emit("presence:offline", { userId: socket.userId });
+        }
+      } catch (err) {
+        console.error("disconnect presence cleanup error:", err);
+      }
+    });
   });
+
   return io;
 };

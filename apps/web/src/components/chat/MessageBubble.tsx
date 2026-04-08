@@ -25,6 +25,36 @@ interface MessageBubbleProps {
 
 const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '😡']
 
+const normalizeContent = (rawContent: any) => {
+    if (typeof rawContent === 'string') {
+        return { text: rawContent }
+    }
+
+    if (!rawContent || typeof rawContent !== 'object') {
+        return {}
+    }
+
+    return {
+        text: typeof rawContent.text === 'string'
+            ? rawContent.text
+            : typeof rawContent.message === 'string'
+                ? rawContent.message
+                : typeof rawContent.content === 'string'
+                    ? rawContent.content
+                    : undefined,
+        mediaUrl: typeof rawContent.mediaUrl === 'string'
+            ? rawContent.mediaUrl
+            : typeof rawContent.url === 'string'
+                ? rawContent.url
+                : typeof rawContent.fileUrl === 'string'
+                    ? rawContent.fileUrl
+                    : undefined,
+        thumbnail: typeof rawContent.thumbnail === 'string' ? rawContent.thumbnail : undefined,
+        fileName: typeof rawContent.fileName === 'string' ? rawContent.fileName : undefined,
+        fileSize: typeof rawContent.fileSize === 'number' ? rawContent.fileSize : undefined,
+        duration: typeof rawContent.duration === 'number' ? rawContent.duration : undefined,
+    }
+}
 export default function MessageBubble({
     message,
     isSent,
@@ -47,12 +77,15 @@ export default function MessageBubble({
     const reactionRef = useRef<HTMLDivElement>(null)
     const confirmRef = useRef<HTMLDivElement>(null)
     const isAnnouncement = Boolean(message.metadata?.isAnnouncement)
+    const reactions = Array.isArray(message.reactions) ? message.reactions : []
+    const readBy = Array.isArray(message.readBy) ? message.readBy : []
+    const content = normalizeContent(message.content)
 
     // Format read receipt info for tooltip
     const getReadReceiptInfo = () => {
-        if (!isSent || message.readBy.length === 0) return ''
+        if (!isSent || readBy.length === 0) return ''
 
-        const readUsers = message.readBy
+        const readUsers = readBy
             .map(r => {
                 const participant = participants.find(p => p.userId === r.userId)
                 return {
@@ -121,12 +154,12 @@ export default function MessageBubble({
                 return (
                     <div className="relative group">
                         <img
-                            src={message.content.mediaUrl}
+                            src={content.mediaUrl}
                             alt="Image"
                             className="max-w-[300px] rounded-lg cursor-pointer hover:opacity-95 transition-opacity"
                         />
-                        {message.content.text && (
-                            <p className="mt-2 whitespace-pre-wrap [overflow-wrap:anywhere] [word-break:break-word]">{message.content.text}</p>
+                        {content.text && (
+                            <p className="mt-2 whitespace-pre-wrap [overflow-wrap:anywhere] [word-break:break-word]">{content.text}</p>
                         )}
                     </div>
                 )
@@ -135,13 +168,13 @@ export default function MessageBubble({
                 return (
                     <div className="relative group">
                         <video
-                            src={message.content.mediaUrl}
-                            poster={message.content.thumbnail}
+                            src={String(content.mediaUrl || '') + (String(content.mediaUrl || '').includes('#t=') ? '' : '#t=0.001')}
+                            poster={content.thumbnail}
                             controls
                             className="max-w-[300px] rounded-lg"
                         />
-                        {message.content.text && (
-                            <p className="mt-2 whitespace-pre-wrap [overflow-wrap:anywhere] [word-break:break-word]">{message.content.text}</p>
+                        {content.text && (
+                            <p className="mt-2 whitespace-pre-wrap [overflow-wrap:anywhere] [word-break:break-word]">{content.text}</p>
                         )}
                     </div>
                 )
@@ -149,18 +182,18 @@ export default function MessageBubble({
             case 'file':
                 return (
                     <a
-                        href={message.content.mediaUrl}
+                        href={content.mediaUrl}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="flex items-center gap-3 p-3 bg-black/10 dark:bg-white/10 rounded-lg hover:bg-black/20 dark:hover:bg-white/20 transition-colors"
                     >
                         <div className="w-10 h-10 bg-primary-500 rounded-lg flex items-center justify-center text-white text-sm font-medium">
-                            {message.content.fileName?.split('.').pop()?.toUpperCase() || 'FILE'}
+                            {content.fileName?.split('.').pop()?.toUpperCase() || 'FILE'}
                         </div>
                         <div className="flex-1 min-w-0">
-                            <p className="font-medium truncate">{message.content.fileName}</p>
+                            <p className="font-medium truncate">{content.fileName}</p>
                             <p className="text-sm opacity-70">
-                                {message.content.fileSize ? `${(message.content.fileSize / 1024).toFixed(1)} KB` : ''}
+                                {content.fileSize ? `${(content.fileSize / 1024).toFixed(1)} KB` : ''}
                             </p>
                         </div>
                     </a>
@@ -169,7 +202,7 @@ export default function MessageBubble({
             case 'sticker':
                 return (
                     <img
-                        src={message.content.mediaUrl}
+                        src={content.mediaUrl}
                         alt="Sticker"
                         className="w-32 h-32 object-contain"
                     />
@@ -179,14 +212,14 @@ export default function MessageBubble({
                 return (
                     <div className="flex flex-col gap-1">
                         <VoicePlayer
-                            src={message.content.mediaUrl || ''}
-                            duration={message.content.duration}
+                            src={content.mediaUrl || ''}
+                            duration={content.duration}
                         />
                     </div>
                 )
 
             default:
-                return <p className="whitespace-pre-wrap [overflow-wrap:anywhere] [word-break:break-word]">{message.content.text}</p>
+                return <p className="whitespace-pre-wrap [overflow-wrap:anywhere] [word-break:break-word]">{content.text}</p>
         }
     }
 
@@ -229,7 +262,7 @@ export default function MessageBubble({
                                 {replySenderName || 'Người dùng'}
                             </p>
                             <p className="text-gray-500 dark:text-gray-400 truncate">
-                                {replyMessage.isDeleted ? 'Tin nhắn đã bị xóa' : (replyMessage.content.text || '[Media]')}
+                                {replyMessage.isDeleted ? 'Tin nhắn đã bị xóa' : (replyMessage.content?.text || '[Media]')}
                             </p>
                         </div>
                     )}
@@ -247,14 +280,14 @@ export default function MessageBubble({
                     </div>
 
                     {/* Reactions display */}
-                    {message.reactions.length > 0 && (
+                    {reactions.length > 0 && (
                         <div className={`flex gap-0.5 mt-0.5 ${isSent ? 'justify-end' : 'justify-start'}`}>
                             <div className="flex items-center gap-0.5 bg-white dark:bg-dark-300 rounded-full px-1.5 py-0.5 shadow-sm border border-gray-100 dark:border-gray-700">
-                                {[...new Set(message.reactions.map(r => r.emoji))].slice(0, 3).map((emoji, i) => (
+                                {[...new Set(reactions.map(r => r.emoji))].slice(0, 3).map((emoji, i) => (
                                     <span key={i} className="text-sm">{emoji}</span>
                                 ))}
-                                {message.reactions.length > 1 && (
-                                    <span className="text-xs text-gray-500 ml-0.5">{message.reactions.length}</span>
+                                {reactions.length > 1 && (
+                                    <span className="text-xs text-gray-500 ml-0.5">{reactions.length}</span>
                                 )}
                             </div>
                         </div>
@@ -266,8 +299,8 @@ export default function MessageBubble({
                             {formatDistanceToNow(new Date(message.createdAt), { addSuffix: false, locale: vi })}
                         </span>
                         {isSent && (
-                            <div className="group/receipt relative" title={message.readBy.length > 0 ? getReadReceiptInfo() : 'Đã gửi'}>
-                                {message.readBy.length > 0 ? (
+                            <div className="group/receipt relative" title={readBy.length > 0 ? getReadReceiptInfo() : 'Đã gửi'}>
+                                {readBy.length > 0 ? (
                                     <>
                                         <CheckCheck
                                             className="w-3 h-3 text-primary-500 cursor-help"
@@ -276,16 +309,16 @@ export default function MessageBubble({
                                         <div className="absolute bottom-full right-0 mb-2 hidden group-hover/receipt:block z-50">
                                             <div className="bg-gray-900 dark:bg-gray-800 text-white text-xs rounded px-2 py-1 whitespace-nowrap shadow-lg">
                                                 {isGroupChat && participants.length > 0 ? (
-                                                    message.readBy.length === participants.length ? (
+                                                    readBy.length === participants.length ? (
                                                         <span>
-                                                            {message.readBy.length === 1
+                                                            {readBy.length === 1
                                                                 ? `1 người đã đọc`
-                                                                : `Tất cả ${message.readBy.length} người đã đọc`
+                                                                : `Tất cả ${readBy.length} người đã đọc`
                                                             }
                                                         </span>
                                                     ) : (
                                                         <span>
-                                                            {message.readBy.length}/{participants.length} người đã đọc
+                                                            {readBy.length}/{participants.length} người đã đọc
                                                         </span>
                                                     )
                                                 ) : (
@@ -410,3 +443,4 @@ export default function MessageBubble({
         </div>
     )
 }
+

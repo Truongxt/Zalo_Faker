@@ -3,6 +3,7 @@ import { Heart, Loader2, Sparkles, User as UserIcon, Users } from 'lucide-react'
 import MomentCard from '@/components/moments/MomentCard';
 import MomentComposer from '@/components/moments/MomentComposer';
 import MomentEditModal from '@/components/moments/MomentEditModal';
+import { applyMomentReactionLocally } from '@/components/moments/momentHelpers';
 import { useToast } from '@/contexts/ToastContext';
 import { momentService } from '@/services/momentService';
 import type {
@@ -15,21 +16,43 @@ type FeedMode = 'friends' | 'me' | 'reacted';
 
 const EMPTY_MESSAGES: Record<FeedMode, { title: string; description: string }> = {
   friends: {
-    title: 'Ch\u01b0a c\u00f3 kho\u1ea3nh kh\u1eafc t\u1eeb b\u1ea1n b\u00e8',
+    title: 'Chưa có khoảnh khắc từ bạn bè',
     description:
-      'Khi b\u1ea1n b\u00e8 \u0111\u0103ng b\u00e0i m\u1edbi, feed n\u00e0y s\u1ebd c\u1eadp nh\u1eadt ngay t\u1ea1i \u0111\u00e2y.',
+      'Khi bạn bè đăng bài mới, feed này sẽ cập nhật ngay tại đây.',
   },
   me: {
-    title: 'B\u1ea1n ch\u01b0a \u0111\u0103ng kho\u1ea3nh kh\u1eafc n\u00e0o',
+    title: 'Bạn chưa đăng khoảnh khắc nào',
     description:
-      'H\u00e3y \u0111\u0103ng b\u00e0i \u0111\u1ea7u ti\u00ean \u0111\u1ec3 b\u1eaft \u0111\u1ea7u trang c\u00e1 nh\u00e2n c\u1ee7a b\u1ea1n.',
+      'Hãy đăng bài đầu tiên để bắt đầu trang cá nhân của bạn.',
   },
   reacted: {
-    title: 'Ch\u01b0a c\u00f3 kho\u1ea3nh kh\u1eafc \u0111\u00e3 th\u1ea3 c\u1ea3m x\u00fac',
+    title: 'Chưa có khoảnh khắc đã thả cảm xúc',
     description:
-      'Nh\u1eefng b\u00e0i b\u1ea1n \u0111\u00e3 react s\u1ebd \u0111\u01b0\u1ee3c l\u01b0u l\u1ea1i \u0111\u1ec3 xem nhanh \u1edf \u0111\u00e2y.',
+      'Những bài bạn đã react sẽ được lưu lại để xem nhanh ở đây.',
   },
 };
+
+const replaceMomentInList = (moments: Moment[], updatedMoment: Moment) =>
+  moments.map((moment) =>
+    moment.momentId === updatedMoment.momentId ? updatedMoment : moment,
+  );
+
+const removeMomentFromList = (moments: Moment[], momentId: string) =>
+  moments.filter((moment) => moment.momentId !== momentId);
+
+const updateMomentCommentCount = (
+  moments: Moment[],
+  momentId: string,
+  delta: number,
+) =>
+  moments.map((moment) =>
+    moment.momentId === momentId
+      ? {
+          ...moment,
+          commentCount: Math.max(0, moment.commentCount + delta),
+        }
+      : moment,
+  );
 
 export default function Moments() {
   const { addToast } = useToast();
@@ -63,7 +86,7 @@ export default function Moments() {
       setMoments(data);
       setProfile(null);
     } catch (error: any) {
-      addToast(error?.message || 'Kh\u00f4ng th\u1ec3 t\u1ea3i nh\u1eadt k\u00fd', 'error');
+      addToast(error?.message || 'Không thể tải nhật ký', 'error');
     } finally {
       setIsLoading(false);
     }
@@ -76,63 +99,85 @@ export default function Moments() {
   const handlePost = async (content: string, mediaFiles: MomentMediaFile[]) => {
     try {
       setIsPosting(true);
-      await momentService.createMoment({ content, mediaFiles });
-      addToast('\u0110\u0103ng kho\u1ea3nh kh\u1eafc th\u00e0nh c\u00f4ng!', 'success');
+      const createdMoment = await momentService.createMoment({ content, mediaFiles });
+      addToast('Đăng khoảnh khắc thành công!', 'success');
 
-      if (activeFeed !== 'me') {
-        setActiveFeed('me');
-      } else {
-        await loadFeed('me');
+      if (activeFeed === 'me') {
+        setMoments((prev) => [createdMoment, ...prev]);
+        return;
       }
+
+      setActiveFeed('me');
     } catch (error: any) {
-      addToast(error?.message || 'Kh\u00f4ng th\u1ec3 \u0111\u0103ng kho\u1ea3nh kh\u1eafc', 'error');
+      addToast(error?.message || 'Không thể đăng khoảnh khắc', 'error');
     } finally {
       setIsPosting(false);
     }
   };
 
   const handleReact = async (momentId: string, emoji: string) => {
+    const previousMoments = moments;
+
+    setMoments((prev) =>
+      prev.map((moment) =>
+        moment.momentId === momentId
+          ? applyMomentReactionLocally(moment, emoji)
+          : moment,
+      ),
+    );
+
     try {
       await momentService.reactToMoment(momentId, emoji);
-      await loadFeed(activeFeed);
     } catch (error: any) {
-      addToast(error?.message || 'Kh\u00f4ng th\u1ec3 th\u1ea3 c\u1ea3m x\u00fac', 'error');
+      setMoments(previousMoments);
+      addToast(error?.message || 'Không thể thả cảm xúc', 'error');
     }
   };
 
   const handleDelete = async (momentId: string) => {
-    if (!window.confirm('B\u1ea1n c\u00f3 ch\u1eafc mu\u1ed1n x\u00f3a kho\u1ea3nh kh\u1eafc n\u00e0y?')) {
+    if (!window.confirm('Bạn có chắc muốn xóa khoảnh khắc này?')) {
       return;
     }
 
+    const previousMoments = moments;
+    setMoments((prev) => removeMomentFromList(prev, momentId));
+
     try {
       await momentService.deleteMoment(momentId);
-      addToast('\u0110\u00e3 x\u00f3a kho\u1ea3nh kh\u1eafc', 'success');
-      setMoments((prev) => prev.filter((moment) => moment.momentId !== momentId));
+      addToast('Đã xóa khoảnh khắc', 'success');
 
       if (editingMoment?.momentId === momentId) {
         setEditingMoment(null);
       }
     } catch (error: any) {
-      addToast(error?.message || 'Kh\u00f4ng th\u1ec3 x\u00f3a kho\u1ea3nh kh\u1eafc', 'error');
+      setMoments(previousMoments);
+      addToast(error?.message || 'Không thể xóa khoảnh khắc', 'error');
     }
   };
 
   const handleShare = async (momentId: string) => {
     if (
       !window.confirm(
-        '\u0110\u0103ng chia s\u1ebb kho\u1ea3nh kh\u1eafc n\u00e0y l\u00ean nh\u1eadt k\u00fd c\u1ee7a b\u1ea1n?',
+        'Đăng chia sẻ khoảnh khắc này lên nhật ký của bạn?',
       )
     ) {
       return;
     }
 
     try {
-      await momentService.shareMoment(momentId);
-      addToast('\u0110\u00e3 chia s\u1ebb kho\u1ea3nh kh\u1eafc', 'success');
-      await loadFeed(activeFeed === 'reacted' ? 'me' : activeFeed);
+      const sharedMoment = await momentService.shareMoment(momentId);
+      addToast('Đã chia sẻ khoảnh khắc', 'success');
+
+      if (activeFeed === 'me') {
+        setMoments((prev) => [sharedMoment, ...prev]);
+        return;
+      }
+
+      if (activeFeed === 'reacted') {
+        await loadFeed('reacted');
+      }
     } catch (error: any) {
-      addToast(error?.message || 'Kh\u00f4ng th\u1ec3 chia s\u1ebb kho\u1ea3nh kh\u1eafc', 'error');
+      addToast(error?.message || 'Không thể chia sẻ khoảnh khắc', 'error');
     }
   };
 
@@ -148,26 +193,25 @@ export default function Moments() {
         payload,
       );
 
-      setMoments((prev) =>
-        prev.map((moment) =>
-          moment.momentId === updatedMoment.momentId ? updatedMoment : moment,
-        ),
-      );
-
-      addToast('\u0110\u00e3 c\u1eadp nh\u1eadt kho\u1ea3nh kh\u1eafc', 'success');
+      setMoments((prev) => replaceMomentInList(prev, updatedMoment));
+      addToast('Đã cập nhật khoảnh khắc', 'success');
       setEditingMoment(null);
     } catch (error: any) {
-      addToast(error?.message || 'Kh\u00f4ng th\u1ec3 c\u1eadp nh\u1eadt kho\u1ea3nh kh\u1eafc', 'error');
+      addToast(error?.message || 'Không thể cập nhật khoảnh khắc', 'error');
     } finally {
       setIsEditSaving(false);
     }
+  };
+
+  const handleCommentCountChange = (momentId: string, delta: number) => {
+    setMoments((prev) => updateMomentCommentCount(prev, momentId, delta));
   };
 
   return (
     <div className="flex h-screen flex-1 flex-col overflow-hidden bg-gray-50 dark:bg-dark-100">
       <div className="flex h-16 flex-shrink-0 items-center border-b border-gray-200 bg-white px-6 dark:border-gray-800 dark:bg-dark-200">
         <h2 className="text-xl font-bold text-gray-900 dark:text-white">
-          Nh\u1eadt k\u00fd
+          Nhật ký
         </h2>
       </div>
 
@@ -177,6 +221,7 @@ export default function Moments() {
 
           <div className="mb-4 mt-6 flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
             <button
+              type="button"
               onClick={() => setActiveFeed('friends')}
               className={`flex items-center gap-2 whitespace-nowrap rounded-full px-4 py-2 text-sm font-medium transition-colors ${
                 activeFeed === 'friends'
@@ -185,10 +230,11 @@ export default function Moments() {
               }`}
             >
               <Users className="h-4 w-4" />
-              B\u1ea1n b\u00e8
+              Bạn bè
             </button>
 
             <button
+              type="button"
               onClick={() => setActiveFeed('me')}
               className={`flex items-center gap-2 whitespace-nowrap rounded-full px-4 py-2 text-sm font-medium transition-colors ${
                 activeFeed === 'me'
@@ -197,10 +243,11 @@ export default function Moments() {
               }`}
             >
               <UserIcon className="h-4 w-4" />
-              C\u1ee7a t\u00f4i
+              Của tôi
             </button>
 
             <button
+              type="button"
               onClick={() => setActiveFeed('reacted')}
               className={`flex items-center gap-2 whitespace-nowrap rounded-full px-4 py-2 text-sm font-medium transition-colors ${
                 activeFeed === 'reacted'
@@ -209,7 +256,7 @@ export default function Moments() {
               }`}
             >
               <Heart className="h-4 w-4" />
-              \u0110\u00e3 th\u1ea3 c\u1ea3m x\u00fac
+              Đã thả cảm xúc
             </button>
           </div>
 
@@ -231,7 +278,7 @@ export default function Moments() {
                 <div>
                   <h3 className="text-lg font-bold">{profile.user.userName}</h3>
                   <p className="mt-1 text-sm text-white/80">
-                    {moments.length} kho\u1ea3nh kh\u1eafc \u0111\u00e3 \u0111\u0103ng
+                    {moments.length} khoảnh khắc đã đăng
                   </p>
                 </div>
               </div>
@@ -242,7 +289,7 @@ export default function Moments() {
             <div className="flex flex-col items-center justify-center py-20">
               <Loader2 className="mb-4 h-8 w-8 animate-spin text-primary-500" />
               <p className="text-gray-500 dark:text-gray-400">
-                \u0110ang t\u1ea3i nh\u1eadt k\u00fd...
+                Đang tải nhật ký...
               </p>
             </div>
           ) : moments.length === 0 ? (
@@ -267,6 +314,7 @@ export default function Moments() {
                   onDelete={handleDelete}
                   onShare={handleShare}
                   onEdit={setEditingMoment}
+                  onCommentCountChange={handleCommentCountChange}
                 />
               ))}
             </div>

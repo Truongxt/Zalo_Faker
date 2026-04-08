@@ -1,36 +1,70 @@
 import { Friends } from "@/types";
-import apiClient from "./apiClient";
+import { apiFetch } from "./fetchClient";
 
- class FriendsService {
-    async sendFriendRequests(fromUserId: string, toUserId: string, message: string): Promise<Friends[]> {
-        const response = await apiClient.post<{ data: Friends[] }>("/api/friends/requests", { fromUserId, toUserId, message });
-        return response.data.data;
-    }
+type FriendsApiResponse = {
+  data: Friends[];
+};
 
-    async acceptFriendRequest(fromUserId: string, toUserId: string): Promise<Friends> {
-        const response = await apiClient.post<{ data: Friends }>("/api/friends/requests/accept", { fromUserId, toUserId });
-        return response.data.data;
-    }
+type FriendApiResponse = {
+  data: Friends;
+};
 
-    async getFriend(userId: string): Promise<Friends[]> {
-        const response = await apiClient.get<{ data: Friends[] }>(`/api/friends/${userId}`);
-        return response.data.data;
-    }
+class FriendsService {
+  async sendFriendRequests(
+    fromUserId: string,
+    toUserId: string,
+    message: string,
+  ): Promise<Friends[]> {
+    const response = await apiFetch<FriendsApiResponse>("/api/friends/requests", {
+      method: "POST",
+      body: { fromUserId, toUserId, message },
+    });
+    return response.data || [];
+  }
 
-    async getPendingRequests(userId: string): Promise<Friends[]> {
-        const response = await apiClient.get<{ data: Friends[] }>(`/api/friends/requests/pending/${userId}`);
-        return response.data.data;
+  async acceptFriendRequest(fromUserId: string, toUserId: string): Promise<Friends> {
+    const response = await apiFetch<FriendApiResponse>("/api/friends/requests/accept", {
+      method: "POST",
+      body: { fromUserId, toUserId },
+    });
+    return response.data;
+  }
+
+  async getFriend(userId: string): Promise<Friends[]> {
+    const response = await apiFetch<FriendsApiResponse>(`/api/friends/${userId}`, {
+      method: "GET",
+    });
+    return response.data || [];
+  }
+
+  async getPendingRequests(userId: string): Promise<Friends[]> {
+    const response = await apiFetch<FriendsApiResponse>(`/api/friends/requests/pending/${userId}`, {
+      method: "GET",
+    });
+    return response.data || [];
+  }
+
+  async getExitingFriend(userId1: string, userId2: string): Promise<Friends | null> {
+    try {
+      const response = await apiFetch<FriendApiResponse>(
+        `/api/friends/check?userId1=${encodeURIComponent(userId1)}&userId2=${encodeURIComponent(userId2)}`,
+        { method: "GET" },
+      );
+      return response.data;
+    } catch (error: any) {
+      if (error?.status === 404) {
+        return null;
+      }
+      throw error;
     }
-    async getExitingFriend(userId1: string, userId2: string): Promise<Friends | null> {
-        try {
-            const response = await apiClient.get<{ data: Friends }>(`/api/friends/check?userId1=${userId1}&userId2=${userId2}`);
-            return response.data.data;
-        } catch (error: any) {
-            if (error?.response?.status === 404) {
-                return null;
-            }
-            throw error;
-        }
-    }
+  }
+
+  async rejectFriendRequest(fromUserId: string, toUserId: string): Promise<void> {
+    await apiFetch("/api/friends/requests/reject", {
+      method: "POST",
+      body: { fromUserId, toUserId },
+    });
+  }
 }
+
 export const friendsService = new FriendsService();
