@@ -46,6 +46,21 @@ const MomentCommentRepository = {
     return comment;
   },
 
+  async delete(momentId, commentId) {
+    await dynamodb.delete({
+      TableName: TABLE_NAME,
+      Key: {
+        momentId,
+        commentId
+      }
+    }).promise();
+
+    return {
+      momentId,
+      commentId
+    };
+  },
+
   async deleteByMomentId(momentId) {
     const comments = await this.getByMomentId(momentId);
 

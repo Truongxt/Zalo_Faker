@@ -31,7 +31,13 @@ function TabIcon({ name, focused }: { name: string; focused: boolean }) {
     profile: focused ? "person" : "person-outline",
   };
 
-  return <Ionicons name={icons[name]} size={24} color={focused ? Colors.primary : "#9CA3AF"} />;
+  return (
+    <Ionicons
+      name={icons[name]}
+      size={24}
+      color={focused ? Colors.primary : "#9CA3AF"}
+    />
+  );
 }
 
 export default function TabsLayout() {
@@ -126,37 +132,47 @@ export default function TabsLayout() {
         <Tabs.Screen
           name="chat"
           options={{
-            title: "Tin nhan",
+            title: "Tin nhắn",
             href: "/(tabs)/chat/chats",
-            tabBarIcon: ({ focused }) => <TabIcon name="chat" focused={focused} />,
+            tabBarIcon: ({ focused }) => (
+              <TabIcon name="chat" focused={focused} />
+            ),
           }}
         />
         <Tabs.Screen
           name="contacts"
           options={{
-            title: "Danh ba",
-            tabBarIcon: ({ focused }) => <TabIcon name="contacts" focused={focused} />,
+            title: "Danh bạ",
+            tabBarIcon: ({ focused }) => (
+              <TabIcon name="contacts" focused={focused} />
+            ),
           }}
         />
         <Tabs.Screen
           name="moments"
           options={{
-            title: "Khoanh khac",
-            tabBarIcon: ({ focused }) => <TabIcon name="moments" focused={focused} />,
+            title: "Khoảnh khắc",
+            tabBarIcon: ({ focused }) => (
+              <TabIcon name="moments" focused={focused} />
+            ),
           }}
         />
         <Tabs.Screen
           name="discover"
           options={{
-            title: "Kham pha",
-            tabBarIcon: ({ focused }) => <TabIcon name="discover" focused={focused} />,
+            title: "Khám phá",
+            tabBarIcon: ({ focused }) => (
+              <TabIcon name="discover" focused={focused} />
+            ),
           }}
         />
         <Tabs.Screen
           name="profile"
           options={{
-            title: "Ca nhan",
-            tabBarIcon: ({ focused }) => <TabIcon name="profile" focused={focused} />,
+            title: "Cá nhân",
+            tabBarIcon: ({ focused }) => (
+              <TabIcon name="profile" focused={focused} />
+            ),
           }}
         />
       </Tabs>

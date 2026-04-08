@@ -1,32 +1,39 @@
 import { fetchWithAuth } from './api';
 import type { Moment, MomentComment, MomentProfile } from '../types/moment';
 
-export interface MomentImageFile {
+export interface MomentMediaFile {
   file: File;
 }
 
 export interface CreateMomentPayload {
   content?: string;
   mediaUrls?: string[];
-  imageFile?: MomentImageFile | null;
+  mediaFiles?: MomentMediaFile[];
+}
+
+export interface UpdateMomentPayload {
+  content?: string;
+  retainMediaUrls?: string[];
+  mediaFiles?: MomentMediaFile[];
 }
 
 class MomentService {
   async createMoment(payload: CreateMomentPayload): Promise<Moment> {
-    const { content = "", mediaUrls = [], imageFile } = payload;
+    const { content = '', mediaUrls = [], mediaFiles = [] } = payload;
 
-    if (imageFile?.file) {
+    if (mediaFiles.length > 0) {
       const formData = new FormData();
-      formData.append("content", content);
-      formData.append("mediaUrls", JSON.stringify(mediaUrls));
-      formData.append("image", imageFile.file);
+      formData.append('content', content);
+      formData.append('mediaUrls', JSON.stringify(mediaUrls));
+      mediaFiles.forEach((mediaFile) => {
+        formData.append('files', mediaFile.file);
+      });
 
-      const response = await fetchWithAuth(`/moments`, {
-        method: "POST",
+      const response = await fetchWithAuth('/moments', {
+        method: 'POST',
         body: formData,
       });
 
-      if (!response.ok) throw new Error("Thêm bài viết thất bại");
       return response.json();
     }
 
@@ -41,43 +48,64 @@ class MomentService {
       }),
     });
 
-    if (!response.ok) throw new Error("Thêm bài viết thất bại");
+    return response.json();
+  }
+
+  async updateMoment(momentId: string, payload: UpdateMomentPayload): Promise<Moment> {
+    const { content = '', retainMediaUrls = [], mediaFiles = [] } = payload;
+
+    if (mediaFiles.length > 0) {
+      const formData = new FormData();
+      formData.append('content', content);
+      formData.append('retainMediaUrls', JSON.stringify(retainMediaUrls));
+      mediaFiles.forEach((mediaFile) => {
+        formData.append('files', mediaFile.file);
+      });
+
+      const response = await fetchWithAuth(`/moments/${momentId}`, {
+        method: 'PUT',
+        body: formData,
+      });
+
+      return response.json();
+    }
+
+    const response = await fetchWithAuth(`/moments/${momentId}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        content,
+        retainMediaUrls,
+      }),
+    });
+
     return response.json();
   }
 
   async getFriendMoments(): Promise<Moment[]> {
-    const response = await fetchWithAuth(`/moments/friends`);
-    if (!response.ok) throw new Error("Lấy danh sách bài viết thất bại");
+    const response = await fetchWithAuth('/moments/friends');
     return response.json();
   }
 
   async getMyProfile(): Promise<MomentProfile> {
-    const response = await fetchWithAuth(`/moments/me`);
-    if (!response.ok) throw new Error("Lấy hồ sơ cá nhân thất bại");
+    const response = await fetchWithAuth('/moments/me');
     return response.json();
   }
 
   async getReactedMoments(): Promise<Moment[]> {
-    const response = await fetchWithAuth(`/moments/reacted`);
-    if (!response.ok) throw new Error("Lấy danh sách bài viết đã phản hồi thất bại");
+    const response = await fetchWithAuth('/moments/reacted');
     return response.json();
   }
 
   async reactToMoment(momentId: string, emoji: string) {
     const response = await fetchWithAuth(`/moments/${momentId}/reaction`, {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      method: 'PUT',
       body: JSON.stringify({ emoji }),
     });
-    if (!response.ok) throw new Error("Thả cảm xúc thất bại");
     return response.json();
   }
 
   async getMomentComments(momentId: string): Promise<MomentComment[]> {
     const response = await fetchWithAuth(`/moments/${momentId}/comments`);
-    if (!response.ok) throw new Error("Lấy bình luận thất bại");
     return response.json();
   }
 
@@ -91,45 +119,45 @@ class MomentService {
     replyToCommentId: string | null,
   ): Promise<MomentComment> {
     const response = await fetchWithAuth(`/moments/${momentId}/comments`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      method: 'POST',
       body: JSON.stringify({ content, replyToCommentId }),
     });
-    if (!response.ok) throw new Error("Thêm bình luận thất bại");
     return response.json();
   }
 
   async reactToComment(momentId: string, commentId: string, emoji: string) {
-    const response = await fetchWithAuth(`/moments/${momentId}/comments/${commentId}/reaction`, {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
+    const response = await fetchWithAuth(
+      `/moments/${momentId}/comments/${commentId}/reaction`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ emoji }),
       },
-      body: JSON.stringify({ emoji }),
-    });
-    if (!response.ok) throw new Error("Thả cảm xúc bình luận thất bại");
+    );
     return response.json();
   }
 
-  async shareMoment(momentId: string, caption = ""): Promise<Moment> {
+  async deleteComment(
+    momentId: string,
+    commentId: string,
+  ): Promise<{ message: string; momentId: string; commentId: string }> {
+    const response = await fetchWithAuth(`/moments/${momentId}/comments/${commentId}`, {
+      method: 'DELETE',
+    });
+    return response.json();
+  }
+
+  async shareMoment(momentId: string, caption = ''): Promise<Moment> {
     const response = await fetchWithAuth(`/moments/${momentId}/share`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      method: 'POST',
       body: JSON.stringify({ caption }),
     });
-    if (!response.ok) throw new Error("Chia sẻ thất bại");
     return response.json();
   }
 
   async deleteMoment(momentId: string): Promise<{ message: string; momentId: string }> {
     const response = await fetchWithAuth(`/moments/${momentId}`, {
-      method: "DELETE",
+      method: 'DELETE',
     });
-    if (!response.ok) throw new Error("Xoá bài viết thất bại");
     return response.json();
   }
 }
