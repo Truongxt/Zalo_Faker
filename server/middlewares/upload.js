@@ -11,6 +11,22 @@ const ALLOWED_MIME_TYPES = new Set([
   "video/mp4",
   "video/quicktime",
   "video/webm",
+  "audio/mpeg",
+  "audio/mp3",
+  "audio/mp4",
+  "audio/webm",
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-powerpoint",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/zip",
+  "application/x-zip-compressed",
+  "application/vnd.rar",
+  "application/x-rar-compressed",
+  "text/plain",
 ]);
 
 const MAX_FILE_COUNT = 10;
@@ -74,7 +90,7 @@ const upload = (req, res, next) => {
       if (error.code === "LIMIT_UNEXPECTED_FILE") {
         res.status(400).json({
           message:
-            "Dinh dang hoac truong tep khong ho tro. Chi chap nhan anh/video pho bien.",
+            "Dinh dang hoac truong tep khong ho tro.",
         });
         return;
       }

@@ -1,6 +1,7 @@
 const messageService = require("../services/messageService")
 const conversationService = require("../services/conversationService")
 const GroupService = require("../services/groupService")
+const conversationModel = require("../models/conversation")
 
 const createMessage = async (req, res) => {
     try {
@@ -33,7 +34,38 @@ const createMessage = async (req, res) => {
         }
 
         const message = await messageService.createMessage(payload)
-        res.json(message)
+        const normalizedMessage = { ...message, id: message._id }
+
+        const lastMessageContent = payload.metadata?.isAnnouncement
+            ? `[Thông báo] ${payload.content?.text || ""}`.trim()
+            : payload.content?.text
+                || (payload.type === "image"
+                    ? "[Hình ảnh]"
+                    : payload.type === "video"
+                        ? "[Video]"
+                        : payload.type === "voice"
+                            ? "[Tin nhắn thoại]"
+                            : payload.type === "sticker"
+                                ? "[Nhãn dán]"
+                                : "[File]")
+
+        await conversationModel.updateConversation(payload.conversationId, {
+            lastMessage: {
+                content: lastMessageContent,
+                type: payload.type || "text",
+                senderId,
+                timestamp: message.createdAt,
+            },
+        })
+
+        const io = req.app.get("io")
+        if (io) {
+            io.to(`conv:${payload.conversationId}`).emit("chat:message", normalizedMessage)
+            // Backward compatibility for any legacy clients still listening old room id
+            io.to(payload.conversationId).emit("chat:message", normalizedMessage)
+        }
+
+        res.json(normalizedMessage)
     } catch (error) {
         res.status(error.statusCode || 500).json({ message: error.message })
     }

@@ -52,7 +52,7 @@ const server = http.createServer(app);
 
 // ===== Socket.IO =====
 const io = socketConfig(server);
-setSocketIO(io);
+app.set("io", io);
 
 
 

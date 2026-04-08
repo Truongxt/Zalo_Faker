@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { X, Search, Users, Check } from 'lucide-react'
-import { getUsers, createGroup, getFriends } from '@/services/api'
+import { createGroup, getFriends } from '@/services/api'
 import { useAuthStore } from '@/stores/authStore'
 import { useChatStore } from '@/stores/chatStore'
 import { useNavigate } from 'react-router-dom'

@@ -73,6 +73,46 @@ export const mapUser = (u: any): User => ({
     gender: (u.gender === 'male' || u.gender === 'female' || u.gender === 'other') ? u.gender : 'other',
 });
 
+const normalizeContent = (rawContent: any) => {
+    if (typeof rawContent === 'string') {
+        return { text: rawContent };
+    }
+
+    if (!rawContent || typeof rawContent !== 'object') {
+        return {};
+    }
+
+    return {
+        text: typeof rawContent.text === 'string'
+            ? rawContent.text
+            : typeof rawContent.message === 'string'
+                ? rawContent.message
+                : typeof rawContent.content === 'string'
+                    ? rawContent.content
+                    : undefined,
+        mediaUrl: typeof rawContent.mediaUrl === 'string'
+            ? rawContent.mediaUrl
+            : typeof rawContent.url === 'string'
+                ? rawContent.url
+                : typeof rawContent.fileUrl === 'string'
+                    ? rawContent.fileUrl
+                    : undefined,
+        thumbnail: typeof rawContent.thumbnail === 'string' ? rawContent.thumbnail : undefined,
+        fileName: typeof rawContent.fileName === 'string' ? rawContent.fileName : undefined,
+        fileSize: typeof rawContent.fileSize === 'number' ? rawContent.fileSize : undefined,
+        duration: typeof rawContent.duration === 'number' ? rawContent.duration : undefined,
+    };
+};
+
+const normalizeMessage = (msg: any) => ({
+    ...msg,
+    id: msg.id || msg._id,
+    content: normalizeContent(msg.content),
+    reactions: Array.isArray(msg.reactions) ? msg.reactions : [],
+    readBy: Array.isArray(msg.readBy) ? msg.readBy : [],
+    isDeleted: Boolean(msg.isDeleted),
+});
+
 const getConversation = async () => {
     const response = await fetchWithAuth(`/conversations`);
     const data = await response.json();
@@ -83,7 +123,7 @@ const getMessages = async (conversationId: string) => {
     if (!conversationId || conversationId === 'undefined') return [];
     const response = await fetchWithAuth(`/messages/conversation/${conversationId}`);
     const data = await response.json();
-    return (data || []).map((msg: any) => ({ ...msg, id: msg._id }));
+    return (data || []).map((msg: any) => normalizeMessage(msg));
 }
 
 const sendMessage = async (message: any) => {
@@ -91,7 +131,8 @@ const sendMessage = async (message: any) => {
         method: "POST",
         body: JSON.stringify(message),
     });
-    return response.json();
+    const data = await response.json();
+    return normalizeMessage(data);
 }
 
 const getUsers = async (): Promise<User[]> => {
@@ -134,10 +175,12 @@ const updateConversationBackground = async (conversationId: string, backgroundUr
 }
 
 const uploadMedia = async (file: File) => {
+    const formData = new FormData();
+    formData.append("file", file, file.name);
+
     const response = await fetchWithAuth(`/upload`, {
         method: "POST",
-        body: file as any, // fetchWithAuth handles FormData if body is FormData
-        // We'll update uploadMedia to use FormData correctly
+        body: formData,
     });
     return await response.json();
 }

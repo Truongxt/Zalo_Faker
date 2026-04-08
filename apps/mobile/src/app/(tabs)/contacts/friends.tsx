@@ -1,15 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
-import {
-  View,
-  Text,
-  FlatList,
-  TextInput,
-  TouchableOpacity,
-} from "react-native";
+import { View, Text, FlatList, TouchableOpacity } from "react-native";
 import { useRouter } from "expo-router";
-import { Avatar } from "@/components/ui/Avatar";
+import { useFocusEffect } from "@react-navigation/native";
 import { CenterLoading, GrayToast } from "@/components/ui";
-import { Friends, User } from "@/types";
+import { Friends } from "@/types";
 import { friendsService, userService } from "@/services";
 import { useAuthStore } from "@/stores";
 import FriendsRequest from "@/components/ui/FriendsRequest";
@@ -18,137 +12,91 @@ import { socketService } from "@/lib/socket";
 
 export default function ContactsScreen() {
   const router = useRouter();
-  const [searchQuery, setSearchQuery] = useState("");
   const [requestFriends, setRequestFriends] = useState<Friends[]>([]);
   const [loading, setLoading] = useState(false);
   const { user } = useAuthStore();
   const [listFriends, setListFriends] = useState<Friends[]>([]);
+
   const getFriendsRequests = useCallback(async () => {
     if (!user?.id) return;
-    try {
-      const result = await friendsService.getPendingRequests(user.id);
 
-      const withUserInfo = await Promise.all(
-        result.map(async (f: any) => {
-          const fromUser = await userService.getUserById(String(f.fromUserId));
-          return {
-            ...f,
-            fromUser,
-          } as Friends;
-        }),
-      );
+    const result = await friendsService.getPendingRequests(user.id);
+    const withUserInfo = await Promise.all(
+      result.map(async (f: any) => {
+        const fromUser = await userService.getUserById(String(f.fromUserId));
+        return {
+          ...f,
+          fromUser,
+        } as Friends;
+      }),
+    );
 
-      setRequestFriends(withUserInfo);
-    } catch (error) {
-      console.error("Lỗi khi lấy danh sách yêu cầu kết bạn:", error);
-    }
+    setRequestFriends(withUserInfo);
   }, [user?.id]);
 
   const getListFriends = useCallback(async () => {
     if (!user?.id) return;
-    try {
-      const result = await friendsService.getFriend(user.id);
 
-      const withUserInfo = await Promise.all(
-        result.map(async (f: any) => {
-          const friendUserId =
-            String(f.fromUserId) === String(user!.id)
-              ? String(f.toUserId)
-              : String(f.fromUserId);
+    const result = await friendsService.getFriend(user.id);
+    const withUserInfo = await Promise.all(
+      result.map(async (f: any) => {
+        const friendUserId =
+          String(f.fromUserId) === String(user.id)
+            ? String(f.toUserId)
+            : String(f.fromUserId);
 
-          const friendUser = await userService.getUserById(friendUserId);
-          return {
-            ...f,
-            fromUser: friendUser,
-          } as Friends;
-        }),
-      );
+        const friendUser = await userService.getUserById(friendUserId);
+        return {
+          ...f,
+          fromUser: friendUser,
+        } as Friends;
+      }),
+    );
 
-      setListFriends(withUserInfo);
-    } catch (error) {
-      console.error("Lỗi khi lấy danh sách bạn bè:", error);
-    }
+    setListFriends(withUserInfo);
   }, [user?.id]);
 
-  useEffect(() => {
-    if (user?.id) {
-      getFriendsRequests();
-      getListFriends();
+  const loadAll = useCallback(async () => {
+    if (!user?.id) return;
+
+    setLoading(true);
+    try {
+      await Promise.all([getFriendsRequests(), getListFriends()]);
+    } catch (error) {
+      console.error("Loi khi tai danh sach ban be:", error);
+    } finally {
+      setLoading(false);
     }
   }, [user?.id, getFriendsRequests, getListFriends]);
 
   useEffect(() => {
     if (!user?.id) return;
+    loadAll();
+  }, [user?.id, loadAll]);
 
-    socketService.connect();
-
-    const refreshContacts = () => {
-      getFriendsRequests();
-      getListFriends();
-    };
-
-    const handleRequestReceived = (payload: { toUserId?: number | string }) => {
-      if (String(payload?.toUserId) !== String(user.id)) return;
-      refreshContacts();
-    };
-
-    const handleRequestAccepted = (payload: {
-      fromUserId?: number | string;
-      toUserId?: number | string;
-    }) => {
-      if (
-        String(payload?.fromUserId) !== String(user.id) &&
-        String(payload?.toUserId) !== String(user.id)
-      ) {
-        return;
-      }
-      refreshContacts();
-    };
-
-    const handleRequestRejected = (payload: {
-      fromUserId?: number | string;
-      toUserId?: number | string;
-    }) => {
-      if (
-        String(payload?.fromUserId) !== String(user.id) &&
-        String(payload?.toUserId) !== String(user.id)
-      ) {
-        return;
-      }
-      refreshContacts();
-    };
-
-    socketService.on("friend:request_received", handleRequestReceived);
-    socketService.on("friend:request_accepted", handleRequestAccepted);
-    socketService.on("friend:request_rejected", handleRequestRejected);
-
-    return () => {
-      socketService.off("friend:request_received", handleRequestReceived);
-      socketService.off("friend:request_accepted", handleRequestAccepted);
-      socketService.off("friend:request_rejected", handleRequestRejected);
-    };
-  }, [user?.id, getFriendsRequests, getListFriends]);
+  useFocusEffect(
+    useCallback(() => {
+      if (!user?.id) return;
+      loadAll();
+    }, [user?.id, loadAll]),
+  );
 
   return (
     <View className="flex-1 bg-white">
-      {/* Search */}
-
-      {/* Quick actions */}
       <View className="border-b border-gray-100">
         <TouchableOpacity
           className="flex-row items-center px-4 py-3 gap-3"
           onPress={() => router.push("/friends/add")}
         >
           <View className="w-10 h-10 rounded-full bg-green-100 items-center justify-center">
-            <Text>➕</Text>
+            <Text>+</Text>
           </View>
-          <Text className="text-gray-900 font-medium">Thêm bạn</Text>
+          <Text className="text-gray-900 font-medium">Them ban</Text>
         </TouchableOpacity>
       </View>
 
       <CenterLoading visible={loading} />
 
-      {/* Contacts list */}
       {requestFriends.length > 0 && (
         <FlatList
           data={requestFriends}
@@ -193,10 +141,10 @@ export default function ContactsScreen() {
                     ];
                   });
 
-                  GrayToast("Kết bạn thành công");
+                  GrayToast("Ket ban thanh cong");
                   await getListFriends();
                 } catch (e) {
-                  console.error("Lỗi chấp nhận:", e);
+                  console.error("Loi chap nhan:", e);
                 } finally {
                   setLoading(false);
                 }
@@ -215,10 +163,10 @@ export default function ContactsScreen() {
                         r.toUserId !== req.toUserId,
                     ),
                   );
-                  GrayToast("Đã từ chối lời mời kết bạn");
+                  GrayToast("Da tu choi loi moi ket ban");
                 } catch (e) {
-                  console.error("Lỗi từ chối:", e);
-                  GrayToast("Không thể từ chối lời mời");
+                  console.error("Loi tu choi:", e);
+                  GrayToast("Khong the tu choi loi moi");
                 } finally {
                   setLoading(false);
                 }
@@ -227,9 +175,10 @@ export default function ContactsScreen() {
           )}
         />
       )}
-      <View className="flex-1  justify-center">
+
+      <View className="flex-1 justify-center">
         {listFriends.length === 0 ? (
-          <Text className="text-gray-500">Bạn chưa có bạn bè nào</Text>
+          <Text className="text-gray-500">Ban chua co ban be nao</Text>
         ) : (
           <FlatList
             data={listFriends}

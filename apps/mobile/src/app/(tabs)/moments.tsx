@@ -12,6 +12,8 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  useWindowDimensions,
+  ViewToken,
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -37,6 +39,17 @@ type ComposerMedia = {
   name?: string;
   mimeType?: string | null;
   mediaType: "image" | "video";
+};
+
+type EditableMomentMedia = ComposerMedia & {
+  id: string;
+  existing: boolean;
+};
+
+type MediaViewerState = {
+  mediaUrls: string[];
+  initialIndex: number;
+  momentId: string;
 };
 
 const FEED_OPTIONS: Array<{
@@ -95,14 +108,18 @@ const isVideoMimeType = (mimeType?: string | null) =>
   typeof mimeType === "string" && mimeType.startsWith("video/");
 
 const isVideoUrl = (url?: string | null) => {
-  const normalizedUrl = String(url || "").split("?")[0].toLowerCase();
+  const normalizedUrl = String(url || "")
+    .split("?")[0]
+    .toLowerCase();
   return [".mp4", ".mov", ".webm", ".m4v"].some((extension) =>
     normalizedUrl.endsWith(extension),
   );
 };
 
 const getFileExtensionFromAsset = (asset: ImagePicker.ImagePickerAsset) => {
-  const normalizedUri = String(asset.uri || "").split("?")[0].toLowerCase();
+  const normalizedUri = String(asset.uri || "")
+    .split("?")[0]
+    .toLowerCase();
 
   if (normalizedUri.endsWith(".png")) return "png";
   if (normalizedUri.endsWith(".gif")) return "gif";
@@ -127,11 +144,31 @@ const mapAssetToComposerMedia = (
     uri: asset.uri,
     name: asset.fileName || `moment-${Date.now()}-${index}.${extension}`,
     mimeType:
-      asset.mimeType ||
-      (mediaType === "video" ? "video/mp4" : "image/jpeg"),
+      asset.mimeType || (mediaType === "video" ? "video/mp4" : "image/jpeg"),
     mediaType,
   };
 };
+
+const mapMomentUrlToEditableMedia = (
+  url: string,
+  index: number,
+): EditableMomentMedia => ({
+  id: `existing-${index}-${url}`,
+  uri: url,
+  name: undefined,
+  mimeType: isVideoUrl(url) ? "video/mp4" : "image/jpeg",
+  mediaType: isVideoUrl(url) ? "video" : "image",
+  existing: true,
+});
+
+const mapComposerMediaToEditableMedia = (
+  media: ComposerMedia,
+  index: number,
+): EditableMomentMedia => ({
+  ...media,
+  id: `new-${index}-${media.uri}`,
+  existing: false,
+});
 
 const getAvatarFallback = (name: string) =>
   name
@@ -235,8 +272,10 @@ function SectionChip({
 
 export default function MomentsScreen() {
   const insets = useSafeAreaInsets();
+  const { width: windowWidth } = useWindowDimensions();
   const commentListRef = useRef<FlatList<MomentComment>>(null);
   const commentInputRef = useRef<TextInput>(null);
+  const mediaViewerListRef = useRef<FlatList<string>>(null);
   const { user } = useAuthStore();
   const [activeFeed, setActiveFeed] = useState<FeedMode>("friends");
   const [moments, setMoments] = useState<Moment[]>([]);
@@ -257,11 +296,48 @@ export default function MomentsScreen() {
   const [commentText, setCommentText] = useState("");
   const [isCommentLoading, setIsCommentLoading] = useState(false);
   const [isCommentSubmitting, setIsCommentSubmitting] = useState(false);
+  const [deletingCommentId, setDeletingCommentId] = useState<string | null>(
+    null,
+  );
   const [actionMomentId, setActionMomentId] = useState<string | null>(null);
+  const [visibleMomentIds, setVisibleMomentIds] = useState<string[]>([]);
+  const [mediaViewer, setMediaViewer] = useState<MediaViewerState | null>(null);
+  const [activeViewerIndex, setActiveViewerIndex] = useState(0);
+  const [editingMoment, setEditingMoment] = useState<Moment | null>(null);
+  const [editText, setEditText] = useState("");
+  const [editMedia, setEditMedia] = useState<EditableMomentMedia[]>([]);
+  const [isEditSubmitting, setIsEditSubmitting] = useState(false);
+  const viewabilityConfigRef = useRef({
+    itemVisiblePercentThreshold: 60,
+    minimumViewTime: 200,
+  });
+  const onViewableItemsChanged = useRef(
+    ({ viewableItems }: { viewableItems: ViewToken<Moment>[] }) => {
+      setVisibleMomentIds(
+        viewableItems
+          .map((viewableItem) => viewableItem.item?.momentId)
+          .filter((momentId): momentId is string => Boolean(momentId)),
+      );
+    },
+  );
+  const onViewerViewableItemsChanged = useRef(
+    ({ viewableItems }: { viewableItems: ViewToken<string>[] }) => {
+      const firstVisibleIndex = viewableItems[0]?.index;
+      if (typeof firstVisibleIndex === "number") {
+        setActiveViewerIndex(firstVisibleIndex);
+      }
+    },
+  );
 
   const canPost = useMemo(
-    () => Boolean(composerText.trim() || composerMedia.length > 0) && !isPosting,
+    () =>
+      Boolean(composerText.trim() || composerMedia.length > 0) && !isPosting,
     [composerMedia.length, composerText, isPosting],
+  );
+
+  const canSaveEdit = useMemo(
+    () => Boolean(editText.trim() || editMedia.length > 0) && !isEditSubmitting,
+    [editMedia.length, editText, isEditSubmitting],
   );
 
   const reactionTarget = useMemo(
@@ -269,6 +345,30 @@ export default function MomentsScreen() {
       moments.find((moment) => moment.momentId === reactionPickerMomentId) ||
       null,
     [moments, reactionPickerMomentId],
+  );
+
+  const visibleMomentIdSet = useMemo(
+    () => new Set(visibleMomentIds),
+    [visibleMomentIds],
+  );
+
+  const feedMediaWidth = useMemo(
+    () => Math.min(Math.max(windowWidth - 64, 280), 420),
+    [windowWidth],
+  );
+
+  const feedMediaHeight = useMemo(
+    () => Math.round(feedMediaWidth * 0.78),
+    [feedMediaWidth],
+  );
+
+  const sharedMediaHeight = useMemo(
+    () => Math.round(feedMediaWidth * 0.7),
+    [feedMediaWidth],
+  );
+  const viewerMediaHeight = useMemo(
+    () => Math.round(windowWidth * 0.9),
+    [windowWidth],
   );
 
   const scrollCommentsToEnd = useCallback((animated = true) => {
@@ -320,7 +420,7 @@ export default function MomentsScreen() {
     loadFeed(activeFeed, false);
   };
 
-  const handlePickMedia = async () => {
+  const pickMediaAssets = async () => {
     try {
       const permission =
         await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -330,7 +430,7 @@ export default function MomentsScreen() {
           "Cấp quyền truy cập ảnh",
           "Hãy cấp quyền truy cập ảnh để tải khoảnh khắc",
         );
-        return;
+        return [];
       }
 
       const result = await ImagePicker.launchImageLibraryAsync({
@@ -339,30 +439,142 @@ export default function MomentsScreen() {
         selectionLimit: 10,
         orderedSelection: true,
         quality: 0.9,
+        videoExportPreset:
+          Platform.OS === "ios"
+            ? ImagePicker.VideoExportPreset.MediumQuality
+            : undefined,
+        videoQuality:
+          Platform.OS === "ios"
+            ? ImagePicker.UIImagePickerControllerQualityType.Medium
+            : undefined,
       });
 
       if (result.canceled || !result.assets?.length) {
-        return;
+        return [];
       }
 
-      const pickedMedia = result.assets.map(mapAssetToComposerMedia);
-      setComposerMedia((prev) => {
-        const merged = [...prev, ...pickedMedia];
-        const deduped = merged.filter(
-          (item, index, list) =>
-            list.findIndex((candidate) => candidate.uri === item.uri) === index,
-        );
-
-        return deduped.slice(0, 10);
-      });
+      return result.assets.map(mapAssetToComposerMedia);
     } catch (error) {
       console.error("Pick moment media error:", error);
       GrayToast("Không thể chọn ảnh hoặc video");
+      return [];
     }
+  };
+
+  const mergeComposerMedia = (prev: ComposerMedia[], next: ComposerMedia[]) => {
+    const merged = [...prev, ...next];
+    const deduped = merged.filter(
+      (item, index, list) =>
+        list.findIndex((candidate) => candidate.uri === item.uri) === index,
+    );
+
+    return deduped.slice(0, 10);
+  };
+
+  const handlePickMedia = async () => {
+    const pickedMedia = await pickMediaAssets();
+    if (!pickedMedia.length) {
+      return;
+    }
+
+    setComposerMedia((prev) => mergeComposerMedia(prev, pickedMedia));
+  };
+
+  const handlePickEditMedia = async () => {
+    const pickedMedia = await pickMediaAssets();
+    if (!pickedMedia.length) {
+      return;
+    }
+
+    setEditMedia((prev) => {
+      const normalizedPrev = prev.map((item) => ({
+        uri: item.uri,
+        name: item.name,
+        mimeType: item.mimeType,
+        mediaType: item.mediaType,
+      }));
+      const merged = mergeComposerMedia(normalizedPrev, pickedMedia);
+
+      return merged.map((item, index) => {
+        const existingItem = prev.find((media) => media.uri === item.uri);
+        return existingItem || mapComposerMediaToEditableMedia(item, index);
+      });
+    });
   };
 
   const handleRemoveComposerMedia = (uri: string) => {
     setComposerMedia((prev) => prev.filter((item) => item.uri !== uri));
+  };
+
+  const openEditMoment = (moment: Moment) => {
+    setEditingMoment(moment);
+    setEditText(moment.content || "");
+    setEditMedia(
+      moment.mediaUrls.map((url, index) =>
+        mapMomentUrlToEditableMedia(url, index),
+      ),
+    );
+  };
+
+  const closeEditMoment = () => {
+    setEditingMoment(null);
+    setEditText("");
+    setEditMedia([]);
+    setIsEditSubmitting(false);
+  };
+
+  const handleRemoveEditMedia = (mediaId: string) => {
+    setEditMedia((prev) => prev.filter((media) => media.id !== mediaId));
+  };
+
+  const handleMomentOptions = (moment: Moment) => {
+    Alert.alert("Tùy chọn bài viết", "Bạn muốn làm gì với khoảnh khắc này?", [
+      {
+        text: "Chỉnh sửa",
+        onPress: () => openEditMoment(moment),
+      },
+      {
+        text: "Xóa",
+        style: "destructive",
+        onPress: () => handleDeleteMoment(moment),
+      },
+      { text: "Đóng", style: "cancel" },
+    ]);
+  };
+
+  const handleSaveMomentEdit = async () => {
+    if (!editingMoment || !canSaveEdit) {
+      return;
+    }
+
+    try {
+      setIsEditSubmitting(true);
+
+      const retainMediaUrls = editMedia
+        .filter((media) => media.existing)
+        .map((media) => media.uri);
+      const newMediaFiles = editMedia
+        .filter((media) => !media.existing)
+        .map((media) => ({
+          uri: media.uri,
+          name: media.name,
+          mimeType: media.mimeType,
+        }));
+
+      await momentService.updateMoment(editingMoment.momentId, {
+        content: editText.trim(),
+        retainMediaUrls,
+        mediaFiles: newMediaFiles,
+      });
+
+      GrayToast("Đã cập nhật khoảnh khắc");
+      closeEditMoment();
+      await loadFeed(activeFeed, false);
+    } catch (error) {
+      GrayToast(getErrorMessage(error, "Không thể cập nhật khoảnh khắc"));
+    } finally {
+      setIsEditSubmitting(false);
+    }
   };
 
   const handleCreateMoment = async () => {
@@ -442,6 +654,7 @@ export default function MomentsScreen() {
     setComments([]);
     setCommentText("");
     setCommentReplyTarget(null);
+    setDeletingCommentId(null);
   };
 
   const handleReplyToComment = (comment: MomentComment) => {
@@ -515,6 +728,49 @@ export default function MomentsScreen() {
     }
   };
 
+  const handleDeleteComment = (comment: MomentComment) => {
+    if (!commentTarget || deletingCommentId) {
+      return;
+    }
+
+    Alert.alert("Xóa bình luận", "Bình luận này sẽ bị xóa khỏi bài viết.", [
+      { text: "Hủy", style: "cancel" },
+      {
+        text: "Xóa",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            setDeletingCommentId(comment.commentId);
+            await momentService.deleteComment(
+              commentTarget.momentId,
+              comment.commentId,
+            );
+            setComments((prev) =>
+              prev.filter((item) => item.commentId !== comment.commentId),
+            );
+            if (commentReplyTarget?.commentId === comment.commentId) {
+              setCommentReplyTarget(null);
+            }
+            setCommentTarget((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    commentCount: Math.max(0, prev.commentCount - 1),
+                  }
+                : prev,
+            );
+            GrayToast("Đã xóa bình luận");
+            await loadFeed(activeFeed, false);
+          } catch (error) {
+            GrayToast(getErrorMessage(error, "Không thể xóa bình luận"));
+          } finally {
+            setDeletingCommentId(null);
+          }
+        },
+      },
+    ]);
+  };
+
   const handleShareMoment = (moment: Moment) => {
     Alert.alert("Chia sẻ", "Bạn muốn chia sẻ khoảnh khắc này ?", [
       { text: "Hủy", style: "cancel" },
@@ -558,12 +814,35 @@ export default function MomentsScreen() {
     ]);
   };
 
+  const openMediaViewer = (
+    momentId: string,
+    mediaUrls: string[],
+    initialIndex = 0,
+  ) => {
+    if (!mediaUrls.length) {
+      return;
+    }
+
+    setActiveViewerIndex(initialIndex);
+    setMediaViewer({
+      mediaUrls,
+      initialIndex,
+      momentId,
+    });
+  };
+
+  const closeMediaViewer = () => {
+    setMediaViewer(null);
+    setActiveViewerIndex(0);
+  };
+
   const renderMomentCard = ({ item }: { item: Moment }) => {
     const authorName = getDisplayName(
       item.author,
       item.isOwner ? user?.fullName || "Bạn" : `Người dùng ${item.authorId}`,
     );
     const activeReaction = getReactionOption(item.currentUserReaction);
+    const isMomentVisible = visibleMomentIdSet.has(item.momentId);
 
     return (
       <View className="mb-4 rounded-[24px] bg-white px-4 py-4">
@@ -589,156 +868,183 @@ export default function MomentsScreen() {
               {item.isOwner ? (
                 <TouchableOpacity
                   disabled={actionMomentId === item.momentId}
-                  onPress={() => handleDeleteMoment(item)}
+                  onPress={() => handleMomentOptions(item)}
                   className="h-9 w-9 items-center justify-center rounded-full bg-[#F4F6FB]"
                 >
-                  <Ionicons name="trash-outline" size={18} color="#EF4444" />
+                  <Ionicons
+                    name="ellipsis-horizontal"
+                    size={18}
+                    color="#6B7280"
+                  />
                 </TouchableOpacity>
               ) : null}
             </View>
-
-            {item.content ? (
-              <Text className="mt-3 text-[15px] leading-6 text-gray-800">
-                {item.content}
-              </Text>
-            ) : null}
-
-            {item.mediaUrls.length > 0 ? (
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                className="mt-3"
-              >
-                {item.mediaUrls.map((url, index) =>
-                  isVideoUrl(url) ? (
-                    <Video
-                      key={`${url}-${index}`}
-                      source={{ uri: url }}
-                      style={{
-                        width: 288,
-                        height: 192,
-                        borderRadius: 20,
-                        backgroundColor: "#000000",
-                        marginRight: 12,
-                      }}
-                      resizeMode={ResizeMode.COVER}
-                      shouldPlay={false}
-                      isLooping={false}
-                      useNativeControls
-                    />
-                  ) : (
-                    <Image
-                      key={`${url}-${index}`}
-                      source={{ uri: url }}
-                      className="mr-3 h-48 w-72 rounded-[20px] bg-[#E5E7EB]"
-                      resizeMode="cover"
-                    />
-                  ),
-                )}
-              </ScrollView>
-            ) : null}
-
-            {item.type === "share" && item.originalMomentSnapshot ? (
-              <View className="mt-3 rounded-[20px] border border-[#DCE7FF] bg-[#F8FBFF] px-3 py-3">
-                <Text className="text-sm font-semibold text-[#0068FF]">
-                  Chia sẻ từ{" "}
-                  {getDisplayName(item.originalMomentSnapshot.author, "Bạn bè")}
-                </Text>
-                {item.originalMomentSnapshot.content ? (
-                  <Text className="mt-2 text-sm leading-5 text-gray-700">
-                    {item.originalMomentSnapshot.content}
-                  </Text>
-                ) : null}
-                {item.originalMomentSnapshot.mediaUrls?.[0] ? (
-                  isVideoUrl(item.originalMomentSnapshot.mediaUrls[0]) ? (
-                    <Video
-                      source={{ uri: item.originalMomentSnapshot.mediaUrls[0] }}
-                      style={{
-                        width: "100%",
-                        height: 160,
-                        borderRadius: 18,
-                        backgroundColor: "#000000",
-                        marginTop: 12,
-                      }}
-                      resizeMode={ResizeMode.COVER}
-                      shouldPlay={false}
-                      isLooping={false}
-                      useNativeControls
-                    />
-                  ) : (
-                    <Image
-                      source={{ uri: item.originalMomentSnapshot.mediaUrls[0] }}
-                      className="mt-3 h-40 w-full rounded-[18px] bg-[#E5E7EB]"
-                      resizeMode="cover"
-                    />
-                  )
-                ) : null}
-              </View>
-            ) : null}
-
-            <View className="mt-4 flex-row items-center justify-between rounded-2xl bg-[#F7F9FC] px-3 py-2">
-              <Text className="text-xs font-medium text-gray-500">
-                {`${item.reactionCount} cảm xúc`}
-              </Text>
-              <Text className="text-xs font-medium text-gray-500">
-                {`${item.commentCount} bình luận`}
-              </Text>
-              <Text className="text-xs font-medium text-gray-500">
-                {`${item.shareCount} chia sẻ`}
-              </Text>
-            </View>
-
-            <View className="mt-3 flex-row">
-              <TouchableOpacity
-                activeOpacity={0.85}
-                onPress={() => openReactionPicker(item.momentId)}
-                className={`mr-2 flex-1 flex-row items-center justify-center rounded-2xl px-3 py-3 ${
-                  item.currentUserReaction ? "bg-[#E8F0FF]" : "bg-[#F4F6FB]"
-                }`}
-              >
-                {activeReaction ? (
-                  <Text className="text-lg">{activeReaction.icon}</Text>
-                ) : (
-                  <Ionicons name="heart-outline" size={18} color="#6B7280" />
-                )}
-                <Text
-                  className={`ml-2 text-sm font-semibold ${
-                    item.currentUserReaction
-                      ? "text-[#0068FF]"
-                      : "text-gray-600"
-                  }`}
-                >
-                  {activeReaction?.icon || "Cảm xúc"}
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                activeOpacity={0.85}
-                onPress={() => openComments(item)}
-                className="mr-2 flex-1 flex-row items-center justify-center rounded-2xl bg-[#F4F6FB] px-3 py-3"
-              >
-                <Ionicons
-                  name="chatbubble-ellipses-outline"
-                  size={18}
-                  color="#6B7280"
-                />
-                <Text className="ml-2 text-sm font-semibold text-gray-600">
-                  Bình luận
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                activeOpacity={0.85}
-                onPress={() => handleShareMoment(item)}
-                className="flex-1 flex-row items-center justify-center rounded-2xl bg-[#F4F6FB] px-3 py-3"
-              >
-                <Ionicons name="repeat-outline" size={18} color="#6B7280" />
-                <Text className="ml-2 text-sm font-semibold text-gray-600">
-                  Chia sẻ
-                </Text>
-              </TouchableOpacity>
-            </View>
           </View>
+        </View>
+
+        {item.content ? (
+          <Text className="mt-3 text-[15px] leading-6 text-gray-800">
+            {item.content}
+          </Text>
+        ) : null}
+
+        {item.mediaUrls.length > 0 ? (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            className="mt-3"
+          >
+            {item.mediaUrls.map((url, index) => (
+              <TouchableOpacity
+                key={`${url}-${index}`}
+                activeOpacity={0.95}
+                onPress={() =>
+                  openMediaViewer(item.momentId, item.mediaUrls, index)
+                }
+                style={{
+                  width: feedMediaWidth,
+                  height: feedMediaHeight,
+                  marginRight: 12,
+                  borderRadius: 24,
+                  overflow: "hidden",
+                  backgroundColor: "#E5E7EB",
+                }}
+              >
+                {isVideoUrl(url) ? (
+                  <Video
+                    source={{ uri: url }}
+                    style={{ width: "100%", height: "100%" }}
+                    resizeMode={ResizeMode.COVER}
+                    shouldPlay={isMomentVisible}
+                    isLooping={isMomentVisible}
+                    useNativeControls
+                  />
+                ) : (
+                  <Image
+                    source={{ uri: url }}
+                    style={{ width: "100%", height: "100%" }}
+                    resizeMode="cover"
+                  />
+                )}
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        ) : null}
+
+        {item.type === "share" && item.originalMomentSnapshot ? (
+          <View className="mt-3 rounded-[20px] border border-[#DCE7FF] bg-[#F8FBFF] px-3 py-3">
+            <Text className="text-sm font-semibold text-[#0068FF]">
+              Chia sẻ từ{" "}
+              {getDisplayName(item.originalMomentSnapshot.author, "Bạn bè")}
+            </Text>
+            {item.originalMomentSnapshot.content ? (
+              <Text className="mt-2 text-sm leading-5 text-gray-700">
+                {item.originalMomentSnapshot.content}
+              </Text>
+            ) : null}
+            {item.originalMomentSnapshot.mediaUrls?.[0] ? (
+              <TouchableOpacity
+                activeOpacity={0.95}
+                onPress={() =>
+                  openMediaViewer(
+                    `${item.momentId}-shared`,
+                    item.originalMomentSnapshot?.mediaUrls || [],
+                    0,
+                  )
+                }
+                style={{
+                  width: "100%",
+                  height: sharedMediaHeight,
+                  marginTop: 12,
+                  borderRadius: 18,
+                  overflow: "hidden",
+                  backgroundColor: "#E5E7EB",
+                }}
+              >
+                {isVideoUrl(item.originalMomentSnapshot.mediaUrls[0]) ? (
+                  <Video
+                    source={{ uri: item.originalMomentSnapshot.mediaUrls[0] }}
+                    style={{ width: "100%", height: "100%" }}
+                    resizeMode={ResizeMode.COVER}
+                    shouldPlay={isMomentVisible}
+                    isLooping={isMomentVisible}
+                    useNativeControls
+                  />
+                ) : (
+                  <Image
+                    source={{ uri: item.originalMomentSnapshot.mediaUrls[0] }}
+                    style={{ width: "100%", height: "100%" }}
+                    resizeMode="cover"
+                  />
+                )}
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        ) : null}
+
+        <View className="mt-4 flex-row items-center justify-between rounded-2xl bg-[#F7F9FC] px-3 py-2">
+          <Text className="text-xs font-medium text-gray-500">
+            {`${item.reactionCount} cảm xúc`}
+          </Text>
+          <Text className="text-xs font-medium text-gray-500">
+            {`${item.commentCount} bình luận`}
+          </Text>
+          <Text className="text-xs font-medium text-gray-500">
+            {`${item.shareCount} chia sẻ`}
+          </Text>
+        </View>
+
+        <View className="mt-3 flex-row">
+          <TouchableOpacity
+            activeOpacity={0.85}
+            onPress={() => openReactionPicker(item.momentId)}
+            className={`mr-2 flex-1 flex-row items-center justify-center rounded-2xl px-3 py-3 ${
+              item.currentUserReaction ? "bg-[#E8F0FF]" : "bg-[#F4F6FB]"
+            }`}
+          >
+            {activeReaction ? (
+              <Text className="text-lg">{activeReaction.icon}</Text>
+            ) : (
+              <Ionicons name="heart-outline" size={18} color="#6B7280" />
+            )}
+            <Text
+              className={`ml-2 text-sm font-semibold ${
+                item.currentUserReaction ? "text-[#0068FF]" : "text-gray-600"
+              }`}
+            >
+              {activeReaction?.icon || "Cảm xúc"}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            activeOpacity={0.85}
+            onPress={() => openComments(item)}
+            className="mr-2 flex-1 flex-row items-center justify-center rounded-2xl bg-[#F4F6FB] px-3 py-3"
+          >
+            <Ionicons
+              name="chatbubble-ellipses-outline"
+              size={18}
+              color="#6B7280"
+            />
+            <Text className="ml-2 text-sm font-semibold text-gray-600">
+              Bình luận
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            activeOpacity={0.85}
+            onPress={() => handleShareMoment(item)}
+            className="flex-1 flex-row items-center justify-center rounded-2xl bg-[#F4F6FB] px-3 py-3"
+          >
+            <Ionicons
+              name="share-social-outline"
+              size={18}
+              color="#6B7280"
+            />
+            <Text className="ml-2 text-sm font-semibold text-gray-600">
+              Chia sẻ
+            </Text>
+          </TouchableOpacity>
         </View>
       </View>
     );
@@ -782,7 +1088,8 @@ export default function MomentsScreen() {
           >
             {composerMedia.map((media, index) => (
               <View key={`${media.uri}-${index}`} className="mr-3">
-                {media.mediaType === "video" || isVideoMimeType(media.mimeType) ? (
+                {media.mediaType === "video" ||
+                isVideoMimeType(media.mimeType) ? (
                   <Video
                     source={{ uri: media.uri }}
                     style={{
@@ -927,6 +1234,8 @@ export default function MomentsScreen() {
         renderItem={renderMomentCard}
         ListHeaderComponent={headerComponent}
         ListEmptyComponent={!isLoading ? renderEmptyState : null}
+        onViewableItemsChanged={onViewableItemsChanged.current}
+        viewabilityConfig={viewabilityConfigRef.current}
         refreshControl={
           <RefreshControl
             refreshing={isRefreshing}
@@ -937,6 +1246,234 @@ export default function MomentsScreen() {
         contentContainerStyle={{ paddingBottom: 24 }}
         showsVerticalScrollIndicator={false}
       />
+
+      <Modal
+        visible={Boolean(mediaViewer)}
+        animationType="fade"
+        onRequestClose={closeMediaViewer}
+      >
+        <View className="flex-1 bg-black" style={{ paddingTop: insets.top }}>
+          <View className="flex-row items-center justify-between px-4 py-3">
+            <TouchableOpacity
+              onPress={closeMediaViewer}
+              className="h-10 w-10 items-center justify-center rounded-full bg-white/15"
+            >
+              <Ionicons name="close" size={22} color="white" />
+            </TouchableOpacity>
+            <Text className="text-sm font-semibold text-white">
+              {mediaViewer
+                ? `${activeViewerIndex + 1}/${mediaViewer.mediaUrls.length}`
+                : ""}
+            </Text>
+          </View>
+
+          {mediaViewer ? (
+            <FlatList
+              ref={mediaViewerListRef}
+              data={mediaViewer.mediaUrls}
+              horizontal
+              pagingEnabled
+              initialScrollIndex={mediaViewer.initialIndex}
+              keyExtractor={(item, index) => `${mediaViewer.momentId}-${index}-${item}`}
+              getItemLayout={(_, index) => ({
+                length: windowWidth,
+                offset: windowWidth * index,
+                index,
+              })}
+              onViewableItemsChanged={onViewerViewableItemsChanged.current}
+              viewabilityConfig={viewabilityConfigRef.current}
+              renderItem={({ item, index }) => (
+                <View
+                  style={{
+                    width: windowWidth,
+                    flex: 1,
+                    justifyContent: "center",
+                    alignItems: "center",
+                    paddingHorizontal: 12,
+                    paddingBottom: Math.max(insets.bottom, 20),
+                  }}
+                >
+                  {isVideoUrl(item) ? (
+                    <Video
+                      source={{ uri: item }}
+                      style={{
+                        width: windowWidth - 24,
+                        height: viewerMediaHeight,
+                        borderRadius: 24,
+                        backgroundColor: "#000000",
+                      }}
+                      resizeMode={ResizeMode.CONTAIN}
+                      shouldPlay={activeViewerIndex === index}
+                      isLooping={activeViewerIndex === index}
+                      useNativeControls
+                    />
+                  ) : (
+                    <Image
+                      source={{ uri: item }}
+                      style={{
+                        width: windowWidth - 24,
+                        height: viewerMediaHeight,
+                        borderRadius: 24,
+                        backgroundColor: "#000000",
+                      }}
+                      resizeMode="contain"
+                    />
+                  )}
+                </View>
+              )}
+              showsHorizontalScrollIndicator={false}
+            />
+          ) : null}
+        </View>
+      </Modal>
+
+      <Modal
+        visible={Boolean(editingMoment)}
+        animationType="slide"
+        onRequestClose={closeEditMoment}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          className="flex-1 bg-[#F7F9FC]"
+        >
+          <View className="flex-1 bg-[#F7F9FC]">
+            <View
+              className="flex-row items-center justify-between border-b border-gray-200 bg-white px-4 py-4"
+              style={{ paddingTop: insets.top + 12 }}
+            >
+              <TouchableOpacity onPress={closeEditMoment}>
+                <Ionicons name="close" size={24} color="#111827" />
+              </TouchableOpacity>
+              <Text className="text-base font-bold text-gray-900">
+                Chỉnh sửa khoảnh khắc
+              </Text>
+              <TouchableOpacity
+                disabled={!canSaveEdit}
+                onPress={handleSaveMomentEdit}
+              >
+                <Text
+                  className={`text-sm font-semibold ${
+                    canSaveEdit ? "text-[#0068FF]" : "text-gray-400"
+                  }`}
+                >
+                  {isEditSubmitting ? "Đang lưu..." : "Lưu"}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView
+              className="flex-1"
+              contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
+            >
+              <View className="rounded-[28px] bg-white px-4 py-4">
+                <Text className="text-sm font-semibold text-gray-900">
+                  Chú thích
+                </Text>
+                <TextInput
+                  value={editText}
+                  onChangeText={setEditText}
+                  placeholder="Cập nhật nội dung bài viết..."
+                  placeholderTextColor="#9CA3AF"
+                  multiline
+                  className="mt-3 min-h-[120px] rounded-[22px] bg-[#F6F8FC] px-4 py-4 text-[15px] text-gray-900"
+                  textAlignVertical="top"
+                />
+
+                {editMedia.length > 0 ? (
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    className="mt-4"
+                  >
+                    {editMedia.map((media) => (
+                      <View key={media.id} className="mr-3">
+                        {media.mediaType === "video" ||
+                        isVideoMimeType(media.mimeType) ? (
+                          <Video
+                            source={{ uri: media.uri }}
+                            style={{
+                              width: 288,
+                              height: 192,
+                              borderRadius: 22,
+                              backgroundColor: "#000000",
+                            }}
+                            resizeMode={ResizeMode.COVER}
+                            shouldPlay={false}
+                            isLooping={false}
+                            useNativeControls
+                          />
+                        ) : (
+                          <Image
+                            source={{ uri: media.uri }}
+                            className="h-48 w-72 rounded-[22px]"
+                            resizeMode="cover"
+                          />
+                        )}
+
+                        <TouchableOpacity
+                          onPress={() => handleRemoveEditMedia(media.id)}
+                          className="absolute right-3 top-3 h-9 w-9 items-center justify-center rounded-full bg-black/60"
+                        >
+                          <Ionicons name="close" size={18} color="white" />
+                        </TouchableOpacity>
+
+                        <View className="absolute bottom-3 left-3 rounded-full bg-black/60 px-3 py-1">
+                          <Text className="text-xs font-semibold text-white">
+                            {media.existing
+                              ? media.mediaType === "video"
+                                ? "Video hiện tại"
+                                : "Ảnh hiện tại"
+                              : media.mediaType === "video"
+                                ? "Video mới"
+                                : "Ảnh mới"}
+                          </Text>
+                        </View>
+                      </View>
+                    ))}
+                  </ScrollView>
+                ) : (
+                  <View className="mt-4 rounded-[22px] border border-dashed border-gray-300 bg-[#F8FAFC] px-4 py-6">
+                    <Text className="text-center text-sm text-gray-500">
+                      Chưa còn media nào. Hãy giữ lại ít nhất một media hoặc
+                      thêm caption.
+                    </Text>
+                  </View>
+                )}
+
+                <View className="mt-4 flex-row items-center">
+                  <TouchableOpacity
+                    activeOpacity={0.85}
+                    onPress={handlePickEditMedia}
+                    className="mr-3 flex-row items-center rounded-full bg-[#E8F0FF] px-4 py-3"
+                  >
+                    <Ionicons
+                      name="images-outline"
+                      size={18}
+                      color={Colors.primary}
+                    />
+                    <Text className="ml-2 text-sm font-semibold text-[#0068FF]">
+                      Thêm ảnh/video
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    activeOpacity={0.85}
+                    disabled={!canSaveEdit}
+                    onPress={handleSaveMomentEdit}
+                    className={`flex-1 items-center rounded-full px-4 py-3 ${
+                      canSaveEdit ? "bg-[#0068FF]" : "bg-[#BFD5FF]"
+                    }`}
+                  >
+                    <Text className="text-sm font-bold text-white">
+                      {isEditSubmitting ? "Đang lưu..." : "Lưu thay đổi"}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </ScrollView>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
 
       <Modal
         visible={Boolean(reactionPickerMomentId)}
@@ -1109,9 +1646,25 @@ export default function MomentsScreen() {
                                 `Người dùng ${item.userId}`,
                               )}
                             </Text>
-                            <Text className="text-xs text-gray-500">
-                              {formatRelativeTime(item.createdAt)}
-                            </Text>
+                            <View className="flex-row items-center">
+                              <Text className="text-xs text-gray-500">
+                                {formatRelativeTime(item.createdAt)}
+                              </Text>
+                              {item.canDelete ? (
+                                <TouchableOpacity
+                                  activeOpacity={0.85}
+                                  disabled={deletingCommentId === item.commentId}
+                                  onPress={() => handleDeleteComment(item)}
+                                  className="ml-3 h-7 w-7 items-center justify-center rounded-full bg-[#FFF1F2]"
+                                >
+                                  <Ionicons
+                                    name="trash-outline"
+                                    size={14}
+                                    color="#E11D48"
+                                  />
+                                </TouchableOpacity>
+                              ) : null}
+                            </View>
                           </View>
 
                           {item.replyTo ? (

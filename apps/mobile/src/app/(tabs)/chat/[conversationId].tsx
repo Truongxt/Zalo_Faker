@@ -227,7 +227,7 @@ export default function ChatRoomScreen() {
     const socket = socketService.connect();
     if (!socket) return;
 
-    socket.emit("chat:join", { conversationId: convId });
+    socketService.joinRoom(convId);
 
     const onTyping = ({ userId, conversationId: cId }: any) => {
       if (cId !== convId || userId === user.id) return;
@@ -244,7 +244,7 @@ export default function ChatRoomScreen() {
     socket.on("chat:stop_typing", onStopTyping);
 
     return () => {
-      socket.emit("chat:leave", { conversationId: convId });
+      socketService.leaveRoom(convId);
       socket.off("chat:typing", onTyping);
       socket.off("chat:stop_typing", onStopTyping);
     };
@@ -260,7 +260,7 @@ export default function ChatRoomScreen() {
   const handleTextChange = (val: string) => {
     setText(val);
     if (convId && user) {
-      socketService.emit("chat:typing", { conversationId: convId, userId: user.id });
+      socketService.emit("chat:typing", { conversationId: convId });
     }
   };
 
@@ -270,7 +270,7 @@ export default function ChatRoomScreen() {
     setText("");
     setIsSending(true);
     if (convId && user) {
-      socketService.emit("chat:stop_typing", { conversationId: convId, userId: user.id });
+      socketService.emit("chat:stop_typing", { conversationId: convId });
     }
     try {
       await chatService.sendMessage(convId, { type: "text", content: trimmed });
