@@ -74,6 +74,10 @@ router.post("/requests/accept", auth, friendController.acceptFriendRequest);
  *         description: Thành công
  */
 router.post("/requests/reject", auth, friendController.rejectFriendRequest);
+router.delete("/:friendId", auth, friendController.removeFriend);
+router.post("/block/:targetUserId", auth, friendController.blockUser);
+router.delete("/block/:targetUserId", auth, friendController.unblockUser);
+router.get("/blocked/:userId", auth, friendController.getBlockedUsers);
 
 
 /**

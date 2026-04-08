@@ -5,10 +5,11 @@ const conversationModel = require("../models/conversation");
 const GroupService = require("../services/groupService");
 const userRepository = require("../repository/userRepository");
 const { verifyAccessToken } = require("../utils/jwt");
-const { redisClient, getIsRedisReady } = require("../utils/redisClient");
+const { redisClient, getIsRedisReady, safeGet } = require("../utils/redisClient");
 
 const presenceKey = (userId, platform) => `presence:${userId}:${platform}`;
 const allPresencePattern = (userId) => `presence:${userId}:*`;
+const sessionKey = (userId) => `auth:session:${String(userId)}`;
 
 const MEDIA_FALLBACK_BY_TYPE = {
   image: "[Hinh anh]",
@@ -49,7 +50,7 @@ module.exports = (socketConfig) => {
     cors: { origin: "*" },
   });
 
-  io.use((socket, next) => {
+  io.use(async (socket, next) => {
     try {
       const token = socket.handshake.auth?.token;
       if (!token) {
@@ -66,9 +67,20 @@ module.exports = (socketConfig) => {
         return next(new Error("Authentication error: Account is not active"));
       }
 
+      const decodedSessionId = decoded.sessionId;
+      if (!decodedSessionId) {
+        return next(new Error("Authentication error: Session expired"));
+      }
+
+      const activeSessionId = await safeGet(sessionKey(decoded.userId));
+      if (!activeSessionId || activeSessionId !== decodedSessionId) {
+        return next(new Error("Authentication error: Session expired"));
+      }
+
       socket.userId = String(decoded.userId);
       socket.userEmail = decoded.email;
       socket.platform = socket.handshake.auth?.platform || "web";
+      socket.sessionId = String(decodedSessionId);
 
       next();
     } catch (err) {
@@ -94,15 +106,14 @@ module.exports = (socketConfig) => {
     }
   };
 
-  const getSocketIdForUser = async (userId) => {
-    if (!getIsRedisReady()) return null;
-
-    for (const platform of ["mobile", "web"]) {
-      const socketId = await redisClient.get(presenceKey(userId, platform));
-      if (socketId) return socketId;
+  const emitToUserRoom = (targetUserId, event, payload) => {
+    const roomId = `user:${String(targetUserId)}`;
+    const room = io.sockets.adapter.rooms.get(roomId);
+    const hasOnlineSocket = Boolean(room && room.size > 0);
+    if (hasOnlineSocket) {
+      io.to(roomId).emit(event, payload);
     }
-
-    return null;
+    return hasOnlineSocket;
   };
 
   const isMemberOfConversation = (conversation, userId) =>
@@ -137,6 +148,32 @@ module.exports = (socketConfig) => {
     ids.forEach((id) => socket.join(toRoomId(id)));
   };
 
+  const forceLogoutOlderSessions = (socket) => {
+    const roomId = `user:${socket.userId}`;
+    const roomMembers = io.sockets.adapter.rooms.get(roomId);
+    if (!roomMembers || roomMembers.size <= 1) return;
+
+    for (const socketId of roomMembers) {
+      if (socketId === socket.id) continue;
+      const existingSocket = io.sockets.sockets.get(socketId);
+      if (!existingSocket) continue;
+
+      const sameSession = existingSocket.sessionId && existingSocket.sessionId === socket.sessionId;
+      if (sameSession) continue;
+
+      existingSocket.emit("session:force_logout", {
+        reason: "Co tai khoan da dang nhap tren thiet bi khac.",
+        platform: socket.platform,
+      });
+
+      setTimeout(() => {
+        if (existingSocket.connected) {
+          existingSocket.disconnect(true);
+        }
+      }, 300);
+    }
+  };
+
   io.on("connection", async (socket) => {
     const { userId, platform } = socket;
     console.log(`Socket connected: ${socket.id} | User: ${userId} | Platform: ${platform}`);
@@ -144,23 +181,12 @@ module.exports = (socketConfig) => {
     socket.join(`user:${userId}`);
 
     try {
+      forceLogoutOlderSessions(socket);
+
       const wasOnlineBefore = await isUserOnline(userId);
 
       if (getIsRedisReady()) {
         const key = presenceKey(userId, platform);
-        const existingSocketId = await redisClient.get(key);
-
-        if (existingSocketId && existingSocketId !== socket.id) {
-          const existingSocket = io.sockets.sockets.get(existingSocketId);
-          if (existingSocket) {
-            existingSocket.emit("session:force_logout", {
-              reason: `Tai khoan cua ban da duoc dang nhap tren mot thiet bi ${platform === "mobile" ? "di dong" : "web"} khac.`,
-              platform,
-            });
-            setTimeout(() => existingSocket.disconnect(true), 500);
-          }
-        }
-
         await redisClient.set(key, socket.id);
       }
 
@@ -424,33 +450,31 @@ module.exports = (socketConfig) => {
     });
 
     socket.on("video:call-user", async (data) => {
-      const toSocketId = await getSocketIdForUser(String(data.toUserId));
-      if (toSocketId) {
-        io.to(toSocketId).emit("video:incoming-call", data);
-      } else {
+      const delivered = emitToUserRoom(data.toUserId, "video:incoming-call", data);
+      if (!delivered) {
         socket.emit("video:user-offline", { toUserId: data.toUserId });
       }
     });
 
     socket.on("video:answer-call", async (data) => {
-      const toSocketId = await getSocketIdForUser(String(data.toUserId));
-      if (toSocketId) {
-        io.to(toSocketId).emit("video:call-answered", data);
-      }
+      emitToUserRoom(data.toUserId, "video:call-answered", data);
     });
 
     socket.on("video:reject-call", async (data) => {
-      const toSocketId = await getSocketIdForUser(String(data.toUserId));
-      if (toSocketId) {
-        io.to(toSocketId).emit("video:call-rejected", data);
-      }
+      emitToUserRoom(data.toUserId, "video:call-rejected", data);
     });
 
     socket.on("video:end-call", async (data) => {
-      const toSocketId = await getSocketIdForUser(String(data.toUserId));
-      if (toSocketId) {
-        io.to(toSocketId).emit("video:call-ended", data);
-      }
+      emitToUserRoom(data.toUserId, "video:call-ended", data);
+    });
+
+    socket.on("video:signal", async (data) => {
+      // Relay WebRTC SDP / ICE between caller and callee
+      emitToUserRoom(data.toUserId, "video:signal", {
+        fromUserId: socket.userId,
+        conversationId: data.conversationId,
+        signal: data.signal,
+      });
     });
 
     socket.on("presence:get_online_users", async (userIds, callback) => {

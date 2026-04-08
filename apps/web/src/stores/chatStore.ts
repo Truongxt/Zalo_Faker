@@ -151,6 +151,77 @@ export interface Conversation {
     updatedAt: string
 }
 
+const getConversationTimestamp = (conv: Partial<Conversation> & Record<string, any>) => {
+    const updatedAt = conv.updatedAt ? new Date(conv.updatedAt).getTime() : 0
+    const lastMessageTs = conv.lastMessage?.timestamp
+        ? new Date(conv.lastMessage.timestamp).getTime()
+        : 0
+    return Math.max(updatedAt, lastMessageTs)
+}
+
+const buildConversationKey = (conv: Partial<Conversation> & Record<string, any>) => {
+    if (conv.type === 'private') {
+        const participantKey = (conv.participants || [])
+            .map((p: any) => String(p?.userId || ''))
+            .filter(Boolean)
+            .sort()
+            .join('|')
+        if (participantKey) return `private:${participantKey}`
+    }
+
+    const id = conv.id || conv._id
+    if (id) return `id:${String(id)}`
+
+    const groupParticipantKey = (conv.participants || [])
+        .map((p: any) => String(p?.userId || ''))
+        .filter(Boolean)
+        .sort()
+        .join('|')
+    return `group:${conv.name || ''}:${groupParticipantKey}`
+}
+
+const normalizeConversation = (conv: Partial<Conversation> & Record<string, any>): Conversation => ({
+    ...(conv as Conversation),
+    id: String(conv.id || conv._id || ''),
+    participants: Array.isArray(conv.participants) ? conv.participants : [],
+    unreadCount: Number(conv.unreadCount || 0),
+    createdAt: conv.createdAt || new Date().toISOString(),
+    updatedAt: conv.updatedAt || conv.lastMessage?.timestamp || new Date().toISOString(),
+})
+
+const dedupeConversations = (conversations: Array<Partial<Conversation> & Record<string, any>>) => {
+    const bestByKey = new Map<string, Conversation>()
+
+    for (const conv of conversations) {
+        if (!conv) continue
+        const normalized = normalizeConversation(conv)
+        const key = buildConversationKey(normalized)
+        const existing = bestByKey.get(key)
+
+        if (!existing) {
+            bestByKey.set(key, normalized)
+            continue
+        }
+
+        const currentTs = getConversationTimestamp(normalized)
+        const existingTs = getConversationTimestamp(existing)
+        const newer = currentTs >= existingTs ? normalized : existing
+        const older = currentTs >= existingTs ? existing : normalized
+
+        // Keep richer data when merging duplicates
+        bestByKey.set(key, {
+            ...older,
+            ...newer,
+            participants: newer.participants?.length ? newer.participants : older.participants,
+            unreadCount: Math.max(Number(older.unreadCount || 0), Number(newer.unreadCount || 0)),
+            lastMessage: newer.lastMessage || older.lastMessage,
+            updatedAt: newer.updatedAt || older.updatedAt,
+        })
+    }
+
+    return Array.from(bestByKey.values())
+}
+
 interface ChatState {
     conversations: Conversation[]
     activeConversation: Conversation | null
@@ -209,10 +280,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
         labels: state.labels.filter(l => l._id !== id)
     })),
 
-    setConversations: (conversations) => set({ conversations }),
+    setConversations: (conversations) => set({
+        conversations: dedupeConversations(conversations)
+    }),
 
     addConversation: (conversation) => set((state) => ({
-        conversations: [conversation, ...state.conversations]
+        conversations: dedupeConversations([conversation, ...state.conversations])
     })),
 
     updateConversation: (id, updates) => set((state) => ({

@@ -6,28 +6,42 @@ class SocketService {
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
   private joinedRooms = new Set<string>();
+  private hasWarnedNoToken = false;
+  private hasWarnedConnectError = false;
 
   connect() {
     const { accessToken } = useAuthStore.getState();
+    const token = typeof accessToken === "string" ? accessToken.trim() : "";
+
+    if (!token) {
+      if (!this.hasWarnedNoToken) {
+        console.warn("Socket connect skipped: missing access token");
+        this.hasWarnedNoToken = true;
+      }
+      return this.socket;
+    }
+    this.hasWarnedNoToken = false;
 
     if (this.socket?.connected) return this.socket;
     if (this.socket && !this.socket.connected) {
-      this.socket.auth = { token: accessToken, platform: "mobile" };
+      this.socket.auth = { token, platform: "mobile" };
       this.socket.connect();
       return this.socket;
     }
 
     this.socket = io(SOCKET_URL, {
-      auth: { token: accessToken, platform: "mobile" },
-      transports: ["websocket", "polling"],
+      auth: { token, platform: "mobile" },
+      transports: ["polling", "websocket"],
       reconnection: true,
       reconnectionAttempts: this.maxReconnectAttempts,
       reconnectionDelay: 1000,
+      timeout: 10000,
     });
 
     this.socket.on("connect", () => {
       console.log("Socket connected");
       this.reconnectAttempts = 0;
+      this.hasWarnedConnectError = false;
       this.joinedRooms.forEach((conversationId) => {
         this.socket?.emit("room:join", conversationId);
       });
@@ -38,7 +52,11 @@ class SocketService {
     });
 
     this.socket.on("connect_error", (error) => {
-      console.error("Socket connection error:", error?.message || error);
+      // Avoid LogBox red screen spam on temporary transport failures in emulator/dev env.
+      if (!this.hasWarnedConnectError) {
+        console.warn("Socket connection issue:", error?.message || error);
+        this.hasWarnedConnectError = true;
+      }
       this.reconnectAttempts++;
     });
 

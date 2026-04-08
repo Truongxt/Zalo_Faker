@@ -25,6 +25,12 @@ const FriendService = {
       if (existing.status === "accepted") {
         throw createError("You are already friends", 409);
       }
+      if (existing.status === "blocked") {
+        if (Number(existing.fromUserId) === toUserId) {
+          throw createError("You are blocked by this user", 403);
+        }
+        throw createError("You blocked this user. Unblock first.", 400);
+      }
 
       throw createError("Friend request already exists", 409);
     }
@@ -83,7 +89,117 @@ const FriendService = {
     }
 
     await friendRepository.rejectRequest(fromUserId, toUserId);
-  }
+  },
+
+  async removeFriend(userId, friendId) {
+    const fromId = Number(userId);
+    const toId = Number(friendId);
+
+    if (!fromId || !toId) {
+      throw createError("userId and friendId are required", 400);
+    }
+
+    if (fromId === toId) {
+      throw createError("Invalid friendId", 400);
+    }
+
+    const [direct, reverse] = await Promise.all([
+      friendRepository.getDirectFriend(fromId, toId),
+      friendRepository.getDirectFriend(toId, fromId),
+    ]);
+
+    const acceptedRelations = [direct, reverse].filter(
+      (relation) => relation && relation.status === "accepted",
+    );
+
+    if (!acceptedRelations.length) {
+      throw createError("Friendship not found", 404);
+    }
+
+    await Promise.all(
+      acceptedRelations.map((relation) =>
+        friendRepository.deleteDirectFriend(relation.fromUserId, relation.toUserId),
+      ),
+    );
+
+    return { removed: true };
+  },
+
+  async blockUser(userId, targetUserId, message = "") {
+    const fromId = Number(userId);
+    const toId = Number(targetUserId);
+
+    if (!fromId || !toId) {
+      throw createError("userId and targetUserId are required", 400);
+    }
+
+    if (fromId === toId) {
+      throw createError("You cannot block yourself", 400);
+    }
+
+    const targetUser = await userRepository.getById(toId);
+    if (!targetUser) {
+      throw createError("Target user not found", 404);
+    }
+
+    const [direct, reverse] = await Promise.all([
+      friendRepository.getDirectFriend(fromId, toId),
+      friendRepository.getDirectFriend(toId, fromId),
+    ]);
+
+    const relationsToDelete = [direct, reverse].filter(
+      (relation) => relation && relation.status !== "blocked",
+    );
+
+    if (relationsToDelete.length) {
+      await Promise.all(
+        relationsToDelete.map((relation) =>
+          friendRepository.deleteDirectFriend(relation.fromUserId, relation.toUserId),
+        ),
+      );
+    }
+
+    const blockedRelation = await friendRepository.upsertBlock(fromId, toId, message);
+    return blockedRelation;
+  },
+
+  async unblockUser(userId, targetUserId) {
+    const fromId = Number(userId);
+    const toId = Number(targetUserId);
+
+    if (!fromId || !toId) {
+      throw createError("userId and targetUserId are required", 400);
+    }
+
+    const direct = await friendRepository.getDirectFriend(fromId, toId);
+    if (!direct || direct.status !== "blocked") {
+      throw createError("Blocked user not found", 404);
+    }
+
+    await friendRepository.deleteDirectFriend(fromId, toId);
+    return { unblocked: true };
+  },
+
+  async getBlockedUsers(userId) {
+    const uid = Number(userId);
+    if (!uid) {
+      throw createError("userId is required", 400);
+    }
+
+    const relations = await friendRepository.getBlockedUsers(uid);
+    const users = await Promise.all(
+      relations.map(async (relation) => {
+        const targetUser = await userRepository.getById(relation.toUserId);
+        if (!targetUser) return null;
+        return {
+          ...targetUser,
+          blockedAt: relation.updatedAt || relation.createdAt,
+        };
+      }),
+    );
+
+    return users.filter(Boolean);
+  },
 
 }
 

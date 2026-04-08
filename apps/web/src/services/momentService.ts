@@ -1,4 +1,4 @@
-import { baseAPI, fetchWithAuth } from './api';
+import { fetchWithAuth } from './api';
 import type { Moment, MomentComment, MomentProfile } from '../types/moment';
 
 export interface MomentImageFile {
@@ -30,7 +30,7 @@ class MomentService {
       return response.json();
     }
 
-    const response = await fetchWithAuth(`${baseAPI}/moments`, {
+    const response = await fetchWithAuth(`/moments`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

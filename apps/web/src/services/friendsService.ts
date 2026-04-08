@@ -70,6 +70,14 @@ export const friendsService = {
         return response.json();
     },
 
+    async rejectFriendRequest(fromUserId: string, toUserId: string): Promise<any> {
+        const response = await fetchWithAuth(`/friends/requests/reject`, {
+            method: 'POST',
+            body: JSON.stringify({ fromUserId, toUserId })
+        });
+        return response.json();
+    },
+
     async sendFriendRequest(fromUserId: string, toUserId: string, message: string): Promise<any> {
         const response = await fetchWithAuth(`/friends/requests`, {
             method: 'POST',
@@ -86,5 +94,33 @@ export const friendsService = {
         } catch (error: any) {
             return null;
         }
-    }
+    },
+
+    async removeFriend(friendId: string): Promise<any> {
+        const response = await fetchWithAuth(`/friends/${friendId}`, {
+            method: 'DELETE'
+        });
+        return response.json();
+    },
+
+    async blockUser(targetUserId: string, message = ''): Promise<any> {
+        const response = await fetchWithAuth(`/friends/block/${targetUserId}`, {
+            method: 'POST',
+            body: JSON.stringify({ message })
+        });
+        return response.json();
+    },
+
+    async unblockUser(targetUserId: string): Promise<any> {
+        const response = await fetchWithAuth(`/friends/block/${targetUserId}`, {
+            method: 'DELETE'
+        });
+        return response.json();
+    },
+
+    async getBlockedUsers(userId: string): Promise<any[]> {
+        const response = await fetchWithAuth(`/friends/blocked/${userId}`);
+        const data = await response.json();
+        return data?.data || [];
+    },
 };

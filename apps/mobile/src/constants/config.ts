@@ -8,7 +8,10 @@ const DEFAULT_API_URL = Platform.select({
 
 export const API_URL = process.env.EXPO_PUBLIC_API_URL || DEFAULT_API_URL;
 
-export const SOCKET_URL = process.env.EXPO_PUBLIC_API_URL || DEFAULT_API_URL;
+export const SOCKET_URL =
+  process.env.EXPO_PUBLIC_SOCKET_URL ||
+  process.env.EXPO_PUBLIC_API_URL ||
+  DEFAULT_API_URL;
 
 export const APP_CONFIG = {
   name: "Zalo Faker",

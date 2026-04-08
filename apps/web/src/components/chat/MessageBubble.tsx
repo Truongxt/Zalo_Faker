@@ -181,22 +181,29 @@ export default function MessageBubble({
 
             case 'file':
                 return (
-                    <a
-                        href={content.mediaUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-3 p-3 bg-black/10 dark:bg-white/10 rounded-lg hover:bg-black/20 dark:hover:bg-white/20 transition-colors"
-                    >
-                        <div className="w-10 h-10 bg-primary-500 rounded-lg flex items-center justify-center text-white text-sm font-medium">
-                            {content.fileName?.split('.').pop()?.toUpperCase() || 'FILE'}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                            <p className="font-medium truncate">{content.fileName}</p>
-                            <p className="text-sm opacity-70">
-                                {content.fileSize ? `${(content.fileSize / 1024).toFixed(1)} KB` : ''}
+                    <div className="flex flex-col gap-2">
+                        {content.text && (
+                            <p className="whitespace-pre-wrap [overflow-wrap:anywhere] [word-break:break-word]">
+                                {content.text}
                             </p>
-                        </div>
-                    </a>
+                        )}
+                        <a
+                            href={content.mediaUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-3 p-3 bg-black/10 dark:bg-white/10 rounded-lg hover:bg-black/20 dark:hover:bg-white/20 transition-colors"
+                        >
+                            <div className="w-10 h-10 bg-primary-500 rounded-lg flex items-center justify-center text-white text-sm font-medium">
+                                {content.fileName?.split('.').pop()?.toUpperCase() || 'FILE'}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <p className="font-medium truncate">{content.fileName}</p>
+                                <p className="text-sm opacity-70">
+                                    {content.fileSize ? `${(content.fileSize / 1024).toFixed(1)} KB` : ''}
+                                </p>
+                            </div>
+                        </a>
+                    </div>
                 )
 
             case 'sticker':

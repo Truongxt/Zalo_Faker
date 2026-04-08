@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useAuthStore } from '@/stores/authStore';
 import { formatDistanceToNow } from 'date-fns';
 import { vi } from 'date-fns/locale';
@@ -74,10 +74,38 @@ export default function MomentCard({
   const [showReactions, setShowReactions] = useState(false);
   const [showComments, setShowComments] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
+  const hideReactionsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleReactionMouseEnter = () => {
+    if (hideReactionsTimeoutRef.current) {
+      clearTimeout(hideReactionsTimeoutRef.current);
+      hideReactionsTimeoutRef.current = null;
+    }
+    setShowReactions(true);
+  };
+
+  const handleReactionMouseLeave = () => {
+    if (hideReactionsTimeoutRef.current) {
+      clearTimeout(hideReactionsTimeoutRef.current);
+    }
+    hideReactionsTimeoutRef.current = setTimeout(() => {
+      setShowReactions(false);
+      hideReactionsTimeoutRef.current = null;
+    }, 120);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (hideReactionsTimeoutRef.current) {
+        clearTimeout(hideReactionsTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const activeReaction = REACTION_OPTIONS.find(
     (reaction) => reaction.key === moment.currentUserReaction,
   );
+  const summaryReactionIcon = activeReaction?.icon || '❤️';
 
   return (
     <div className="mb-4 overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm dark:border-gray-800 dark:bg-dark-200">
@@ -116,6 +144,7 @@ export default function MomentCard({
         {moment.isOwner && (
           <div className="relative">
             <button
+              type="button"
               onClick={() => setShowMenu(!showMenu)}
               className="rounded-full p-1 text-gray-500 transition-colors hover:bg-gray-100 dark:hover:bg-dark-300"
             >
@@ -129,6 +158,7 @@ export default function MomentCard({
                 />
                 <div className="absolute right-0 z-20 mt-1 w-36 rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-gray-700 dark:bg-dark-300">
                   <button
+                    type="button"
                     onClick={() => {
                       setShowMenu(false);
                       onDelete(moment.momentId);
@@ -200,7 +230,7 @@ export default function MomentCard({
           {moment.reactionCount > 0 && (
             <>
               <span className="flex h-4 w-4 items-center justify-center rounded-full bg-primary-100 text-[10px] text-primary-600 dark:bg-primary-900/30 dark:text-primary-400">
-                ❤️
+                {summaryReactionIcon}
               </span>
               <span>{moment.reactionCount}</span>
             </>
@@ -215,13 +245,18 @@ export default function MomentCard({
       <div className="relative flex justify-between px-2 py-1">
         <div
           className="relative flex-1"
-          onMouseEnter={() => setShowReactions(true)}
-          onMouseLeave={() => setShowReactions(false)}
+          onMouseEnter={handleReactionMouseEnter}
+          onMouseLeave={handleReactionMouseLeave}
         >
           {showReactions && (
-            <div className="absolute bottom-full left-0 z-10 mb-2 flex gap-1 rounded-full border border-gray-100 bg-white p-1 shadow-lg animate-fade-in dark:border-gray-700 dark:bg-dark-300">
+            <div
+              className="absolute bottom-full left-0 z-10 mb-2 flex gap-1 rounded-full border border-gray-100 bg-white p-1 shadow-lg animate-fade-in dark:border-gray-700 dark:bg-dark-300"
+              onMouseEnter={handleReactionMouseEnter}
+              onMouseLeave={handleReactionMouseLeave}
+            >
               {REACTION_OPTIONS.map((reaction) => (
                 <button
+                  type="button"
                   key={reaction.key}
                   onClick={() => {
                     setShowReactions(false);
@@ -236,9 +271,8 @@ export default function MomentCard({
             </div>
           )}
           <button
-            onClick={() =>
-              onReact(moment.momentId, activeReaction ? 'like' : 'like')
-            }
+            type="button"
+            onClick={() => onReact(moment.momentId, activeReaction ? activeReaction.key : 'like')}
             className={`flex w-full items-center justify-center gap-2 rounded-lg py-2 text-sm font-medium transition-colors hover:bg-gray-50 dark:hover:bg-dark-300 ${
               activeReaction
                 ? 'text-primary-500'
@@ -255,6 +289,7 @@ export default function MomentCard({
         </div>
 
         <button
+          type="button"
           onClick={() => setShowComments(!showComments)}
           className="flex flex-1 items-center justify-center gap-2 rounded-lg py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 dark:text-gray-400 dark:hover:bg-dark-300"
         >
@@ -263,6 +298,7 @@ export default function MomentCard({
         </button>
 
         <button
+          type="button"
           onClick={() => onShare(moment.momentId)}
           className="flex flex-1 items-center justify-center gap-2 rounded-lg py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 dark:text-gray-400 dark:hover:bg-dark-300"
         >
@@ -279,3 +315,4 @@ export default function MomentCard({
     </div>
   );
 }
+

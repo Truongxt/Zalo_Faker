@@ -1,6 +1,8 @@
+import { useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { useAuthStore } from '@/stores/authStore'
 import { ToastProvider } from '@/contexts/ToastContext'
+import { socketService } from '@/lib/socket'
 
 // Pages
 import {
@@ -13,7 +15,12 @@ import {
     Moments,
     Contacts,
     Profile,
-    Settings
+    Settings,
+    ChangePassword,
+    LoginHistory,
+    LockAccount,
+    DeleteAccount,
+    UnlockAccount,
 } from '@/pages'
 
 // Loading component
@@ -58,7 +65,42 @@ function PublicRoute({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
-    const { isLoading, initialized } = useAuthStore()
+    const { isLoading, initialized, user, logout } = useAuthStore()
+
+    useEffect(() => {
+        if (!user?.id) {
+            socketService.disconnect()
+            return
+        }
+
+        socketService.connect(user.id)
+
+        const forceLogout = (reason?: string) => {
+            if (!useAuthStore.getState().user) return
+            window.alert(reason || 'Co tai khoan da dang nhap tren thiet bi khac.')
+            logout()
+            socketService.disconnect()
+            window.location.href = '/login'
+        }
+
+        const handleForceLogout = (data?: { reason?: string }) => {
+            forceLogout(data?.reason)
+        }
+
+        const handleConnectError = (error: { message?: string }) => {
+            const message = String(error?.message || '').toLowerCase()
+            if (!message.includes('session expired')) return
+            forceLogout('Phien dang nhap da het hieu luc. Vui long dang nhap lai.')
+        }
+
+        socketService.on('session:force_logout', handleForceLogout)
+        socketService.on('connect_error', handleConnectError)
+
+        return () => {
+            socketService.off('session:force_logout', handleForceLogout)
+            socketService.off('connect_error', handleConnectError)
+        }
+    }, [user?.id, logout])
 
     // NOTE: Supabase auth listener disabled for mock mode.
     // Uncomment and restore when backend is ready:
@@ -90,6 +132,11 @@ export default function App() {
                     <Route path="/forgot-password" element={
                         <PublicRoute>
                             <ForgotPassword />
+                        </PublicRoute>
+                    } />
+                    <Route path="/unlock-account" element={
+                        <PublicRoute>
+                            <UnlockAccount />
                         </PublicRoute>
                     } />
 
@@ -130,6 +177,26 @@ export default function App() {
                     <Route path="/settings" element={
                         <PrivateRoute>
                             <Settings />
+                        </PrivateRoute>
+                    } />
+                    <Route path="/settings/change-password" element={
+                        <PrivateRoute>
+                            <ChangePassword />
+                        </PrivateRoute>
+                    } />
+                    <Route path="/settings/login-history" element={
+                        <PrivateRoute>
+                            <LoginHistory />
+                        </PrivateRoute>
+                    } />
+                    <Route path="/settings/lock-account" element={
+                        <PrivateRoute>
+                            <LockAccount />
+                        </PrivateRoute>
+                    } />
+                    <Route path="/settings/delete-account" element={
+                        <PrivateRoute>
+                            <DeleteAccount />
                         </PrivateRoute>
                     } />
 

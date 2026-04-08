@@ -59,10 +59,32 @@ export default function Moments() {
   const handleReact = async (momentId: string, emoji: string) => {
     try {
       await momentService.reactToMoment(momentId, emoji);
-      // Thay vì load lại toàn bộ, mình load lại feed hiện tại ẩn đi hoặc chỉnh sửa state
-      loadFeed(activeFeed); // Reload tạm thời để đơn giản
+      setMoments((prev) =>
+        prev.map((moment) => {
+          if (moment.momentId !== momentId) {
+            return moment;
+          }
+
+          const previousReaction = moment.currentUserReaction;
+          const isToggleOff = previousReaction === emoji;
+          const nextReaction = isToggleOff ? null : emoji;
+
+          let nextReactionCount = moment.reactionCount;
+          if (!previousReaction && nextReaction) {
+            nextReactionCount += 1;
+          } else if (previousReaction && !nextReaction) {
+            nextReactionCount = Math.max(0, nextReactionCount - 1);
+          }
+
+          return {
+            ...moment,
+            currentUserReaction: nextReaction,
+            reactionCount: nextReactionCount,
+          };
+        }),
+      );
     } catch (error: any) {
-      addToast(error.message || 'Không thể thả cảm xúc', 'error');
+      addToast(error.message || 'Khong the tha cam xuc', 'error');
     }
   };
 
@@ -176,3 +198,4 @@ export default function Moments() {
     </div>
   );
 }
+
