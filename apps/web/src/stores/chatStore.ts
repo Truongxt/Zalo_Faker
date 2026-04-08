@@ -32,12 +32,49 @@ export interface Message {
     lastRead?: string
 }
 
+const normalizeMessageContent = (rawContent: unknown): Message['content'] => {
+    if (typeof rawContent === 'string') {
+        return { text: rawContent }
+    }
+
+    if (!rawContent || typeof rawContent !== 'object') {
+        return {}
+    }
+
+    const content = rawContent as Record<string, unknown>
+
+    const text =
+        typeof content.text === 'string'
+            ? content.text
+            : typeof content.message === 'string'
+                ? content.message
+                : typeof content.content === 'string'
+                    ? content.content
+                    : undefined
+
+    const mediaUrl =
+        typeof content.mediaUrl === 'string'
+            ? content.mediaUrl
+            : typeof content.url === 'string'
+                ? content.url
+                : typeof content.fileUrl === 'string'
+                    ? content.fileUrl
+                    : undefined
+
+    return {
+        text,
+        mediaUrl,
+        thumbnail: typeof content.thumbnail === 'string' ? content.thumbnail : undefined,
+        fileName: typeof content.fileName === 'string' ? content.fileName : undefined,
+        fileSize: typeof content.fileSize === 'number' ? content.fileSize : undefined,
+        duration: typeof content.duration === 'number' ? content.duration : undefined,
+    }
+}
+
 export const normalizeMessage = (msg: any): Message => ({
     ...msg,
     id: msg?.id || msg?._id || `temp-${Date.now()}-${Math.random()}`,
-    content: typeof msg?.content === 'string'
-        ? { text: msg.content }
-        : (msg?.content || {}),
+    content: normalizeMessageContent(msg?.content),
     reactions: Array.isArray(msg?.reactions) ? msg.reactions : [],
     readBy: Array.isArray(msg?.readBy) ? msg.readBy : [],
     isDeleted: Boolean(msg?.isDeleted),
@@ -197,17 +234,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
     setActiveConversation: (conversation) => set({ activeConversation: conversation }),
 
     setMessages: (conversationId, messages) => set((state) => ({
-        messages: { ...state.messages, [conversationId]: messages }
+        messages: {
+            ...state.messages,
+            [conversationId]: (messages || []).map(normalizeMessage)
+        }
     })),
 
     addMessage: (conversationId, message) => set((state) => {
+        const normalizedMessage = normalizeMessage(message)
         const current = state.messages[conversationId] || []
-        // Tránh trùng lặp ID
-        if (current.some(m => m.id === message.id)) return state
+        if (current.some(m => m.id === normalizedMessage.id)) return state
         return {
             messages: {
                 ...state.messages,
-                [conversationId]: [...current, message]
+                [conversationId]: [...current, normalizedMessage]
             }
         }
     }),
@@ -257,3 +297,5 @@ export const useChatStore = create<ChatState>((set, get) => ({
     getConversationById: (id) => get().conversations.find((c) => c.id === id),
     getMessagesForConversation: (id) => get().messages[id] || [],
 }))
+
+

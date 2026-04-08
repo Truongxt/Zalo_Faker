@@ -9,7 +9,7 @@ const {
 const userRepository = require("../repository/userRepository");
 const refreshTokenRepository = require("../repository/RefreshTokenRepository");
 const loginHistoryRepository = require("../repository/loginHistoryRepository");
-const { redisClient } = require("../utils/redisClient");
+const { safeGet, safeSet, safeDel } = require("../utils/redisClient");
 const { sendOTPEmail } = require("../utils/sendEmail");
 const { uploadFile } = require("./file.service");
 const tableName = "User";
@@ -261,7 +261,7 @@ const UserService = {
     }
 
     const limitKey = `forgot:limit:${normalizedEmail}`;
-    const isLimited = await redisClient.get(limitKey);
+    const isLimited = await safeGet(limitKey);
     if (isLimited) {
       throw new Error("Please wait before requesting a new OTP");
     }
@@ -269,8 +269,8 @@ const UserService = {
     const otp = generateOtp();
     const otpKey = `forgot:otp:${normalizedEmail}`;
 
-    await redisClient.set(otpKey, otp, { EX: FORGOT_OTP_TTL_SECONDS });
-    await redisClient.set(limitKey, "1", { EX: FORGOT_RESEND_LIMIT_SECONDS });
+    await safeSet(otpKey, otp, { EX: FORGOT_OTP_TTL_SECONDS });
+    await safeSet(limitKey, "1", { EX: FORGOT_RESEND_LIMIT_SECONDS });
 
     await sendOTPEmail({
       to: normalizedEmail,
@@ -289,7 +289,7 @@ const UserService = {
     }
 
     const otpKey = `forgot:otp:${normalizedEmail}`;
-    const savedOtp = await redisClient.get(otpKey);
+    const savedOtp = await safeGet(otpKey);
 
     if (!savedOtp) {
       throw new Error("OTP expired or not found");
@@ -300,8 +300,8 @@ const UserService = {
     }
 
     const verifiedKey = `forgot:verified:${normalizedEmail}`;
-    await redisClient.del(otpKey);
-    await redisClient.set(verifiedKey, "1", { EX: FORGOT_VERIFY_TTL_SECONDS });
+    await safeDel(otpKey);
+    await safeSet(verifiedKey, "1", { EX: FORGOT_VERIFY_TTL_SECONDS });
 
     return { message: "OTP verified", expiresIn: FORGOT_VERIFY_TTL_SECONDS };
   },
@@ -320,13 +320,13 @@ const UserService = {
     }
 
     const verifiedKey = `forgot:verified:${normalizedEmail}`;
-    const isVerified = await redisClient.get(verifiedKey);
+    const isVerified = await safeGet(verifiedKey);
     if (!isVerified) {
       throw new Error("OTP verification required");
     }
 
     await UserService.updateUser(user.userId, { password });
-    await redisClient.del(verifiedKey);
+    await safeDel(verifiedKey);
 
     return { message: "Password reset successful" };
   },
@@ -447,7 +447,7 @@ const UserService = {
     }
 
     const limitKey = `lock:limit:${userId}`;
-    const isLimited = await redisClient.get(limitKey);
+    const isLimited = await safeGet(limitKey);
     if (isLimited) {
       throw new Error("Please wait before requesting a new OTP");
     }
@@ -455,8 +455,8 @@ const UserService = {
     const otp = generateOtp();
     const otpKey = `lock:otp:${userId}`;
 
-    await redisClient.set(otpKey, otp, { EX: PERMANENT_LOCK_OTP_TTL_SECONDS });
-    await redisClient.set(limitKey, "1", { EX: PERMANENT_LOCK_RESEND_LIMIT_SECONDS });
+    await safeSet(otpKey, otp, { EX: PERMANENT_LOCK_OTP_TTL_SECONDS });
+    await safeSet(limitKey, "1", { EX: PERMANENT_LOCK_RESEND_LIMIT_SECONDS });
 
     await sendOTPEmail({
       to: user.email,
@@ -494,7 +494,7 @@ const UserService = {
     }
 
     const otpKey = `lock:otp:${userId}`;
-    const savedOtp = await redisClient.get(otpKey);
+    const savedOtp = await safeGet(otpKey);
     if (!savedOtp) {
       throw new Error("OTP expired or not found");
     }
@@ -503,7 +503,7 @@ const UserService = {
       throw new Error("Invalid OTP");
     }
 
-    await redisClient.del(otpKey);
+    await safeDel(otpKey);
     await refreshTokenRepository.deleteByUserId(userId);
 
     const now = new Date().toISOString();
@@ -591,15 +591,15 @@ const UserService = {
     }
 
     const limitKey = `register:limit:${normalizedEmail}`;
-    const isLimited = await redisClient.get(limitKey);
+    const isLimited = await safeGet(limitKey);
     if (isLimited) {
       throw new Error("Please wait before requesting a new OTP");
     }
 
     const otp = generateOtp();
     const otpKey = `register:otp:${normalizedEmail}`;
-    await redisClient.set(otpKey, otp, { EX: FORGOT_OTP_TTL_SECONDS });
-    await redisClient.set(limitKey, "1", { EX: FORGOT_RESEND_LIMIT_SECONDS });
+    await safeSet(otpKey, otp, { EX: FORGOT_OTP_TTL_SECONDS });
+    await safeSet(limitKey, "1", { EX: FORGOT_RESEND_LIMIT_SECONDS });
 
     await sendOTPEmail({
       to: normalizedEmail,
@@ -618,7 +618,7 @@ const UserService = {
     }
 
     const otpKey = `register:otp:${normalizedEmail}`;
-    const savedOtp = await redisClient.get(otpKey);
+    const savedOtp = await safeGet(otpKey);
 
     if (!savedOtp) {
       throw new Error("OTP expired or not found");
@@ -629,8 +629,8 @@ const UserService = {
     }
 
     const verifiedKey = `register:verified:${normalizedEmail}`;
-    await redisClient.del(otpKey);
-    await redisClient.set(verifiedKey, "1", { EX: FORGOT_VERIFY_TTL_SECONDS });
+    await safeDel(otpKey);
+    await safeSet(verifiedKey, "1", { EX: FORGOT_VERIFY_TTL_SECONDS });
 
     return { message: "OTP verified", expiresIn: FORGOT_VERIFY_TTL_SECONDS };
   },
@@ -650,7 +650,7 @@ const UserService = {
 
     const normalizedEmail = normalizeEmail(email);
     const verifiedKey = `register:verified:${normalizedEmail}`;
-    const isVerified = await redisClient.get(verifiedKey);
+    const isVerified = await safeGet(verifiedKey);
     if (!isVerified) {
       throw new Error("Email verification required");
     }
@@ -686,7 +686,7 @@ const UserService = {
     };
 
     const createdUser = await userRepository.register(user);
-    await redisClient.del(verifiedKey);
+    await safeDel(verifiedKey);
 
     return { message: "Registration completed", user: createdUser };
   }
@@ -694,3 +694,4 @@ const UserService = {
 };
 
 module.exports = UserService;
+

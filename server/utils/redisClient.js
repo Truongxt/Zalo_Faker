@@ -15,6 +15,32 @@ const redisClient = createClient({
 });
 
 let isRedisReady = false;
+const memoryStore = new Map();
+
+const setMemoryValue = (key, value, ttlSeconds) => {
+  const expiresAt =
+    Number.isFinite(ttlSeconds) && ttlSeconds > 0
+      ? Date.now() + ttlSeconds * 1000
+      : null;
+
+  memoryStore.set(String(key), { value, expiresAt });
+};
+
+const getMemoryValue = (key) => {
+  const item = memoryStore.get(String(key));
+  if (!item) return null;
+
+  if (item.expiresAt && Date.now() > item.expiresAt) {
+    memoryStore.delete(String(key));
+    return null;
+  }
+
+  return item.value;
+};
+
+const delMemoryValue = (key) => {
+  memoryStore.delete(String(key));
+};
 
 redisClient.on("error", (err) => {
   console.error("Redis Error:", err.message);
@@ -41,8 +67,55 @@ const connectRedis = async () => {
   }
 };
 
+const safeGet = async (key) => {
+  if (isRedisReady) {
+    try {
+      return await redisClient.get(key);
+    } catch (err) {
+      console.warn(`Redis safeGet fallback for key "${key}":`, err.message);
+      isRedisReady = false;
+    }
+  }
+
+  return getMemoryValue(key);
+};
+
+const safeSet = async (key, value, options = {}) => {
+  const ttlSeconds =
+    typeof options === "object" && options !== null ? options.EX : undefined;
+
+  if (isRedisReady) {
+    try {
+      await redisClient.set(key, value, options);
+      return;
+    } catch (err) {
+      console.warn(`Redis safeSet fallback for key "${key}":`, err.message);
+      isRedisReady = false;
+    }
+  }
+
+  setMemoryValue(key, value, ttlSeconds);
+};
+
+const safeDel = async (key) => {
+  if (isRedisReady) {
+    try {
+      await redisClient.del(key);
+      return;
+    } catch (err) {
+      console.warn(`Redis safeDel fallback for key "${key}":`, err.message);
+      isRedisReady = false;
+    }
+  }
+
+  delMemoryValue(key);
+};
+
 module.exports = {
   redisClient,
   connectRedis,
+  safeGet,
+  safeSet,
+  safeDel,
   getIsRedisReady: () => isRedisReady,
-};
+};
