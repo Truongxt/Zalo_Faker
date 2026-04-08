@@ -92,7 +92,10 @@ export default function ContactsScreen() {
       refreshContacts();
     };
 
-    const handleRequestAccepted = (payload: { fromUserId?: number | string; toUserId?: number | string }) => {
+    const handleRequestAccepted = (payload: {
+      fromUserId?: number | string;
+      toUserId?: number | string;
+    }) => {
       if (
         String(payload?.fromUserId) !== String(user.id) &&
         String(payload?.toUserId) !== String(user.id)
@@ -102,7 +105,10 @@ export default function ContactsScreen() {
       refreshContacts();
     };
 
-    const handleRequestRejected = (payload: { fromUserId?: number | string; toUserId?: number | string }) => {
+    const handleRequestRejected = (payload: {
+      fromUserId?: number | string;
+      toUserId?: number | string;
+    }) => {
       if (
         String(payload?.fromUserId) !== String(user.id) &&
         String(payload?.toUserId) !== String(user.id)
