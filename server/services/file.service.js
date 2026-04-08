@@ -302,6 +302,7 @@ const uploadFiles = async (files = [], options = {}) =>
 
 module.exports = {
   deleteFiles,
+  extractS3ObjectKey,
   getAccessibleFileUrl,
   getAccessibleFileUrls,
   uploadFile,

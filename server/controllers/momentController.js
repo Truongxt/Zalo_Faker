@@ -1,5 +1,5 @@
 const momentService = require("../services/momentService");
-const { uploadFiles } = require("../services/file.service");
+const { deleteFiles, uploadFiles } = require("../services/file.service");
 
 const getRequesterId = (req) => req.user?.userId;
 
@@ -70,6 +70,51 @@ const MomentController = {
     }
   },
 
+  updateMoment: async (req, res) => {
+    let newMediaUrls = [];
+
+    try {
+      const body = req.body || {};
+      const requesterId = getRequesterId(req);
+      const retainMediaUrls = parseMediaUrls(body.retainMediaUrls);
+      const uploadedFiles = Array.isArray(req.uploadedFiles)
+        ? req.uploadedFiles
+        : req.file
+          ? [req.file]
+          : [];
+
+      if (uploadedFiles.length) {
+        const mediaFolder = `${requesterId || "anonymous"}/${req.params.momentId}-${Date.now()}`;
+        newMediaUrls = await uploadFiles(uploadedFiles, {
+          folder: "moments",
+          subfolder: mediaFolder,
+        });
+      }
+
+      const moment = await momentService.updateMoment(
+        req.params.momentId,
+        requesterId,
+        {
+          content: body.content,
+          retainMediaUrls,
+          newMediaUrls
+        }
+      );
+
+      return res.json(moment);
+    } catch (error) {
+      if (newMediaUrls.length > 0) {
+        try {
+          await deleteFiles(newMediaUrls);
+        } catch (cleanupError) {
+          console.warn("Failed to rollback uploaded moment media:", cleanupError.message);
+        }
+      }
+
+      return handleError(res, error);
+    }
+  },
+
   getFriendMoments: async (req, res) => {
     try {
       const moments = await momentService.getFriendMoments(getRequesterId(req));
@@ -134,6 +179,19 @@ const MomentController = {
         req.params.commentId,
         getRequesterId(req),
         body.emoji
+      );
+      return res.json(result);
+    } catch (error) {
+      return handleError(res, error);
+    }
+  },
+
+  deleteComment: async (req, res) => {
+    try {
+      const result = await momentService.deleteComment(
+        req.params.momentId,
+        req.params.commentId,
+        getRequesterId(req)
       );
       return res.json(result);
     } catch (error) {
