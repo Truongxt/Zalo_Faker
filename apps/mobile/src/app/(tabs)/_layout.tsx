@@ -17,7 +17,7 @@ type MenuItem = {
 const MENU_ITEMS: MenuItem[] = [
   {
     icon: "person-add-outline",
-    label: "Them ban",
+    label: "Thêm bạn",
     route: "/friends/add",
   },
 ];

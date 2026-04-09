@@ -243,7 +243,7 @@ getUserById: async (req, res) => {
       res.json(result);
     } catch (err) {
       const message = err.message || "Failed to send OTP";
-      const status = /required|exists|already|wait/i.test(message) ? 400 : 500;
+      const status = /required|exists|already|wait|invalid|disposable|domain/i.test(message) ? 400 : 500;
       res.status(status).json({ message });
     }
   },

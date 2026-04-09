@@ -1,4 +1,5 @@
 const friendService = require("../services/friendService");
+const { emitToUser } = require("../utils/socketEmitter");
 
 const FriendController = {
 
@@ -17,6 +18,12 @@ const FriendController = {
     }
 
     const result = await friendService.sendFriendRequest(fromUserId, toUserId, message);
+
+    emitToUser(toUserId, "friend:request_received", {
+      request: result,
+      fromUserId: Number(fromUserId),
+      toUserId: Number(toUserId),
+    });
 
     return res.status(201).json({
       message: "Friend request sent",
@@ -38,6 +45,15 @@ const FriendController = {
       console.log("Accept request body:", { fromUserId, toUserId });
 
       const result = await friendService.acceptFriendRequest(fromUserId, toUserId);
+
+      emitToUser(fromUserId, "friend:request_accepted", {
+        fromUserId: Number(fromUserId),
+        toUserId: Number(toUserId),
+      });
+      emitToUser(toUserId, "friend:request_accepted", {
+        fromUserId: Number(fromUserId),
+        toUserId: Number(toUserId),
+      });
 
       res.status(200).json({
         message: "Friend request accepted",
@@ -128,6 +144,15 @@ async getExitingFriend(req, res) {
       }
 
       await friendService.rejectFriendRequest(fromUserId, toUserId);
+
+      emitToUser(fromUserId, "friend:request_rejected", {
+        fromUserId: Number(fromUserId),
+        toUserId: Number(toUserId),
+      });
+      emitToUser(toUserId, "friend:request_rejected", {
+        fromUserId: Number(fromUserId),
+        toUserId: Number(toUserId),
+      });
 
       res.status(200).json({ message: "Đã từ chối lời mời kết bạn" });
     } catch (error) {

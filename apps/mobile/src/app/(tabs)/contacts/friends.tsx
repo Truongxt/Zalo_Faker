@@ -130,11 +130,19 @@ export default function ContactsScreen() {
       removeByFriendId(friendId);
     };
 
-    const handleFriendBlocked = ({ targetUserId }: { targetUserId: string }) => {
+    const handleFriendBlocked = ({
+      targetUserId,
+    }: {
+      targetUserId: string;
+    }) => {
       removeByFriendId(targetUserId);
     };
 
-    const handleBlockedBy = ({ blockedByUserId }: { blockedByUserId: string }) => {
+    const handleBlockedBy = ({
+      blockedByUserId,
+    }: {
+      blockedByUserId: string;
+    }) => {
       removeByFriendId(blockedByUserId);
       GrayToast("Ban da bi chan boi nguoi dung nay");
     };
@@ -176,7 +184,10 @@ export default function ContactsScreen() {
         return;
       }
 
-      const created = await chatService.createConversation([String(friendId)], "private");
+      const created = await chatService.createConversation(
+        [String(friendId)],
+        "private",
+      );
       router.push({
         pathname: "/(tabs)/chat/[conversationId]",
         params: { conversationId: String(created.id) },
@@ -192,7 +203,9 @@ export default function ContactsScreen() {
       const friendId = getFriendUserId(friend);
       if (!friendId || friendId === "undefined") return;
       await friendsService.removeFriend(friendId);
-      setListFriends((prev) => prev.filter((f) => getFriendUserId(f) !== friendId));
+      setListFriends((prev) =>
+        prev.filter((f) => getFriendUserId(f) !== friendId),
+      );
       GrayToast("Da huy ket ban");
     } catch (error) {
       console.warn("Khong the huy ket ban:", error);
@@ -205,7 +218,9 @@ export default function ContactsScreen() {
       const friendId = getFriendUserId(friend);
       if (!friendId || friendId === "undefined") return;
       await friendsService.blockUser(friendId);
-      setListFriends((prev) => prev.filter((f) => getFriendUserId(f) !== friendId));
+      setListFriends((prev) =>
+        prev.filter((f) => getFriendUserId(f) !== friendId),
+      );
       GrayToast("Da chan nguoi dung");
     } catch (error) {
       console.warn("Khong the chan ban be:", error);
@@ -228,7 +243,11 @@ export default function ContactsScreen() {
         onPress: () => {
           Alert.alert("Xac nhan", `Huy ket ban voi ${friendName}?`, [
             { text: "Huy", style: "cancel" },
-            { text: "Dong y", style: "destructive", onPress: () => handleRemoveFriend(friend) },
+            {
+              text: "Dong y",
+              style: "destructive",
+              onPress: () => handleRemoveFriend(friend),
+            },
           ]);
         },
       },
@@ -238,7 +257,11 @@ export default function ContactsScreen() {
         onPress: () => {
           Alert.alert("Xac nhan", `Chan ${friendName}?`, [
             { text: "Huy", style: "cancel" },
-            { text: "Dong y", style: "destructive", onPress: () => handleBlockFriend(friend) },
+            {
+              text: "Dong y",
+              style: "destructive",
+              onPress: () => handleBlockFriend(friend),
+            },
           ]);
         },
       },
@@ -272,19 +295,26 @@ export default function ContactsScreen() {
               onAccept={async (req) => {
                 try {
                   setLoading(true);
-                  await friendsService.acceptFriendRequest(req.fromUserId, req.toUserId);
+                  await friendsService.acceptFriendRequest(
+                    req.fromUserId,
+                    req.toUserId,
+                  );
 
                   setRequestFriends((prev) =>
                     prev.filter(
-                      (r) => r.fromUserId !== req.fromUserId || r.toUserId !== req.toUserId,
+                      (r) =>
+                        r.fromUserId !== req.fromUserId ||
+                        r.toUserId !== req.toUserId,
                     ),
                   );
 
                   setListFriends((prev) => {
                     const existed = prev.some(
                       (f) =>
-                        (f.fromUserId === req.fromUserId && f.toUserId === req.toUserId) ||
-                        (f.fromUserId === req.toUserId && f.toUserId === req.fromUserId),
+                        (f.fromUserId === req.fromUserId &&
+                          f.toUserId === req.toUserId) ||
+                        (f.fromUserId === req.toUserId &&
+                          f.toUserId === req.fromUserId),
                     );
 
                     if (existed) return prev;
@@ -310,10 +340,15 @@ export default function ContactsScreen() {
               onReject={async (req) => {
                 try {
                   setLoading(true);
-                  await friendsService.rejectFriendRequest(String(req.fromUserId), String(req.toUserId));
+                  await friendsService.rejectFriendRequest(
+                    String(req.fromUserId),
+                    String(req.toUserId),
+                  );
                   setRequestFriends((prev) =>
                     prev.filter(
-                      (r) => r.fromUserId !== req.fromUserId || r.toUserId !== req.toUserId,
+                      (r) =>
+                        r.fromUserId !== req.fromUserId ||
+                        r.toUserId !== req.toUserId,
                     ),
                   );
                   GrayToast("Da tu choi loi moi ket ban");
