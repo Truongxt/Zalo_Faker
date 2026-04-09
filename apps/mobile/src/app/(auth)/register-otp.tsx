@@ -55,6 +55,12 @@ export default function RegisterOtpScreen() {
       return;
     }
 
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(normalizedEmail)) {
+      Alert.alert("Lỗi", "Định dạng email không hợp lệ");
+      return;
+    }
+
     setSendingOtp(true);
     try {
       await userService.registerRequestOtp(normalizedEmail);
@@ -109,9 +115,15 @@ export default function RegisterOtpScreen() {
   };
 
   const handleResendOtp = async () => {
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!normalizedEmail) {
+      Alert.alert("Lỗi", "Email không hợp lệ");
+      return;
+    }
+
     setResendLoading(true);
     try {
-      await userService.registerRequestOtp(email);
+      await userService.registerRequestOtp(normalizedEmail);
       setOtp("");
       setTimer(300);
       setCanResend(false);
