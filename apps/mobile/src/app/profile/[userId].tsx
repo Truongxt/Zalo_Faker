@@ -9,9 +9,12 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
+  Image,
+  ImageBackground,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import * as FileSystem from "expo-file-system";
+import { Ionicons } from "@expo/vector-icons";
 import DateTimePicker, {
   DateTimePickerEvent,
 } from "@react-native-community/datetimepicker";
@@ -22,8 +25,10 @@ import {
 } from "react-native-safe-area-context";
 import { Avatar } from "@/components/ui/Avatar";
 import { useAuthStore } from "@/stores/authStore";
-import { userService } from "@/services";
-import type { User } from "@/types";
+import { userService, momentService } from "@/services";
+import { useChatStore } from "@/stores/chatStore";
+import { chatService } from "@/services/chat";
+import type { User, Moment } from "@/types";
 
 type ProfileForm = {
   fullName: string;
@@ -87,6 +92,15 @@ const parseBirthday = (value: string) => {
 const isLocalImageUri = (value: string) =>
   value.startsWith("file://") || value.startsWith("content://");
 
+const isVideoUrl = (url?: string | null) => {
+  const normalizedUrl = String(url || "")
+    .split("?")[0]
+    .toLowerCase();
+  return [".mp4", ".mov", ".webm", ".m4v"].some((extension) =>
+    normalizedUrl.endsWith(extension),
+  );
+};
+
 const cachePickedAvatar = async (uri: string) => {
   if (!uri || !FileSystem.cacheDirectory) {
     return uri;
@@ -120,12 +134,33 @@ export default function UserProfileScreen() {
   const [isSaving, setIsSaving] = useState(false);
   const [showBirthdayPicker, setShowBirthdayPicker] = useState(false);
   const [form, setForm] = useState<ProfileForm>(emptyForm);
+  const [friendMoments, setFriendMoments] = useState<Moment[]>([]);
+  const [isLoadingFriendMoments, setIsLoadingFriendMoments] = useState(false);
 
   const previewName = isEditing ? form.fullName : profile?.fullName;
   const previewAvatarUri = isEditing ? form.avatarUrl : profile?.avatarUrl;
 
   const targetUserId = useMemo(() => String(userId || ""), [userId]);
   const isOwnProfile = !!currentUser?.id && currentUser.id === targetUserId;
+
+  const mediaStats = useMemo(() => {
+    const allMedia = friendMoments.flatMap((moment) => moment.mediaUrls || []);
+    const videoCount = allMedia.filter((url) => isVideoUrl(url)).length;
+    const imageCount = allMedia.length - videoCount;
+
+    return {
+      images: imageCount,
+      videos: videoCount,
+    };
+  }, [friendMoments]);
+
+  const coverImageUri = useMemo(() => {
+    const firstMedia = friendMoments
+      .flatMap((moment) => moment.mediaUrls || [])
+      .find((url) => !isVideoUrl(url));
+
+    return firstMedia || profile?.avatarUrl || null;
+  }, [friendMoments, profile?.avatarUrl]);
 
   useEffect(() => {
     let mounted = true;
@@ -173,6 +208,99 @@ export default function UserProfileScreen() {
       mounted = false;
     };
   }, [targetUserId, isOwnProfile, currentUser]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const loadFriendMoments = async () => {
+      if (!targetUserId || isOwnProfile) {
+        return;
+      }
+
+      setIsLoadingFriendMoments(true);
+      try {
+        const moments = await momentService.getFriendMoments();
+        if (!mounted) {
+          return;
+        }
+
+        const scoped = moments
+          .filter((moment) => String(moment.authorId) === String(targetUserId))
+          .sort(
+            (a, b) =>
+              new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+          );
+
+        setFriendMoments(scoped);
+      } catch (error) {
+        if (mounted) {
+          setFriendMoments([]);
+        }
+      } finally {
+        if (mounted) {
+          setIsLoadingFriendMoments(false);
+        }
+      }
+    };
+
+    void loadFriendMoments();
+
+    return () => {
+      mounted = false;
+    };
+  }, [targetUserId, isOwnProfile]);
+
+  const handleMessageFriend = async () => {
+    if (!targetUserId || !currentUser?.id || isOwnProfile) {
+      return;
+    }
+
+    try {
+      const existing = useChatStore
+        .getState()
+        .conversations.find(
+          (c) =>
+            c.type === "private" &&
+            c.participants.some(
+              (p) => String(p.userId) === String(targetUserId),
+            ),
+        );
+
+      if (existing?.id) {
+        router.push({
+          pathname: "/(tabs)/chat/[conversationId]",
+          params: { conversationId: String(existing.id) },
+        });
+        return;
+      }
+
+      const created = await chatService.createConversation(
+        [String(targetUserId)],
+        "private",
+      );
+
+      router.push({
+        pathname: "/(tabs)/chat/[conversationId]",
+        params: { conversationId: String(created.id) },
+      });
+    } catch (error) {
+      Alert.alert("Lỗi", "Không thể mở cuộc trò chuyện lúc này");
+    }
+  };
+
+  const handleOpenFriendOptions = () => {
+    if (!targetUserId || isOwnProfile) {
+      return;
+    }
+
+    router.push({
+      pathname: "/profile/friend-options",
+      params: {
+        userId: String(targetUserId),
+        fullName: profile?.fullName || "Người dùng",
+      },
+    });
+  };
 
   const startEdit = () => {
     if (!profile) {
@@ -332,6 +460,175 @@ export default function UserProfileScreen() {
           <Text className="text-white font-semibold">Quay lại</Text>
         </TouchableOpacity>
       </View>
+    );
+  }
+
+  if (!isOwnProfile) {
+    return (
+      <SafeAreaView className="flex-1 bg-[#ECECF3]" edges={["top", "bottom"]}>
+        <View className="flex-1">
+          <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
+            <View className="relative">
+              {coverImageUri ? (
+                <ImageBackground
+                  source={{ uri: coverImageUri }}
+                  style={{ height: 260 }}
+                  imageStyle={{ opacity: 0.82 }}
+                >
+                  <View className="h-full bg-black/20" />
+                </ImageBackground>
+              ) : (
+                <View className="h-[260px] bg-[#AEB8C2]" />
+              )}
+
+              <View className="absolute left-0 right-0 top-0 px-3 pt-2">
+                <View className="flex-row items-center justify-between">
+                  <TouchableOpacity
+                    onPress={() => router.back()}
+                    className="h-10 w-10 items-center justify-center rounded-full bg-black/20"
+                  >
+                    <Ionicons name="arrow-back" size={22} color="#fff" />
+                  </TouchableOpacity>
+                  <View className="flex-row items-center">
+                    <TouchableOpacity className="mr-2 h-10 w-10 items-center justify-center rounded-full bg-black/20">
+                      <Ionicons name="call-outline" size={22} color="#fff" />
+                    </TouchableOpacity>
+                    <TouchableOpacity className="mr-2 h-10 w-10 items-center justify-center rounded-full bg-black/20">
+                      <Ionicons
+                        name="settings-outline"
+                        size={22}
+                        color="#fff"
+                      />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={handleOpenFriendOptions}
+                      className="h-10 w-10 items-center justify-center rounded-full bg-black/20"
+                    >
+                      <Ionicons
+                        name="ellipsis-horizontal"
+                        size={22}
+                        color="#fff"
+                      />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
+
+              <View className="absolute bottom-[-60px] left-0 right-0 items-center">
+                <View className="rounded-full border-4 border-[#ECECF3]">
+                  <Avatar
+                    name={profile.fullName || "User"}
+                    uri={profile.avatarUrl}
+                    size={120}
+                  />
+                </View>
+              </View>
+            </View>
+
+            <View className="px-4 pt-16 pb-4 items-center">
+              <Text className="text-4xl font-bold text-[#1F2937]">
+                {profile.fullName || "Người dùng"}
+              </Text>
+            </View>
+
+            <View className="px-4 pb-2">
+              <View className="flex-row">
+                <View className="mr-2 flex-1 rounded-3xl bg-white px-4 py-5">
+                  <View className="flex-row items-center">
+                    <Ionicons name="images" size={24} color="#3B82F6" />
+                    <Text className="ml-3 text-2xl font-semibold text-[#111827]">
+                      Ảnh
+                    </Text>
+                    <Text className="ml-2 text-2xl text-[#6B7280]">
+                      {mediaStats.images}
+                    </Text>
+                  </View>
+                </View>
+                <View className="ml-2 flex-1 rounded-3xl bg-white px-4 py-5">
+                  <View className="flex-row items-center">
+                    <Ionicons name="videocam" size={24} color="#22C55E" />
+                    <Text className="ml-3 text-2xl font-semibold text-[#111827]">
+                      Video
+                    </Text>
+                    <Text className="ml-2 text-2xl text-[#6B7280]">
+                      {mediaStats.videos}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            </View>
+
+            <View className="px-4 pb-28">
+              {isLoadingFriendMoments ? (
+                <View className="mt-4 items-center py-10">
+                  <ActivityIndicator size="large" color="#0068FF" />
+                </View>
+              ) : friendMoments.length === 0 ? (
+                <View className="mt-4 rounded-3xl bg-white p-6">
+                  <Text className="text-center text-base text-gray-500">
+                    Chưa có khoảnh khắc nào để hiển thị
+                  </Text>
+                </View>
+              ) : (
+                friendMoments.map((moment) => {
+                  const firstImage = (moment.mediaUrls || []).find(
+                    (url) => !isVideoUrl(url),
+                  );
+
+                  return (
+                    <View
+                      key={moment.momentId}
+                      className="mt-4 rounded-3xl bg-white p-5"
+                    >
+                      <Text className="mb-3 text-sm font-medium text-[#6B7280]">
+                        {new Date(moment.createdAt).toLocaleDateString("vi-VN")}
+                      </Text>
+                      <Text className="text-2xl font-semibold text-[#111827]">
+                        {moment.content || "Khoảnh khắc"}
+                      </Text>
+                      {firstImage ? (
+                        <Image
+                          source={{ uri: firstImage }}
+                          resizeMode="cover"
+                          className="mt-4 h-48 w-full rounded-2xl"
+                        />
+                      ) : null}
+                      <View className="mt-4 flex-row items-center">
+                        <Ionicons name="heart" size={18} color="#EF4444" />
+                        <Text className="ml-2 text-base text-[#6B7280]">
+                          {moment.reactionCount} bạn
+                        </Text>
+                      </View>
+                    </View>
+                  );
+                })
+              )}
+            </View>
+          </ScrollView>
+
+          <TouchableOpacity
+            onPress={() => void handleMessageFriend()}
+            activeOpacity={0.9}
+            className="absolute bottom-6 right-5 flex-row items-center rounded-full bg-white px-6 py-3 shadow"
+            style={{
+              shadowColor: "#000",
+              shadowOpacity: 0.2,
+              shadowRadius: 10,
+              shadowOffset: { width: 0, height: 3 },
+              elevation: 6,
+            }}
+          >
+            <Ionicons
+              name="chatbubble-ellipses-outline"
+              size={24}
+              color="#0A67DA"
+            />
+            <Text className="ml-2 text-3xl font-semibold text-[#0A67DA]">
+              Nhắn tin
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
     );
   }
 

@@ -18,7 +18,9 @@
     "db:seed-users": "node scripts/seed-users.js",
     "db:seed-demo": "node scripts/seed-demo.js",
     "db:reset-test-passwords": "node scripts/reset-test-user-passwords.js",
-    "db:create-login-history": "node scripts/create-login-history-table.js"
+    "db:create-login-history": "node scripts/create-login-history-table.js",
+    "db:create-ai-chat-history": "node scripts/create-ai-chat-history-table.js",
+    "db:create-ai-chat-messages": "node scripts/create-ai-chat-messages-table.js"
   },
   "keywords": [],
   "author": "",

@@ -2,6 +2,7 @@ import axios from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { API_URL, STORAGE_KEYS } from "@/constants/config";
 import { useAuthStore } from "@/stores/authStore";
+import { forceLogoutWithNotice } from "./authSessionGuard";
 
 const apiClient = axios.create({
   baseURL: API_URL,
@@ -86,6 +87,8 @@ apiClient.interceptors.request.use(async (config) => {
     config.headers.Authorization = `Bearer ${token}`;
   } else {
     console.warn("[apiClient] No auth token found for request:", config.url);
+    forceLogoutWithNotice("Khong tim thay access token. Vui long dang nhap lai.");
+    return Promise.reject(new Error("Missing access token. User has been logged out."));
   }
 
   return config;
@@ -170,7 +173,7 @@ apiClient.interceptors.response.use(
     } catch (refreshError) {
       processQueue(refreshError, null);
       // Refresh failed → force logout
-      useAuthStore.getState().logout();
+      forceLogoutWithNotice("Phien dang nhap da het hieu luc. Vui long dang nhap lai.");
       return Promise.reject(refreshError);
     } finally {
       isRefreshing = false;

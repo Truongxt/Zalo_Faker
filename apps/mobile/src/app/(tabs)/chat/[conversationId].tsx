@@ -1,9 +1,4 @@
-import {
-  useState,
-  useRef,
-  useEffect,
-  useCallback,
-} from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -25,6 +20,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useChatStore } from "@/stores/chatStore";
 import { useAuthStore } from "@/stores/authStore";
 import { chatService } from "@/services/chat";
+import { userService } from "@/services";
 import { socketService } from "@/lib/socket";
 import { Avatar } from "@/components/ui/Avatar";
 import { GrayToast } from "@/components/ui";
@@ -66,13 +62,38 @@ function formatAudioTime(millis: number) {
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
+function getPresenceLabel(
+  isOnline: boolean,
+  lastSeenAt: string | null,
+): string {
+  if (isOnline) return "Đang hoạt động";
+  if (!lastSeenAt) return "Đang offline";
+
+  const diffMs = Date.now() - new Date(lastSeenAt).getTime();
+  if (!Number.isFinite(diffMs) || diffMs < 0) return "Đang offline";
+
+  const diffMinutes = Math.floor(diffMs / 60000);
+  if (diffMinutes < 1) return "Vừa truy cập";
+  if (diffMinutes < 60) return `Hoạt động ${diffMinutes} phút trước`;
+
+  const diffHours = Math.floor(diffMinutes / 60);
+  if (diffHours < 24) return `Hoạt động ${diffHours} giờ trước`;
+
+  const diffDays = Math.floor(diffHours / 24);
+  return `Hoạt động ${diffDays} ngày trước`;
+}
+
 type VoiceMessagePlayerProps = {
   audioUrl: string;
   durationSeconds?: number;
   textColor: string;
 };
 
-function VoiceMessagePlayer({ audioUrl, durationSeconds, textColor }: VoiceMessagePlayerProps) {
+function VoiceMessagePlayer({
+  audioUrl,
+  durationSeconds,
+  textColor,
+}: VoiceMessagePlayerProps) {
   const soundRef = useRef<Audio.Sound | null>(null);
   const mountedRef = useRef(true);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -109,7 +130,10 @@ function VoiceMessagePlayer({ audioUrl, durationSeconds, textColor }: VoiceMessa
     setHasError(false);
     setIsPlaying(Boolean(status.isPlaying));
     setPositionMillis(status.positionMillis || 0);
-    if (typeof status.durationMillis === "number" && status.durationMillis > 0) {
+    if (
+      typeof status.durationMillis === "number" &&
+      status.durationMillis > 0
+    ) {
       setDurationMillis(status.durationMillis);
     }
     if (status.didJustFinish) {
@@ -164,13 +188,19 @@ function VoiceMessagePlayer({ audioUrl, durationSeconds, textColor }: VoiceMessa
     }
   }, [ensureLoadedSound, hasError, isLoading]);
 
-  const progress = durationMillis > 0 ? (positionMillis / durationMillis) * 100 : 0;
+  const progress =
+    durationMillis > 0 ? (positionMillis / durationMillis) * 100 : 0;
 
   return (
     <TouchableOpacity
       activeOpacity={0.8}
       onPress={togglePlayPause}
-      style={{ flexDirection: "row", alignItems: "center", minWidth: 180, gap: 8 }}
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        minWidth: 180,
+        gap: 8,
+      }}
     >
       <View
         style={{
@@ -185,12 +215,22 @@ function VoiceMessagePlayer({ audioUrl, durationSeconds, textColor }: VoiceMessa
         {isLoading ? (
           <ActivityIndicator size="small" color={textColor} />
         ) : (
-          <Ionicons name={isPlaying ? "pause" : "play"} size={16} color={textColor} />
+          <Ionicons
+            name={isPlaying ? "pause" : "play"}
+            size={16}
+            color={textColor}
+          />
         )}
       </View>
 
       <View style={{ flex: 1 }}>
-        <View style={{ height: 4, borderRadius: 2, backgroundColor: "rgba(255,255,255,0.35)" }}>
+        <View
+          style={{
+            height: 4,
+            borderRadius: 2,
+            backgroundColor: "rgba(255,255,255,0.35)",
+          }}
+        >
           <View
             style={{
               width: `${Math.max(0, Math.min(progress, 100))}%`,
@@ -206,7 +246,9 @@ function VoiceMessagePlayer({ audioUrl, durationSeconds, textColor }: VoiceMessa
         {formatAudioTime(positionMillis)} / {formatAudioTime(durationMillis)}
       </Text>
 
-      {hasError ? <Ionicons name="warning-outline" size={14} color={textColor} /> : null}
+      {hasError ? (
+        <Ionicons name="warning-outline" size={14} color={textColor} />
+      ) : null}
     </TouchableOpacity>
   );
 }
@@ -220,7 +262,9 @@ type MessageItemProps = {
 function MessageItem({ msg, isMe, onLongPress }: MessageItemProps) {
   const bg = isMe ? "#0068FF" : "#F3F4F6";
   const textColor = isMe ? "#fff" : "#111827";
-  const voiceAttachment = (msg.attachments || []).find((attachment) => attachment.type === "voice");
+  const voiceAttachment = (msg.attachments || []).find(
+    (attachment) => attachment.type === "voice",
+  );
   const fallbackVoiceUrl =
     typeof msg.content === "string" && /^https?:\/\//i.test(msg.content)
       ? msg.content
@@ -231,7 +275,9 @@ function MessageItem({ msg, isMe, onLongPress }: MessageItemProps) {
   const renderContent = () => {
     if (msg.isDeleted) {
       return (
-        <Text style={{ color: isMe ? "#cce4ff" : "#9CA3AF", fontStyle: "italic" }}>
+        <Text
+          style={{ color: isMe ? "#cce4ff" : "#9CA3AF", fontStyle: "italic" }}
+        >
           Tin nhan da bi thu hoi
         </Text>
       );
@@ -259,7 +305,9 @@ function MessageItem({ msg, isMe, onLongPress }: MessageItemProps) {
         return (
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
             <Ionicons name="mic-off" size={18} color={textColor} />
-            <Text style={{ color: textColor }}>Tin nhan thoai (khong co duong dan)</Text>
+            <Text style={{ color: textColor }}>
+              Tin nhan thoai (khong co duong dan)
+            </Text>
           </View>
         );
       case "file":
@@ -280,14 +328,21 @@ function MessageItem({ msg, isMe, onLongPress }: MessageItemProps) {
           />
         );
       default:
-        return <Text style={{ color: textColor, lineHeight: 20 }}>{msg.content}</Text>;
+        return (
+          <Text style={{ color: textColor, lineHeight: 20 }}>
+            {msg.content}
+          </Text>
+        );
     }
   };
 
-  const topReactions = (msg.reactions || []).reduce<Record<string, number>>((acc, r) => {
-    acc[r.emoji] = (acc[r.emoji] || 0) + 1;
-    return acc;
-  }, {});
+  const topReactions = (msg.reactions || []).reduce<Record<string, number>>(
+    (acc, r) => {
+      acc[r.emoji] = (acc[r.emoji] || 0) + 1;
+      return acc;
+    },
+    {},
+  );
 
   return (
     <TouchableOpacity
@@ -310,7 +365,14 @@ function MessageItem({ msg, isMe, onLongPress }: MessageItemProps) {
 
       <View style={{ maxWidth: "72%", marginLeft: isMe ? 0 : 8 }}>
         {!isMe && (
-          <Text style={{ fontSize: 11, color: "#6B7280", marginBottom: 2, marginLeft: 4 }}>
+          <Text
+            style={{
+              fontSize: 11,
+              color: "#6B7280",
+              marginBottom: 2,
+              marginLeft: 4,
+            }}
+          >
             {msg.senderName}
           </Text>
         )}
@@ -326,13 +388,23 @@ function MessageItem({ msg, isMe, onLongPress }: MessageItemProps) {
           {renderContent()}
         </View>
 
-        <View style={{ flexDirection: "row", justifyContent: isMe ? "flex-end" : "flex-start", gap: 6, marginTop: 2 }}>
-          <Text style={{ fontSize: 10, color: "#9CA3AF" }}>{formatTime(msg.createdAt)}</Text>
+        <View
+          style={{
+            flexDirection: "row",
+            justifyContent: isMe ? "flex-end" : "flex-start",
+            gap: 6,
+            marginTop: 2,
+          }}
+        >
+          <Text style={{ fontSize: 10, color: "#9CA3AF" }}>
+            {formatTime(msg.createdAt)}
+          </Text>
           {Object.keys(topReactions).length > 0 && (
             <View style={{ flexDirection: "row" }}>
               {Object.entries(topReactions).map(([emoji, count]) => (
                 <Text key={emoji} style={{ fontSize: 11 }}>
-                  {emoji}{count > 1 ? count : ""}
+                  {emoji}
+                  {count > 1 ? count : ""}
                 </Text>
               ))}
             </View>
@@ -349,7 +421,8 @@ export default function ChatRoomScreen() {
   const insets = useSafeAreaInsets();
   const { user, accessToken } = useAuthStore();
 
-  const { messages, conversations, addMessage, updateConversation } = useChatStore();
+  const { messages, conversations, addMessage, updateConversation } =
+    useChatStore();
   const convId = conversationId || "";
   const convMessages: Message[] = (messages as any)[convId] || [];
   const conversation = conversations.find((c) => c.id === convId);
@@ -360,8 +433,15 @@ export default function ChatRoomScreen() {
   const [showReactions, setShowReactions] = useState(false);
   const [selectedMsg, setSelectedMsg] = useState<Message | null>(null);
   const [typingUsers, setTypingUsers] = useState<string[]>([]);
+  const [isPartnerOnline, setIsPartnerOnline] = useState(false);
+  const [partnerLastSeenAt, setPartnerLastSeenAt] = useState<string | null>(
+    null,
+  );
+  const [presenceTick, setPresenceTick] = useState(0);
   const flatListRef = useRef<FlatList>(null);
-  const typingTimeout = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const typingTimeout = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
 
   // Determine conversation name
   const otherParticipant = conversation?.participants?.find(
@@ -375,6 +455,80 @@ export default function ChatRoomScreen() {
     conversation?.type === "group"
       ? conversation.avatarUrl
       : otherParticipant?.avatarUrl;
+
+  const presenceLabel =
+    conversation?.type === "private"
+      ? getPresenceLabel(isPartnerOnline, partnerLastSeenAt)
+      : "";
+
+  // Re-render presence label every minute so "X phút trước" updates naturally.
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setPresenceTick((prev) => prev + 1);
+    }, 60000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    if (!otherParticipant?.userId || conversation?.type !== "private") return;
+
+    const partnerId = String(otherParticipant.userId);
+
+    const fetchInitialPresence = async () => {
+      try {
+        const profile = await userService.getUserById(partnerId);
+        setPartnerLastSeenAt(profile?.lastSeen || null);
+      } catch (error) {
+        console.warn("Khong the tai thong tin online cua doi phuong:", error);
+      }
+    };
+
+    fetchInitialPresence();
+
+    if (!socketService.getSocket()?.connected) {
+      socketService.connect();
+    }
+
+    socketService.emit(
+      "presence:get_online_users",
+      [partnerId],
+      (response: {
+        success: boolean;
+        onlineStatuses?: Record<string, boolean>;
+      }) => {
+        const online = response?.onlineStatuses?.[partnerId];
+        if (typeof online !== "boolean") {
+          setIsPartnerOnline(false);
+          return;
+        }
+        setIsPartnerOnline(online);
+        if (!online) {
+          setPartnerLastSeenAt((prev) => prev || new Date().toISOString());
+        }
+      },
+    );
+
+    const handlePresenceOnline = ({ userId }: { userId: string }) => {
+      if (String(userId) !== partnerId) return;
+      setIsPartnerOnline(true);
+      setPartnerLastSeenAt(null);
+    };
+
+    const handlePresenceOffline = ({ userId }: { userId: string }) => {
+      if (String(userId) !== partnerId) return;
+      setIsPartnerOnline(false);
+      setPartnerLastSeenAt(new Date().toISOString());
+    };
+
+    socketService.on("presence:online", handlePresenceOnline);
+    socketService.on("presence:offline", handlePresenceOffline);
+
+    return () => {
+      socketService.off("presence:online", handlePresenceOnline);
+      socketService.off("presence:offline", handlePresenceOffline);
+    };
+  }, [conversation?.type, otherParticipant?.userId]);
 
   const startCall = useCallback(
     (callType: "audio" | "video") => {
@@ -400,7 +554,16 @@ export default function ChatRoomScreen() {
         },
       });
     },
-    [convId, otherParticipant?.avatarUrl, otherParticipant?.fullName, otherParticipant?.userId, router, user?.avatarUrl, user?.fullName, user?.id],
+    [
+      convId,
+      otherParticipant?.avatarUrl,
+      otherParticipant?.fullName,
+      otherParticipant?.userId,
+      router,
+      user?.avatarUrl,
+      user?.fullName,
+      user?.id,
+    ],
   );
 
   // Load messages on mount
@@ -425,7 +588,9 @@ export default function ChatRoomScreen() {
 
     const onTyping = ({ userId, conversationId: cId }: any) => {
       if (cId !== convId || userId === user.id) return;
-      setTypingUsers((prev) => (prev.includes(userId) ? prev : [...prev, userId]));
+      setTypingUsers((prev) =>
+        prev.includes(userId) ? prev : [...prev, userId],
+      );
       clearTimeout(typingTimeout.current);
       typingTimeout.current = setTimeout(() => setTypingUsers([]), 3000);
     };
@@ -447,7 +612,10 @@ export default function ChatRoomScreen() {
   // Scroll to bottom when messages change
   useEffect(() => {
     if (convMessages.length > 0) {
-      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: false }), 100);
+      setTimeout(
+        () => flatListRef.current?.scrollToEnd({ animated: false }),
+        100,
+      );
     }
   }, [convMessages.length]);
 
@@ -489,7 +657,8 @@ export default function ChatRoomScreen() {
 
     const asset = result.assets[0];
     const isVideo = asset.type === "video";
-    const name = asset.fileName || `media-${Date.now()}.${isVideo ? "mp4" : "jpg"}`;
+    const name =
+      asset.fileName || `media-${Date.now()}.${isVideo ? "mp4" : "jpg"}`;
     const mimeType = asset.mimeType || (isVideo ? "video/mp4" : "image/jpeg");
 
     setIsSending(true);
@@ -508,11 +677,18 @@ export default function ChatRoomScreen() {
 
   const handlePickFile = async () => {
     try {
-      const result = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true });
+      const result = await DocumentPicker.getDocumentAsync({
+        copyToCacheDirectory: true,
+      });
       if (result.canceled || !result.assets?.length) return;
       const asset = result.assets[0];
       setIsSending(true);
-      const url = await uploadFile(asset.uri, asset.name, asset.mimeType || "application/octet-stream", accessToken);
+      const url = await uploadFile(
+        asset.uri,
+        asset.name,
+        asset.mimeType || "application/octet-stream",
+        accessToken,
+      );
       await chatService.sendMessage(convId, { type: "file", content: url });
     } catch {
       GrayToast("Không thể gửi file");
@@ -525,7 +701,11 @@ export default function ChatRoomScreen() {
     setSelectedMsg(msg);
     const isMe = msg.senderId === user?.id;
 
-    const options: Array<{ text: string; onPress?: () => void; style?: "destructive" | "cancel" }> = [
+    const options: Array<{
+      text: string;
+      onPress?: () => void;
+      style?: "destructive" | "cancel";
+    }> = [
       {
         text: "Thả cảm xúc",
         onPress: () => setShowReactions(true),
@@ -537,21 +717,25 @@ export default function ChatRoomScreen() {
         text: "Thu hồi tin nhắn",
         style: "destructive",
         onPress: () => {
-          Alert.alert("Thu hồi?", "Tin nhắn sẽ bị thu hồi với tất cả thành viên.", [
-            { text: "Hủy", style: "cancel" },
-            {
-              text: "Thu hồi",
-              style: "destructive",
-              onPress: () => {
-                socketService.emit("chat:recall", {
-                  conversationId: convId,
-                  messageId: msg.id,
-                  senderId: user?.id,
-                });
-                chatService.deleteMessage(convId, msg.id);
+          Alert.alert(
+            "Thu hồi?",
+            "Tin nhắn sẽ bị thu hồi với tất cả thành viên.",
+            [
+              { text: "Hủy", style: "cancel" },
+              {
+                text: "Thu hồi",
+                style: "destructive",
+                onPress: () => {
+                  socketService.emit("chat:recall", {
+                    conversationId: convId,
+                    messageId: msg.id,
+                    senderId: user?.id,
+                  });
+                  chatService.deleteMessage(convId, msg.id);
+                },
               },
-            },
-          ]);
+            ],
+          );
         },
       });
     }
@@ -593,18 +777,34 @@ export default function ChatRoomScreen() {
           borderBottomColor: "#F3F4F6",
         }}
       >
-        <TouchableOpacity onPress={() => router.back()} style={{ padding: 4, marginRight: 8 }}>
+        <TouchableOpacity
+          onPress={() => router.back()}
+          style={{ padding: 4, marginRight: 8 }}
+        >
           <Ionicons name="arrow-back" size={24} color="#111827" />
         </TouchableOpacity>
 
         <Avatar name={convName} uri={convAvatar} size={38} />
 
         <View style={{ flex: 1, marginLeft: 10 }}>
-          <Text style={{ fontWeight: "700", fontSize: 15, color: "#111827" }} numberOfLines={1}>
+          <Text
+            style={{ fontWeight: "700", fontSize: 15, color: "#111827" }}
+            numberOfLines={1}
+          >
             {convName}
           </Text>
           {typingUsers.length > 0 && (
             <Text style={{ fontSize: 11, color: "#0068FF" }}>Đang nhập...</Text>
+          )}
+          {typingUsers.length === 0 && conversation?.type === "private" && (
+            <Text
+              style={{
+                fontSize: 11,
+                color: isPartnerOnline ? "#16A34A" : "#6B7280",
+              }}
+            >
+              {presenceLabel}
+            </Text>
           )}
           {conversation?.type === "group" && (
             <Text style={{ fontSize: 11, color: "#6B7280" }}>
@@ -634,9 +834,13 @@ export default function ChatRoomScreen() {
 
       {/* Messages */}
       {isLoading ? (
-        <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+        <View
+          style={{ flex: 1, alignItems: "center", justifyContent: "center" }}
+        >
           <ActivityIndicator size="large" color="#0068FF" />
-          <Text style={{ marginTop: 12, color: "#9CA3AF" }}>Đang tải tin nhắn...</Text>
+          <Text style={{ marginTop: 12, color: "#9CA3AF" }}>
+            Đang tải tin nhắn...
+          </Text>
         </View>
       ) : (
         <FlatList
@@ -646,12 +850,23 @@ export default function ChatRoomScreen() {
           renderItem={renderMessage}
           contentContainerStyle={{ paddingVertical: 10, paddingBottom: 4 }}
           ListEmptyComponent={
-            <View style={{ flex: 1, alignItems: "center", justifyContent: "center", paddingTop: 80 }}>
+            <View
+              style={{
+                flex: 1,
+                alignItems: "center",
+                justifyContent: "center",
+                paddingTop: 80,
+              }}
+            >
               <Text style={{ fontSize: 36, marginBottom: 8 }}>💬</Text>
-              <Text style={{ color: "#9CA3AF" }}>Hãy bắt đầu cuộc trò chuyện!</Text>
+              <Text style={{ color: "#9CA3AF" }}>
+                Hãy bắt đầu cuộc trò chuyện!
+              </Text>
             </View>
           }
-          onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: false })}
+          onContentSizeChange={() =>
+            flatListRef.current?.scrollToEnd({ animated: false })
+          }
         />
       )}
 
@@ -673,11 +888,18 @@ export default function ChatRoomScreen() {
           }}
         >
           {REACTIONS.map((emoji) => (
-            <TouchableOpacity key={emoji} onPress={() => handleReact(emoji)} style={{ padding: 4 }}>
+            <TouchableOpacity
+              key={emoji}
+              onPress={() => handleReact(emoji)}
+              style={{ padding: 4 }}
+            >
               <Text style={{ fontSize: 24 }}>{emoji}</Text>
             </TouchableOpacity>
           ))}
-          <TouchableOpacity onPress={() => setShowReactions(false)} style={{ padding: 4 }}>
+          <TouchableOpacity
+            onPress={() => setShowReactions(false)}
+            style={{ padding: 4 }}
+          >
             <Ionicons name="close-circle-outline" size={24} color="#6B7280" />
           </TouchableOpacity>
         </View>
@@ -744,4 +966,3 @@ export default function ChatRoomScreen() {
     </KeyboardAvoidingView>
   );
 }
-
