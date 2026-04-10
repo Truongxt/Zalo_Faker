@@ -1,6 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { API_URL, STORAGE_KEYS } from "@/constants/config";
 import { useAuthStore } from "@/stores/authStore";
+import { forceLogoutWithNotice } from "./authSessionGuard";
 
 type RequestBody = BodyInit | Record<string, unknown> | unknown[] | null | undefined;
 
@@ -176,6 +177,9 @@ export const apiFetch = async <T>(
     const token = await getStoredAccessToken();
     if (token) {
       requestHeaders.Authorization = `Bearer ${token}`;
+    } else {
+      forceLogoutWithNotice("Khong tim thay access token. Vui long dang nhap lai.");
+      throw new FetchApiError("Missing access token. User has been logged out.", 401, null);
     }
   }
 
@@ -204,7 +208,7 @@ export const apiFetch = async <T>(
         retryOnUnauthorized: false,
       });
     } catch (error) {
-      useAuthStore.getState().logout();
+      forceLogoutWithNotice("Phien dang nhap da het hieu luc. Vui long dang nhap lai.");
       throw error;
     }
   }

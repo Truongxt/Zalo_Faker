@@ -1,0 +1,26 @@
+STT,Nhom chuc nang,Chuc nang,Cach su dung ngan,Ket qua mong doi
+1,Tai khoan,Dang ky tai khoan,"Dang ky -> OTP email -> hoan tat",Tao tai khoan thanh cong
+2,Tai khoan,Dang nhap,"Nhap email + mat khau",Dang nhap thanh cong
+3,Tai khoan,Dang xuat,"Vao ca nhan -> Dang xuat",Huy phien hien tai
+4,Tai khoan,Quen mat khau,"Yeu cau OTP -> xac thuc -> dat mat khau moi",Khoi phuc truy cap tai khoan
+5,Tai khoan,Doi mat khau,"Cai dat -> Doi mat khau",Mat khau moi co hieu luc
+6,Tai khoan,Khoa tai khoan,"Cai dat bao mat -> chon kieu khoa",Tai khoan bi gioi han
+7,Ho so,Cap nhat thong tin,"Trang ca nhan -> Chinh sua -> Luu",Ho so duoc cap nhat
+8,Ban be,Tim theo so dien thoai,"Them ban -> nhap SDT",Tim thay nguoi dung
+9,Ban be,Gui loi moi ket ban,"Bam Ket ban",Tao loi moi ket ban
+10,Ban be,Chap nhan/Tu choi loi moi,"Vao loi moi -> chap nhan/tu choi",Cap nhat trang thai
+11,Ban be,Xoa ban,"Vao danh sach ban be -> Xoa",Huy quan he ban be
+12,Ban be,Chan/Bo chan,"Chi tiet nguoi dung -> Chan/Bo chan",Quan ly danh sach chan
+13,Chat,Tao cuoc tro chuyen,"Tab Chat -> Tao hoi thoai",Tao conversation thanh cong
+14,Chat,Giu tin nhan,"Mo hoi thoai -> nhap noi dung -> Gui",Tin nhan moi duoc luu
+15,Chat,Xem lich su,"Mo hoi thoai va cuon",Hien tin nhan cu
+16,Nhom,Tao nhom,"Tao nhom -> chon thanh vien",Nhom moi duoc tao
+17,Nhom,Quan tri nhom,"Cai dat nhom -> doi ten/avatar/phan quyen",Nhom duoc cap nhat
+18,Nhom,Join bang invite,"Nhap ma moi -> gui yeu cau",Gia nhap neu duoc duyet
+19,Moments,Dang bai,"Tab Moments -> tao bai",Bai viet hien feed
+20,Moments,Tuong tac,"Like/comment/share tren bai",Tuong tac duoc ghi nhan
+21,Upload,Tai file,"Chon file de tai len",Nhan URL file
+22,AI Assistant,Hoi dap AI,"Tab Discover -> nhap cau hoi -> Gui",Nhan cau tra loi AI
+23,AI Assistant,Tao thread moi,"Bam nut +",Bat dau hoi thoai moi
+24,AI Assistant,Xem lich su thread,"Bam icon dong ho -> chon thread",Tai lai lich su hoi dap
+25,AI Assistant,Xoa thread,"Nhan giu thread -> chon Xoa",Xoa metadata + tin nhan thread

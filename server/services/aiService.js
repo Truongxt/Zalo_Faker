@@ -2,6 +2,8 @@ const {
   ChatGoogleGenerativeAI,
   GoogleGenerativeAIEmbeddings,
 } = require("@langchain/google-genai");
+const fs = require("fs");
+const path = require("path");
 const { Document } = require("@langchain/core/documents");
 const {
   AIMessage,
@@ -12,6 +14,8 @@ const {
 const messageService = require("./messageService");
 const userService = require("./userService");
 const friendService = require("./friendService");
+const aiChatHistoryRepository = require("../repository/aiChatHistoryRepository");
+const aiChatMessageRepository = require("../repository/aiChatMessageRepository");
 require("dotenv").config();
 
 const model = new ChatGoogleGenerativeAI({
@@ -65,6 +69,19 @@ const modelWithTools = model.bindTools(
     },
   }))
 );
+
+const loadSystemGuideContext = () => {
+  try {
+    const docPath = path.resolve(__dirname, "../../docs/HUONG_DAN_CHUC_NANG_HE_THONG.md");
+    const raw = fs.readFileSync(docPath, "utf8");
+    const compact = raw.replace(/\r/g, "").replace(/\n{3,}/g, "\n\n").trim();
+    return compact.slice(0, 12000);
+  } catch (error) {
+    return "";
+  }
+};
+
+const SYSTEM_GUIDE_CONTEXT = loadSystemGuideContext();
 
 const FALLBACK_DOCS = [
   "Bạn là trợ lý cho ứng dụng chat realtime. Hỗ trợ trả lời về nhắn tin, nhóm, bạn bè, media và tài khoản.",
@@ -202,6 +219,9 @@ ${JSON.stringify(currentUser)}
 
 Context hội thoại:
 ${ragContext}
+
+Tài liệu hướng dẫn hệ thống (dùng để trả lời tính năng/cách dùng cho người dùng):
+${SYSTEM_GUIDE_CONTEXT || "(không có tài liệu hướng dẫn)"}
     `),
     new HumanMessage(question),
   ];
@@ -256,7 +276,45 @@ ${ragContext}
 
 const askAI = async ({ question, conversationId, userId }) => {
   try {
-    return await runAgent({ question, userId, conversationId });
+    if (typeof question !== "string" || !question.trim()) {
+      const error = new Error("Question is required");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const reply = await runAgent({ question, userId, conversationId });
+
+    if (userId) {
+      const now = new Date().toISOString();
+      const normalizedQuestion = question.trim();
+      const effectiveConversationId = conversationId
+        ? String(conversationId)
+        : `ai-${String(userId)}-default`;
+
+      const chatRecord = {
+        userId: String(userId),
+        conversationId: effectiveConversationId,
+        chatId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        question: normalizedQuestion,
+        answer: String(reply || ""),
+        askedAt: now,
+      };
+
+      try {
+        await aiChatMessageRepository.create(chatRecord);
+        await aiChatHistoryRepository.upsertConversation({
+          userId: String(userId),
+          conversationId: effectiveConversationId,
+          title: normalizedQuestion,
+          askedAt: now,
+        });
+      } catch (historyError) {
+        // Do not block AI response when history storage has transient issues.
+        console.warn("Failed to save AI chat history:", historyError?.message || historyError);
+      }
+    }
+
+    return reply;
 
   } catch (err) {
     console.error("AI SERVICE ERROR:", err);
@@ -269,4 +327,55 @@ const askAI = async ({ question, conversationId, userId }) => {
   }
 };
 
-module.exports = { askAI };
+const getAIChatHistory = async ({ userId, limit = 20, conversationId }) => {
+  if (!userId) {
+    const error = new Error("Unauthorized");
+    error.statusCode = 401;
+    throw error;
+  }
+
+  if (conversationId) {
+    return aiChatMessageRepository.getByConversationId({
+      conversationId: String(conversationId),
+      userId: String(userId),
+      limit,
+    });
+  }
+
+  return aiChatMessageRepository.getByUserId({
+    userId: String(userId),
+    limit,
+  });
+};
+
+const deleteAIConversationHistory = async ({ userId, conversationId }) => {
+  if (!userId) {
+    const error = new Error("Unauthorized");
+    error.statusCode = 401;
+    throw error;
+  }
+
+  if (!conversationId) {
+    const error = new Error("conversationId is required");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const deletedMessages = await aiChatMessageRepository.deleteByConversationId({
+    userId: String(userId),
+    conversationId: String(conversationId),
+  });
+
+  try {
+    await aiChatHistoryRepository.deleteConversationMeta({
+      userId: String(userId),
+      conversationId: String(conversationId),
+    });
+  } catch (error) {
+    console.warn("Failed to delete AI thread metadata:", error?.message || error);
+  }
+
+  return deletedMessages;
+};
+
+module.exports = { askAI, getAIChatHistory, deleteAIConversationHistory };

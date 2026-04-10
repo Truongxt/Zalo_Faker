@@ -1,0 +1,182 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { View, Text, TouchableOpacity, FlatList, Alert } from "react-native";
+import { useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { Avatar, CenterLoading, GrayToast } from "@/components/ui";
+import type { Friends } from "@/types";
+import { friendsService, userService } from "@/services";
+import { useAuthStore } from "@/stores";
+
+export default function PendingFriendRequestsScreen() {
+  const router = useRouter();
+  const { user } = useAuthStore();
+  const [loading, setLoading] = useState(true);
+  const [requests, setRequests] = useState<Friends[]>([]);
+
+  const loadRequests = useCallback(async () => {
+    if (!user?.id) return;
+
+    setLoading(true);
+    try {
+      const result = await friendsService.getPendingRequests(String(user.id));
+      const withUserInfo = await Promise.all(
+        result.map(async (f: any) => {
+          try {
+            if (!f?.fromUserId) return null;
+            const fromUser = await userService.getUserById(
+              String(f.fromUserId),
+            );
+            return {
+              ...f,
+              fromUser,
+            } as Friends;
+          } catch {
+            return null;
+          }
+        }),
+      );
+
+      setRequests(withUserInfo.filter(Boolean) as Friends[]);
+    } catch (error) {
+      console.warn("Loi tai danh sach loi moi ket ban:", error);
+      GrayToast("Khong the tai loi moi ket ban");
+    } finally {
+      setLoading(false);
+    }
+  }, [user?.id]);
+
+  useEffect(() => {
+    loadRequests();
+  }, [loadRequests]);
+
+  const pendingCount = useMemo(() => requests.length, [requests]);
+
+  const handleAccept = async (request: Friends) => {
+    try {
+      await friendsService.acceptFriendRequest(
+        String(request.fromUserId),
+        String(request.toUserId),
+      );
+      setRequests((prev) => prev.filter((item) => item.id !== request.id));
+      GrayToast("Da chap nhan loi moi ket ban");
+    } catch (error) {
+      console.warn("Loi chap nhan loi moi ket ban:", error);
+      GrayToast("Khong the chap nhan loi moi");
+    }
+  };
+
+  const handleReject = async (request: Friends) => {
+    Alert.alert("Tu choi loi moi", "Ban co chac muon tu choi loi moi nay?", [
+      { text: "Huy", style: "cancel" },
+      {
+        text: "Tu choi",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            await friendsService.rejectFriendRequest(
+              String(request.fromUserId),
+              String(request.toUserId),
+            );
+            setRequests((prev) =>
+              prev.filter((item) => item.id !== request.id),
+            );
+            GrayToast("Da tu choi loi moi");
+          } catch (error) {
+            console.warn("Loi tu choi loi moi ket ban:", error);
+            GrayToast("Khong the tu choi loi moi");
+          }
+        },
+      },
+    ]);
+  };
+
+  const handleOpenProfile = (request: Friends) => {
+    const fromUserId = String(request.fromUserId || "");
+    if (!fromUserId) return;
+
+    router.push({
+      pathname: "/profile/[userId]",
+      params: { userId: fromUserId },
+    });
+  };
+
+  return (
+    <SafeAreaView className="flex-1 bg-[#F3F4F6]" edges={["top", "bottom"]}>
+      <View className="bg-white border-b border-gray-200 px-4 py-3 flex-row items-center">
+        <TouchableOpacity onPress={() => router.back()} className="mr-3">
+          <Ionicons name="arrow-back" size={24} color="#111827" />
+        </TouchableOpacity>
+        <Text className="text-[18px] font-semibold text-gray-900">
+          Loi moi ket ban ({pendingCount})
+        </Text>
+      </View>
+
+      {loading ? (
+        <CenterLoading visible={true} message="Dang tai loi moi ket ban..." />
+      ) : (
+        <FlatList
+          data={requests}
+          keyExtractor={(item) => String(item.id)}
+          contentContainerStyle={{ padding: 12, paddingBottom: 24 }}
+          ListEmptyComponent={
+            <View className="bg-white rounded-2xl px-4 py-8 mt-3">
+              <Text className="text-center text-gray-500 text-[15px]">
+                Ban khong co loi moi ket ban nao
+              </Text>
+            </View>
+          }
+          renderItem={({ item }) => {
+            const name = String(item.fromUser?.fullName || "Nguoi dung");
+            return (
+              <View className="bg-white rounded-2xl px-4 py-3 mb-3 border border-gray-100">
+                <TouchableOpacity
+                  onPress={() => handleOpenProfile(item)}
+                  activeOpacity={0.8}
+                  className="flex-row items-center"
+                >
+                  <Avatar
+                    uri={item.fromUser?.avatarUrl || undefined}
+                    name={name}
+                    size={52}
+                  />
+                  <View className="ml-3 flex-1">
+                    <Text className="text-[16px] font-medium text-gray-900">
+                      {name}
+                    </Text>
+                    <Text
+                      className="text-[13px] text-gray-500 mt-1"
+                      numberOfLines={2}
+                    >
+                      {item.message || "Da gui loi moi ket ban cho ban"}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+
+                <View className="mt-3 flex-row gap-2">
+                  <TouchableOpacity
+                    onPress={() => handleReject(item)}
+                    className="flex-1 h-10 rounded-xl bg-gray-100 items-center justify-center"
+                  >
+                    <Text className="text-[14px] font-medium text-gray-700">
+                      Tu choi
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    onPress={() => handleAccept(item)}
+                    className="flex-1 h-10 rounded-xl bg-[#0A67DA] items-center justify-center"
+                  >
+                    <Text className="text-[14px] font-medium text-white">
+                      Dong y
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            );
+          }}
+        />
+      )}
+    </SafeAreaView>
+  );
+}
