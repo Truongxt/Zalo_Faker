@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect, useCallback, FormEvent, ChangeEvent } from 'react'
-import { useParams } from 'react-router-dom'
+import { useState, useRef, useEffect, useCallback, FormEvent, ChangeEvent, CSSProperties } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
 import { useChatStore, type Message, type GroupPermissionScope, normalizeMessage } from '@/stores/chatStore'
 import { useAuthStore } from '@/stores/authStore'
 import { useToast } from '@/contexts/ToastContext'
@@ -25,7 +25,8 @@ import {
     Loader,
     WifiOff,
     Megaphone,
-    Pin
+    Pin,
+    Star
 } from 'lucide-react'
 import MessageBubble from '@/components/chat/MessageBubble'
 import TypingIndicator from '@/components/chat/TypingIndicator'
@@ -38,10 +39,42 @@ import { deleteChatHistory, updateParticipantSetting, updateConversationBackgrou
 import GroupManagementModal from '@/components/chat/GroupManagementModal'
 import ForwardMessageModal from '@/components/chat/ForwardMessageModal'
 import BackgroundPickerModal from '@/components/chat/BackgroundPickerModal'
+import MuteConversationModal from '@/components/chat/MuteConversationModal'
 import { useCallStore } from '@/stores/callStore'
+import { formatMuteUntilLabel, getParticipantMuteState } from '@/lib/muteUtils'
+import { getMessagePreviewText } from '@/lib/messagePreview'
+
+const getConversationBackgroundStyle = (backgroundValue?: string): CSSProperties | undefined => {
+    const value = backgroundValue?.trim()
+
+    if (!value) return undefined
+
+    if (/^(https?:\/\/|data:|blob:|\/)/i.test(value)) {
+        return {
+            backgroundImage: `url(${value})`,
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+        }
+    }
+
+    return { background: value }
+}
+
+const isImageConversationBackground = (backgroundValue?: string) =>
+    /^(https?:\/\/|data:|blob:|\/)/i.test(backgroundValue?.trim() || '')
+
+const buildMessageMetadata = (isAnnouncement: boolean, isImportant: boolean) => {
+    if (!isAnnouncement && !isImportant) return null
+
+    return {
+        ...(isAnnouncement ? { isAnnouncement: true } : {}),
+        ...(isImportant ? { isImportant: true } : {}),
+    }
+}
 
 export default function ChatRoom() {
     const { conversationId } = useParams<{ conversationId: string }>()
+    const navigate = useNavigate()
     const { user } = useAuthStore()
     const { addToast } = useToast()
     const { validateFile, handleUploadError } = useMediaUpload()
@@ -68,14 +101,17 @@ export default function ChatRoom() {
     const [showStickerPicker, setShowStickerPicker] = useState(false)
     const [isSendingMedia, setIsSendingMedia] = useState(false)
     const [showMenu, setShowMenu] = useState(false)
-    const [isSearching] = useState(false)
+    const [isSearching, setIsSearching] = useState(false)
     const [searchMessageQuery, setSearchMessageQuery] = useState('')
     const debouncedSearchQuery = useDebounce(searchMessageQuery, 300)
     const [showGroupManagement, setShowGroupManagement] = useState(false)
     const [forwardMessage, setForwardMessage] = useState<Message | null>(null)
     const [showBackgroundPicker, setShowBackgroundPicker] = useState(false)
+    const [showMutePicker, setShowMutePicker] = useState(false)
     const [announcementMode, setAnnouncementMode] = useState(false)
+    const [importantMode, setImportantMode] = useState(false)
     const [isPinningMessage, setIsPinningMessage] = useState(false)
+    const [, setMinuteTick] = useState(() => Date.now())
     const [pendingMedia, setPendingMedia] = useState<{
         file: File
         type: 'image' | 'video' | 'file'
@@ -95,6 +131,7 @@ export default function ChatRoom() {
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const menuRef = useRef<HTMLDivElement>(null)
     const inputRef = useRef<HTMLTextAreaElement>(null)
+    const searchInputRef = useRef<HTMLInputElement>(null)
     const imageInputRef = useRef<HTMLInputElement>(null)
     const fileInputRef = useRef<HTMLInputElement>(null)
     const typingTimeoutRef = useRef<ReturnType<typeof setTimeout>>()
@@ -102,6 +139,11 @@ export default function ChatRoom() {
     const stickerPickerRef = useRef<HTMLDivElement>(null)
 
     const typing = conversationId ? typingUsers[conversationId] || [] : []
+    const conversationBackground = activeConversation?.background?.trim() || ''
+    const conversationBackgroundStyle = getConversationBackgroundStyle(conversationBackground)
+    const backgroundOverlayClassName = isImageConversationBackground(conversationBackground)
+        ? 'absolute inset-0 bg-white/70 dark:bg-black/70'
+        : 'absolute inset-0 bg-white/25 dark:bg-black/25'
 
 
     const markMessageAsRead = useCallback((messageId: string) => {
@@ -199,7 +241,10 @@ export default function ChatRoom() {
     }, [conversationId, conversations])
 
     useEffect(() => {
+        setIsSearching(false)
+        setSearchMessageQuery('')
         setAnnouncementMode(false)
+        setImportantMode(false)
     }, [conversationId])
 
     useEffect(() => {
@@ -209,6 +254,27 @@ export default function ChatRoom() {
             }
         }
     }, [pendingMedia])
+
+    useEffect(() => {
+        const timer = window.setInterval(() => setMinuteTick(Date.now()), 60000)
+        return () => window.clearInterval(timer)
+    }, [])
+
+    useEffect(() => {
+        if (!isSearching) return
+
+        searchInputRef.current?.focus()
+
+        const handleKeyDown = (event: KeyboardEvent) => {
+            if (event.key !== 'Escape') return
+
+            setIsSearching(false)
+            setSearchMessageQuery('')
+        }
+
+        window.addEventListener('keydown', handleKeyDown)
+        return () => window.removeEventListener('keydown', handleKeyDown)
+    }, [isSearching])
 
     useEffect(() => {
         if (!conversationId || !activeConversation || activeConversation.type !== 'group') return
@@ -301,6 +367,7 @@ export default function ChatRoom() {
             setMessage('')
             setReplyTo(null)
             setAnnouncementMode(false)
+            setImportantMode(false)
             return
         }
 
@@ -311,9 +378,12 @@ export default function ChatRoom() {
 
         const messageText = message.trim()
         const isAnnouncement = activeConversation?.type === 'group' && announcementMode
+        const isImportant = importantMode
+        const metadata = buildMessageMetadata(isAnnouncement, isImportant)
         setMessage('')
         setReplyTo(null)
         setAnnouncementMode(false)
+        setImportantMode(false)
 
         // ✅ Optimistic update — hiện tin nhắn ngay lập tức
         const tempId = `temp-${Date.now()}`
@@ -323,7 +393,7 @@ export default function ChatRoom() {
             senderId: user.id,
             type: 'text',
             content: { text: messageText },
-            metadata: isAnnouncement ? { isAnnouncement: true } : null,
+            metadata,
             replyTo: replyTo || undefined,
             reactions: [],
             readBy: [],
@@ -341,7 +411,7 @@ export default function ChatRoom() {
                     user.id,
                     'text',
                     { text: messageText },
-                    isAnnouncement ? { isAnnouncement: true } : undefined,
+                    metadata || undefined,
                     replyTo || undefined
                 )
                 addToast('Bạn đang offline. Tin nhắn sẽ được gửi khi có kết nối.', 'info', 3000)
@@ -359,7 +429,7 @@ export default function ChatRoom() {
                     conversationId,
                     type: 'text',
                     content: { text: messageText },
-                    metadata: isAnnouncement ? { isAnnouncement: true } : undefined,
+                    metadata: metadata || undefined,
                     replyTo: replyTo || undefined,
                 })
                 useChatStore.getState().removeMessage(conversationId, tempId)
@@ -386,7 +456,7 @@ export default function ChatRoom() {
                 senderId: user.id,
                 type: 'text',
                 content: { text: messageText },
-                metadata: isAnnouncement ? { isAnnouncement: true } : undefined,
+                metadata: metadata || undefined,
                 replyTo: replyTo || undefined,
             }, (res) => {
                 if (done) return
@@ -405,7 +475,7 @@ export default function ChatRoom() {
                     conversationId,
                     type: 'text',
                     content: { text: messageText },
-                    metadata: isAnnouncement ? { isAnnouncement: true } : undefined,
+                    metadata: metadata || undefined,
                     replyTo: replyTo || undefined,
                 })
                 useChatStore.getState().removeMessage(conversationId, tempId)
@@ -420,10 +490,14 @@ export default function ChatRoom() {
         // Cập nhật lastMessage trong sidebar ngay
         updateConversation(conversationId, {
             lastMessage: {
-                content: isAnnouncement ? `[Thông báo] ${messageText}` : messageText,
                 type: 'text',
                 senderId: user.id,
                 timestamp: new Date().toISOString(),
+                content: getMessagePreviewText({
+                    type: 'text',
+                    content: { text: messageText },
+                    metadata,
+                }),
             },
             updatedAt: new Date().toISOString(),
         })
@@ -600,6 +674,11 @@ export default function ChatRoom() {
             return
         }
 
+        const metadata = buildMessageMetadata(
+            activeConversation?.type === 'group' && announcementMode,
+            importantMode
+        )
+
         // Validate file
         const validation = validateFile(file, type)
         if (!validation.valid) {
@@ -651,6 +730,7 @@ export default function ChatRoom() {
                 senderId: user.id,
                 type,
                 content,
+                metadata,
                 replyTo: replyTo || undefined,
                 reactions: [],
                 readBy: [],
@@ -673,6 +753,7 @@ export default function ChatRoom() {
                         senderId: user.id,
                         type,
                         content,
+                        metadata: metadata || undefined,
                         replyTo: replyTo || undefined,
                     }, (res) => {
                         if (done) return
@@ -693,6 +774,7 @@ export default function ChatRoom() {
                             conversationId,
                             type,
                             content,
+                            metadata: metadata || undefined,
                             replyTo: replyTo || undefined,
                         })
 
@@ -717,6 +799,7 @@ export default function ChatRoom() {
                         conversationId,
                         type,
                         content,
+                        metadata: metadata || undefined,
                         replyTo: replyTo || undefined,
                     })
 
@@ -734,13 +817,19 @@ export default function ChatRoom() {
 
             updateConversation(conversationId, {
                 lastMessage: {
-                    content: type === 'image' ? '[Hình ảnh]' : type === 'video' ? '[Video]' : type === 'voice' ? '[Tin nhắn thoại]' : `[File] ${file.name}`,
                     type,
                     senderId: user.id,
                     timestamp: new Date().toISOString(),
+                    content: getMessagePreviewText({
+                        type,
+                        content,
+                        metadata,
+                    }),
                 },
                 updatedAt: new Date().toISOString(),
             })
+            setAnnouncementMode(false)
+            setImportantMode(false)
         } catch (error) {
             handleUploadError(error, type)
         } finally {
@@ -853,12 +942,15 @@ export default function ChatRoom() {
             return
         }
 
+        const metadata = buildMessageMetadata(false, importantMode)
+
         const stickerMsg: Message = {
             id: `temp-sticker-${Date.now()}`,
             conversationId,
             senderId: user.id,
             type: 'sticker',
             content: { mediaUrl: stickerUrl },
+            metadata,
             reactions: [],
             readBy: [],
             isDeleted: false,
@@ -871,6 +963,7 @@ export default function ChatRoom() {
             senderId: user.id,
             type: 'sticker',
             content: { mediaUrl: stickerUrl },
+            metadata: metadata || undefined,
         }, (res) => {
             if (res.success) {
                 useChatStore.getState().removeMessage(conversationId, stickerMsg.id)
@@ -883,14 +976,19 @@ export default function ChatRoom() {
 
         updateConversation(conversationId, {
             lastMessage: {
-                content: '[Nhãn dán]',
                 type: 'sticker',
                 senderId: user.id,
                 timestamp: new Date().toISOString(),
+                content: getMessagePreviewText({
+                    type: 'sticker',
+                    content: { mediaUrl: stickerUrl },
+                    metadata,
+                }),
             },
             updatedAt: new Date().toISOString(),
         })
 
+        setImportantMode(false)
         setShowStickerPicker(false)
     }
 
@@ -965,6 +1063,11 @@ export default function ChatRoom() {
         return activeConversation.participants.find(p => String(p.userId) !== String(user?.id))
     }
 
+    const handleOpenUserProfile = (targetUserId?: string) => {
+        if (!targetUserId) return
+        navigate(`/profile/${targetUserId}`)
+    }
+
     const handleDeleteHistory = async () => {
         if (!conversationId) return
         if (!confirm('Bạn có chắc muốn xóa toàn bộ tin nhắn trong cuộc trò chuyện này không? Hành động này không thể hoàn tác.')) return
@@ -988,8 +1091,21 @@ export default function ChatRoom() {
     const otherUser = getOtherParticipant()
     const currentP = activeConversation?.participants.find(p => String(p.userId) === String(user?.id))
     const activeNickname = currentP?.nickname
-    const isMuted = currentP?.isMuted
+    const muteState = getParticipantMuteState(currentP)
+    const isMuted = muteState.isMuted
     const currentGroupRole = currentP?.role
+    const inputFocusRingClass = announcementMode || importantMode
+        ? 'focus:ring-amber-500'
+        : 'focus:ring-primary-500'
+    const normalizedSearchQuery = debouncedSearchQuery.trim().toLowerCase()
+    const filteredMessages = messages.filter((msg) => {
+        if (!normalizedSearchQuery) return true
+
+        const text = msg.content.text?.toLowerCase() || ''
+        const fileName = msg.content.fileName?.toLowerCase() || ''
+
+        return text.includes(normalizedSearchQuery) || fileName.includes(normalizedSearchQuery)
+    })
 
     const canUseGroupScope = useCallback((scope?: GroupPermissionScope) => {
         if (!scope) return true
@@ -1054,6 +1170,25 @@ export default function ChatRoom() {
         }
     }
 
+    const handleUpdateMuteSettings = async (settings: { isMuted: boolean; muteUntil: string | null }) => {
+        if (!conversationId || !user || !activeConversation) return
+
+        try {
+            await updateParticipantSetting(conversationId, user.id, settings)
+            useChatStore.getState().updateConversation(conversationId, {
+                participants: activeConversation.participants.map(part =>
+                    String(part.userId) === String(user.id)
+                        ? { ...part, isMuted: settings.isMuted, muteUntil: settings.isMuted ? settings.muteUntil : null }
+                        : part
+                )
+            })
+        } catch (error) {
+            console.error('Update mute settings error', error)
+            addToast('Không thể cập nhật thông báo lúc này.', 'error', 5000)
+            throw error
+        }
+    }
+
     const conversationName = activeConversation?.type === 'group'
         ? activeConversation.name
         : (activeNickname || otherUser?.fullName || 'Người dùng')
@@ -1097,14 +1232,14 @@ export default function ChatRoom() {
 
     if (!conversationId || !activeConversation) {
         return (
-            <div className="flex-1 flex items-center justify-center bg-gray-50 dark:bg-dark-100">
+            <div className="flex-1 min-w-0 flex items-center justify-center bg-gray-50 dark:bg-dark-100">
                 <p className="text-gray-500">Chọn một cuộc trò chuyện</p>
             </div>
         )
     }
 
     return (
-        <div className="flex-1 flex flex-col bg-white dark:bg-dark-200">
+        <div className="flex-1 min-w-0 flex flex-col bg-white dark:bg-dark-200">
             {/* Header */}
             <div className="h-16 px-4 flex items-center justify-between border-b border-gray-200 dark:border-gray-800">
                 <div className="flex items-center gap-3">
@@ -1115,7 +1250,17 @@ export default function ChatRoom() {
                         <ArrowLeft className="w-5 h-5" />
                     </button>
 
-                    <div className="relative">
+                    <button
+                        type="button"
+                        onClick={() => {
+                            if (activeConversation?.type === 'private') {
+                                handleOpenUserProfile(String(otherUser?.userId || ''))
+                            }
+                        }}
+                        disabled={activeConversation?.type !== 'private' || !otherUser?.userId}
+                        className={`relative ${activeConversation?.type === 'private' ? 'cursor-pointer' : 'cursor-default'}`}
+                        title={activeConversation?.type === 'private' ? 'Xem trang cá nhân' : undefined}
+                    >
                         {conversationAvatar ? (
                             <img
                                 src={conversationAvatar}
@@ -1132,12 +1277,22 @@ export default function ChatRoom() {
                         {otherUser?.status === 'online' && (
                             <span className="online-indicator" />
                         )}
-                    </div>
+                    </button>
 
-                    <div>
+                    <button
+                        type="button"
+                        onClick={() => {
+                            if (activeConversation?.type === 'private') {
+                                handleOpenUserProfile(String(otherUser?.userId || ''))
+                            }
+                        }}
+                        disabled={activeConversation?.type !== 'private' || !otherUser?.userId}
+                        className={`text-left ${activeConversation?.type === 'private' ? 'cursor-pointer' : 'cursor-default'}`}
+                        title={activeConversation?.type === 'private' ? 'Xem trang cá nhân' : undefined}
+                    >
                         <h3 className="font-semibold text-gray-900 dark:text-white flex items-center gap-2">
                             {conversationName}
-                            {isMuted && <span className="text-gray-400" title="Đã tắt thông báo">🔕</span>}
+                            {isMuted && <span className="text-gray-400" title={`Đã tắt thông báo ${formatMuteUntilLabel(muteState.muteUntil)}`}>🔕</span>}
                             {!isOnline && (
                                 <span className="text-xs bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-2 py-0.5 rounded-full flex items-center gap-1 font-normal">
                                     <WifiOff className="w-3 h-3" />
@@ -1158,17 +1313,36 @@ export default function ChatRoom() {
                             ) : (
                                 <>
                                     {otherUser?.status === 'online'
-                                        ? 'Đang hoạt động'
+                                    ? 'Đang hoạt động'
                                         : activeConversation.type === 'group'
                                             ? `${activeConversation.participants.length} thành viên`
                                             : 'Offline'}
                                 </>
                             )}
                         </p>
-                    </div>
+                    </button>
                 </div>
 
                 <div className="flex items-center gap-1">
+                    <button
+                        onClick={() => {
+                            if (isSearching) {
+                                setIsSearching(false)
+                                setSearchMessageQuery('')
+                                return
+                            }
+
+                            setIsSearching(true)
+                        }}
+                        className={`p-2 rounded-lg transition-colors ${
+                            isSearching
+                                ? 'bg-primary-50 text-primary-600 dark:bg-primary-900/20 dark:text-primary-300'
+                                : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-400'
+                        }`}
+                        title={isSearching ? 'Đóng tìm kiếm tin nhắn' : 'Tìm kiếm tin nhắn'}
+                    >
+                        <Search className="w-5 h-5" />
+                    </button>
                     <button
                         onClick={handleStartVoiceCall}
                         className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-600 dark:text-gray-400"
@@ -1211,6 +1385,21 @@ export default function ChatRoom() {
                                 )}
                                 <button
                                     onClick={() => {
+                                        if (isMuted) {
+                                            handleUpdateMuteSettings({ isMuted: false, muteUntil: null })
+                                                .then(() => setShowMenu(false))
+                                                .catch(() => null)
+                                            return
+                                        }
+                                        setShowMutePicker(true)
+                                        setShowMenu(false)
+                                    }}
+                                    className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-dark-100 transition-colors"
+                                >
+                                    {isMuted ? 'Bật thông báo' : 'Tắt thông báo'}
+                                </button>
+                                <button
+                                    onClick={() => {
                                         setShowBackgroundPicker(true)
                                         setShowMenu(false)
                                     }}
@@ -1236,6 +1425,7 @@ export default function ChatRoom() {
                     <div className="relative">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                         <input
+                            ref={searchInputRef}
                             autoFocus
                             type="text"
                             value={searchMessageQuery}
@@ -1248,6 +1438,14 @@ export default function ChatRoom() {
                                 <X className="w-3.5 h-3.5" />
                             </button>
                         )}
+                    </div>
+                    <div className="mt-2 flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
+                        <span>
+                            {normalizedSearchQuery
+                                ? `Tìm thấy ${filteredMessages.length} kết quả`
+                                : 'Nhập từ khóa để tìm trong cuộc trò chuyện'}
+                        </span>
+                        <span>Esc để đóng</span>
                     </div>
                 </div>
             )}
@@ -1292,51 +1490,28 @@ export default function ChatRoom() {
             {/* Messages */}
             <div className="flex-1 relative overflow-hidden flex flex-col">
                 {/* Custom Background */}
-                {activeConversation?.background && (
+                {conversationBackgroundStyle && (
                     <div
-                        className="absolute inset-0 z-0 bg-cover bg-center pointer-events-none"
-                        style={{ backgroundImage: `url(${activeConversation.background})` }}
+                        className="absolute inset-0 z-0 pointer-events-none"
+                        style={conversationBackgroundStyle}
                     >
-                        <div className="absolute inset-0 bg-white/70 dark:bg-black/70" />
+                        <div className={backgroundOverlayClassName} />
                     </div>
                 )}
 
                 <VirtualizedMessageList
                     isLoading={pagination.isLoading}
-                    hasMore={pagination.hasMore}
-                    onReachTop={pagination.loadMore}
+                    hasMore={normalizedSearchQuery ? false : pagination.hasMore}
+                    onReachTop={normalizedSearchQuery ? undefined : pagination.loadMore}
                     className="relative z-10"
                 >
                     {(() => {
-                        const filteredMessages = messages.filter(msg => {
-                            if (!debouncedSearchQuery) return true
-
-                            const query = debouncedSearchQuery.toLowerCase()
-
-                            // Search text messages
-                            if (msg.type === 'text' && msg.content.text) {
-                                return msg.content.text.toLowerCase().includes(query)
-                            }
-
-                            // Search file names
-                            if (msg.type === 'file' && msg.content.fileName) {
-                                return msg.content.fileName.toLowerCase().includes(query)
-                            }
-
-                            // Search sticker/image/video content if they have descriptions
-                            if ((msg.type === 'sticker' || msg.type === 'image' || msg.type === 'video') && msg.content.text) {
-                                return msg.content.text.toLowerCase().includes(query)
-                            }
-
-                            return false
-                        })
-
-                        if (debouncedSearchQuery && filteredMessages.length === 0) {
+                        if (normalizedSearchQuery && filteredMessages.length === 0) {
                             return (
                                 <div className="flex flex-col items-center justify-center py-10 opacity-60">
                                     <Search className="w-10 h-10 mb-3 text-gray-400" />
                                     <p className="text-gray-500 dark:text-gray-400 text-sm text-center">
-                                        Không tìm thấy tin nhắn nào chứa "<span className="font-medium">{debouncedSearchQuery}</span>"
+                                        Kh�ng t?m th?y tin nh?n n�o ch?a <span className="font-medium">"{debouncedSearchQuery}"</span>
                                     </p>
                                 </div>
                             )
@@ -1360,8 +1535,10 @@ export default function ChatRoom() {
                                             message={msg}
                                             isSent={isSent}
                                             showAvatar={showAvatar}
+                                            senderUserId={sender ? String(sender.userId) : undefined}
                                             senderName={sender?.fullName}
                                             senderAvatar={sender?.avatarUrl ?? undefined}
+                                            onAvatarClick={sender ? () => handleOpenUserProfile(String(sender.userId)) : undefined}
                                             replyMessage={msg.replyTo ? messages.find(m => m.id === msg.replyTo) || null : null}
                                             replySenderName={msg.replyTo ? (() => {
                                                 const repliedMsg = messages.find(m => m.id === msg.replyTo)
@@ -1380,11 +1557,12 @@ export default function ChatRoom() {
                                                 fullName: p.fullName
                                             })) ?? []}
                                             isGroupChat={activeConversation?.type === 'group'}
+                                            searchQuery={debouncedSearchQuery}
                                         />
                                     )
                                 })}
 
-                                {typing.length > 0 && <TypingIndicator />}
+                                {!normalizedSearchQuery && typing.length > 0 && <TypingIndicator />}
                                 <div ref={messagesEndRef} />
                             </>
                         )
@@ -1543,7 +1721,7 @@ export default function ChatRoom() {
                                     placeholder={announcementMode ? 'Nhập nội dung thông báo...' : 'Nhập tin nhắn...'}
                                     className={`w-full px-4 py-2.5 bg-gray-100 dark:bg-dark-300 rounded-full
                                         text-gray-900 dark:text-white placeholder-gray-500
-                                        focus:outline-none focus:ring-2 ${announcementMode ? 'focus:ring-amber-500' : 'focus:ring-primary-500'}`}
+                                        focus:outline-none focus:ring-2 ${inputFocusRingClass}`}
                                 />
                                 <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1">
                                     {activeConversation?.type === 'group' && (
@@ -1563,6 +1741,19 @@ export default function ChatRoom() {
                                             <Megaphone className="w-5 h-5" />
                                         </button>
                                     )}
+
+                                    <button
+                                        type="button"
+                                        onClick={() => setImportantMode((prev) => !prev)}
+                                        className={`p-1 rounded-full transition-colors ${
+                                            importantMode
+                                                ? 'bg-amber-100 text-amber-600'
+                                                : 'hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500'
+                                        }`}
+                                        title={importantMode ? 'Tắt chế độ tin nhắn quan trọng' : 'Bật chế độ tin nhắn quan trọng'}
+                                    >
+                                        <Star className={`w-5 h-5 ${importantMode ? 'fill-current' : ''}`} />
+                                    </button>
 
                                     <div ref={stickerPickerRef} className="relative">
                                         <button
@@ -1651,6 +1842,16 @@ export default function ChatRoom() {
                     currentBackground={activeConversation?.background}
                     onApply={handleUpdateBackground}
                     onClose={() => setShowBackgroundPicker(false)}
+                />
+            )}
+
+            {showMutePicker && activeConversation && (
+                <MuteConversationModal
+                    conversationName={conversationName || 'Cuộc trò chuyện'}
+                    isMuted={muteState.isMuted}
+                    muteUntil={muteState.muteUntil}
+                    onApply={handleUpdateMuteSettings}
+                    onClose={() => setShowMutePicker(false)}
                 />
             )}
         </div>

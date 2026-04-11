@@ -22,6 +22,7 @@ export interface Message {
     }
     metadata?: {
         isAnnouncement?: boolean
+        isImportant?: boolean
     } | null
     replyTo?: string
     reactions: { userId: string; emoji: string }[]
@@ -94,6 +95,7 @@ export interface Participant {
     nickname?: string
     isPinned?: boolean
     isMuted?: boolean
+    muteUntil?: string | null
     labelIds?: string[]
 }
 

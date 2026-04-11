@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { ChangeEvent, CSSProperties, useEffect, useRef, useState } from 'react'
 import { X, Upload } from 'lucide-react'
+import { uploadMedia } from '@/services/api'
 
 interface BackgroundPickerModalProps {
     currentBackground?: string
@@ -24,12 +25,50 @@ export default function BackgroundPickerModal({
 }: BackgroundPickerModalProps) {
     const [isLoading, setIsLoading] = useState(false)
     const [customUrl, setCustomUrl] = useState('')
+    const [localPreviewUrl, setLocalPreviewUrl] = useState<string | null>(null)
     const [error, setError] = useState<string | null>(null)
+    const fileInputRef = useRef<HTMLInputElement>(null)
+
+    useEffect(() => {
+        return () => {
+            if (localPreviewUrl) {
+                URL.revokeObjectURL(localPreviewUrl)
+            }
+        }
+    }, [localPreviewUrl])
+
+    const clearLocalPreview = () => {
+        setLocalPreviewUrl((prev) => {
+            if (prev) {
+                URL.revokeObjectURL(prev)
+            }
+            return null
+        })
+    }
+
+    const getBackgroundStyle = (backgroundValue?: string): CSSProperties => {
+        const value = backgroundValue?.trim()
+
+        if (!value) {
+            return { background: '#ffffff' }
+        }
+
+        if (/^(https?:\/\/|data:|blob:|\/)/i.test(value)) {
+            return {
+                backgroundImage: `url(${value})`,
+                backgroundSize: 'cover',
+                backgroundPosition: 'center',
+            }
+        }
+
+        return { background: value }
+    }
 
     const handleApplyPreset = async (bgValue: string) => {
         try {
             setIsLoading(true)
             setError(null)
+            clearLocalPreview()
             await onApply(bgValue)
             onClose()
         } catch (err) {
@@ -48,6 +87,7 @@ export default function BackgroundPickerModal({
         try {
             setIsLoading(true)
             setError(null)
+            clearLocalPreview()
             await onApply(customUrl.trim())
             onClose()
         } catch (err) {
@@ -57,7 +97,46 @@ export default function BackgroundPickerModal({
         }
     }
 
+    const handlePickFromLibrary = async (e: ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0]
+        if (!file) return
+
+        if (!file.type.startsWith('image/')) {
+            setError('Vui lòng chọn một file hình ảnh hợp lệ')
+            e.target.value = ''
+            return
+        }
+
+        if (file.size > 5 * 1024 * 1024) {
+            setError('Hình nền quá lớn. Tối đa 5MB.')
+            e.target.value = ''
+            return
+        }
+
+        const previewUrl = URL.createObjectURL(file)
+        setLocalPreviewUrl((prev) => {
+            if (prev) {
+                URL.revokeObjectURL(prev)
+            }
+            return previewUrl
+        })
+
+        try {
+            setIsLoading(true)
+            setError(null)
+            const uploadResult = await uploadMedia(file)
+            await onApply(uploadResult.url)
+            onClose()
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Không thể tải ảnh lên')
+        } finally {
+            setIsLoading(false)
+            e.target.value = ''
+        }
+    }
+
     const isPresetSelected = (bgValue: string) => currentBackground === bgValue
+    const previewValue = localPreviewUrl || customUrl
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in">
@@ -122,6 +201,33 @@ export default function BackgroundPickerModal({
                         </div>
                     </div>
 
+                    <div>
+                        <h3 className="text-sm font-medium text-gray-900 dark:text-white mb-3">
+                            Ảnh từ thư viện
+                        </h3>
+                        <div className="space-y-2">
+                            <button
+                                type="button"
+                                onClick={() => fileInputRef.current?.click()}
+                                disabled={isLoading}
+                                className="w-full px-4 py-3 border border-dashed border-gray-300 dark:border-gray-600 rounded-xl hover:border-primary-500 hover:bg-primary-50 dark:hover:bg-primary-950/20 transition-colors text-sm font-medium text-gray-700 dark:text-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                {isLoading ? 'Đang tải ảnh lên...' : 'Chọn ảnh từ thư viện'}
+                            </button>
+                            <input
+                                ref={fileInputRef}
+                                type="file"
+                                accept="image/*"
+                                className="hidden"
+                                onChange={handlePickFromLibrary}
+                                disabled={isLoading}
+                            />
+                            <p className="text-xs text-gray-500 dark:text-gray-400">
+                                Hỗ trợ ảnh JPG, PNG, WEBP. Tối đa 5MB.
+                            </p>
+                        </div>
+                    </div>
+
                     {/* Custom URL */}
                     <div>
                         <h3 className="text-sm font-medium text-gray-900 dark:text-white mb-3">
@@ -133,6 +239,7 @@ export default function BackgroundPickerModal({
                                     type="url"
                                     value={customUrl}
                                     onChange={(e) => {
+                                        clearLocalPreview()
                                         setCustomUrl(e.target.value)
                                         setError(null)
                                     }}
@@ -160,19 +267,14 @@ export default function BackgroundPickerModal({
                     </div>
 
                     {/* Preview */}
-                    {customUrl && (
+                    {previewValue && (
                         <div>
                             <h3 className="text-sm font-medium text-gray-900 dark:text-white mb-2">
                                 Xem trước
                             </h3>
                             <div
                                 className="w-full h-48 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden bg-cover bg-center"
-                                style={{
-                                    backgroundImage: customUrl.startsWith('http') ? `url(${customUrl})` : undefined,
-                                    background: !customUrl.startsWith('http') ? customUrl : undefined,
-                                    backgroundSize: customUrl.startsWith('http') ? 'cover' : undefined,
-                                    backgroundPosition: customUrl.startsWith('http') ? 'center' : undefined,
-                                } as React.CSSProperties}
+                                style={getBackgroundStyle(previewValue)}
                             />
                         </div>
                     )}

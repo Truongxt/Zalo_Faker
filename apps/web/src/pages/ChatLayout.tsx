@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Outlet } from 'react-router-dom'
 import Sidebar from '@/components/layout/Sidebar'
 import { useChatStore, normalizeMessage } from '@/stores/chatStore'
@@ -8,19 +8,52 @@ import { socketService } from '@/lib/socket'
 import IncomingCallModal from '@/components/chat/IncomingCallModal'
 import VideoCallModal from '@/components/chat/VideoCallModal'
 import { useCallStore } from '@/stores/callStore'
+import { getMessagePreviewText } from '@/lib/messagePreview'
+
+const SIDEBAR_WIDTH_STORAGE_KEY = 'chat-sidebar-width'
+const DEFAULT_SIDEBAR_WIDTH = 320
+const MIN_SIDEBAR_WIDTH = 280
+const MAX_SIDEBAR_WIDTH = 520
+const MIN_CONTENT_WIDTH = 180
+const RESIZABLE_BREAKPOINT = 540
+
+const getStoredSidebarWidth = () => {
+    if (typeof window === 'undefined') return DEFAULT_SIDEBAR_WIDTH
+
+    const storedWidth = Number(window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY))
+    return Number.isFinite(storedWidth) ? storedWidth : DEFAULT_SIDEBAR_WIDTH
+}
+
+const clampSidebarWidth = (width: number, viewportWidth: number) => {
+    const maxAllowedWidth = Math.min(
+        MAX_SIDEBAR_WIDTH,
+        Math.max(MIN_SIDEBAR_WIDTH, viewportWidth - MIN_CONTENT_WIDTH)
+    )
+
+    return Math.min(maxAllowedWidth, Math.max(MIN_SIDEBAR_WIDTH, width))
+}
 
 export default function ChatLayout() {
     const { setConversations, addMessage, updateMessage, updateConversation } = useChatStore()
     const { user } = useAuthStore()
+    const dragStateRef = useRef<{ startX: number; startWidth: number } | null>(null)
+    const [sidebarWidth, setSidebarWidth] = useState(() =>
+        clampSidebarWidth(
+            getStoredSidebarWidth(),
+            typeof window === 'undefined' ? DEFAULT_SIDEBAR_WIDTH + MIN_CONTENT_WIDTH : window.innerWidth
+        )
+    )
+    const [canResizeSidebar, setCanResizeSidebar] = useState(() =>
+        typeof window !== 'undefined' && window.innerWidth >= RESIZABLE_BREAKPOINT
+    )
+    const [isResizingSidebar, setIsResizingSidebar] = useState(false)
 
     useEffect(() => {
-        // Load danh sách conversations
         const loadData = async () => {
             try {
                 const convs = await getConversation()
                 setConversations(convs)
-                
-                // Sau khi load xong conversations, join toàn bộ các room để nhận tin nhắn real-time cho sidebar
+
                 if (convs && convs.length > 0) {
                     const roomIds = convs.map((c: any) => c.id)
                     socketService.joinRooms(roomIds)
@@ -29,63 +62,57 @@ export default function ChatLayout() {
                 console.error('Error loading conversations:', error)
             }
         }
+
         loadData()
 
-        // Kết nối socket khi vào chat
         if (user?.id) {
             socketService.connect(user.id)
 
             const handleIncomingCall = (data: any) => {
-                const { setIncomingCall } = useCallStore.getState();
-                setIncomingCall(data);
-            };
+                const { setIncomingCall } = useCallStore.getState()
+                setIncomingCall(data)
+            }
             const handleCallEnded = () => {
-                const { clearCall } = useCallStore.getState();
-                clearCall();
-            };
+                const { clearCall } = useCallStore.getState()
+                clearCall()
+            }
             const handleCallRejected = () => {
-                const { clearCall } = useCallStore.getState();
-                clearCall();
-            };
+                const { clearCall } = useCallStore.getState()
+                clearCall()
+            }
 
-            // Lắng nghe tin nhắn mới REAL-TIME TOÀN CỤC
             const handleNewMessageGlobal = (msg: any) => {
-                console.log('📬 Socket: Received new message:', msg)
+                console.log('[socket] received new message:', msg)
                 const normalizedMsg = normalizeMessage(msg)
                 const conversationId = normalizedMsg.conversationId
                 const store = useChatStore.getState()
                 const activeConversationId = store.activeConversation?.id
 
-                // Tránh trùng lặp tin nhắn nếu client nhận cả từ ack và broadcast
                 const existing = store.messages[conversationId] || []
                 const isDuplicate = existing.some(m => m.id === normalizedMsg.id)
-                
+
                 if (!isDuplicate) {
                     addMessage(conversationId, normalizedMsg)
-                    console.log('✅ Added message to store:', normalizedMsg.id)
+                    console.log('[socket] added message to store:', normalizedMsg.id)
                 } else {
-                    console.log('ℹ️ Message with ID', normalizedMsg.id, 'already exists (duplicate), ignoring.')
-                    return // Stop further processing if duplicate
+                    console.log('[socket] duplicate message ignored:', normalizedMsg.id)
+                    return
                 }
 
-
-                // Tính toán số tin nhắn chưa đọc
                 const currentConv = store.conversations.find(c => c.id === conversationId)
                 let newUnreadCount = 0
-                
+
                 if (activeConversationId !== conversationId) {
                     newUnreadCount = (currentConv?.unreadCount || 0) + 1
                 }
 
-                // Cập nhật thông tin tin nhắn cuối cùng ở Sidebar
                 updateConversation(conversationId, {
                     lastMessage: {
-                        content: normalizedMsg.content.text || (
-                            normalizedMsg.type === 'image' ? '[Hình ảnh]' :
-                            normalizedMsg.type === 'video' ? '[Video]' :
-                            normalizedMsg.type === 'voice' ? '[Tin nhắn thoại]' : 
-                            normalizedMsg.type === 'file' ? `[File] ${normalizedMsg.content.fileName || ''}` : '[Media]'
-                        ),
+                        content: getMessagePreviewText({
+                            type: normalizedMsg.type,
+                            content: normalizedMsg.content,
+                            metadata: normalizedMsg.metadata,
+                        }),
                         type: normalizedMsg.type,
                         senderId: normalizedMsg.senderId,
                         timestamp: normalizedMsg.createdAt,
@@ -95,21 +122,19 @@ export default function ChatLayout() {
                 })
             }
 
-            // Lắng nghe thu hồi tin nhắn toàn cục
             const handleRecalledGlobal = (data: { messageId: string; conversationId: string }) => {
-                console.log('🗑️ Socket: Message recalled:', data)
+                console.log('[socket] message recalled:', data)
                 updateMessage(data.conversationId, data.messageId, { isDeleted: true })
             }
 
-            // Lắng nghe reaction toàn cục
             const handleReactionGlobal = (data: { messageId: string; conversationId: string; reactions: any[] }) => {
-                console.log('👍 Socket: Reaction update:', data)
+                console.log('[socket] reaction update:', data)
                 updateMessage(data.conversationId, data.messageId, { reactions: data.reactions })
             }
 
             const socket = socketService.getSocket()
             if (socket) {
-                console.log('🔌 Attaching global listeners to socket:', socket.id)
+                console.log('[socket] attaching global listeners:', socket.id)
                 socket.on('video:incoming-call', handleIncomingCall)
                 socket.on('video:call-ended', handleCallEnded)
                 socket.on('video:call-rejected', handleCallRejected)
@@ -117,10 +142,8 @@ export default function ChatLayout() {
                 socket.on('chat:recalled', handleRecalledGlobal)
                 socket.on('chat:reaction', handleReactionGlobal)
             }
-
         }
 
-        // Disconnect khi rời trang
         return () => {
             const socket = socketService.getSocket()
             if (socket) {
@@ -134,10 +157,95 @@ export default function ChatLayout() {
         }
     }, [user?.id, setConversations, addMessage, updateMessage, updateConversation])
 
+    useEffect(() => {
+        const syncSidebarLayout = () => {
+            const viewportWidth = window.innerWidth
+            setCanResizeSidebar(viewportWidth >= RESIZABLE_BREAKPOINT)
+            setSidebarWidth(currentWidth => clampSidebarWidth(currentWidth, viewportWidth))
+        }
+
+        syncSidebarLayout()
+        window.addEventListener('resize', syncSidebarLayout)
+
+        return () => window.removeEventListener('resize', syncSidebarLayout)
+    }, [])
+
+    useEffect(() => {
+        window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(sidebarWidth))
+    }, [sidebarWidth])
+
+    useEffect(() => {
+        if (!isResizingSidebar) return
+
+        const handlePointerMove = (event: PointerEvent) => {
+            if (!dragStateRef.current) return
+
+            const nextWidth = dragStateRef.current.startWidth + (event.clientX - dragStateRef.current.startX)
+            setSidebarWidth(clampSidebarWidth(nextWidth, window.innerWidth))
+        }
+
+        const stopResizing = () => {
+            dragStateRef.current = null
+            setIsResizingSidebar(false)
+        }
+
+        document.body.style.userSelect = 'none'
+        document.body.style.cursor = 'col-resize'
+        window.addEventListener('pointermove', handlePointerMove)
+        window.addEventListener('pointerup', stopResizing)
+        window.addEventListener('pointercancel', stopResizing)
+
+        return () => {
+            document.body.style.userSelect = ''
+            document.body.style.cursor = ''
+            window.removeEventListener('pointermove', handlePointerMove)
+            window.removeEventListener('pointerup', stopResizing)
+            window.removeEventListener('pointercancel', stopResizing)
+        }
+    }, [isResizingSidebar])
+
+    const handleResizeStart = (event: React.PointerEvent<HTMLDivElement>) => {
+        if (!canResizeSidebar) return
+
+        dragStateRef.current = {
+            startX: event.clientX,
+            startWidth: sidebarWidth,
+        }
+        setIsResizingSidebar(true)
+        event.preventDefault()
+    }
+
     return (
-        <div className="flex h-screen bg-gray-50 dark:bg-dark-100 relative overflow-hidden">
-            <Sidebar />
-            <Outlet />
+        <div className="relative flex h-screen overflow-hidden bg-gray-50 dark:bg-dark-100">
+            <div
+                className="relative h-full flex-shrink-0"
+                style={{ width: `${sidebarWidth}px` }}
+            >
+                <Sidebar />
+
+                {canResizeSidebar && (
+                    <div
+                        role="separator"
+                        aria-orientation="vertical"
+                        aria-label="Resize chat sidebar"
+                        title="Keo de doi chieu rong"
+                        onPointerDown={handleResizeStart}
+                        onDoubleClick={() => setSidebarWidth(clampSidebarWidth(DEFAULT_SIDEBAR_WIDTH, window.innerWidth))}
+                        className="group absolute right-0 top-0 z-10 flex h-full w-3 translate-x-1/2 cursor-col-resize touch-none items-center justify-center"
+                    >
+                        <span
+                            className={`h-20 w-1 rounded-full transition-colors ${
+                                isResizingSidebar ? 'bg-primary-400' : 'bg-gray-200 group-hover:bg-primary-300'
+                            }`}
+                        />
+                    </div>
+                )}
+            </div>
+
+            <div className="flex h-full min-w-0 flex-1">
+                <Outlet />
+            </div>
+
             <IncomingCallModal />
             <VideoCallModal />
         </div>

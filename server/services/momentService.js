@@ -6,6 +6,7 @@ const momentCommentRepository = require("../repository/momentCommentRepository")
 const momentReactionRepository = require("../repository/momentReactionRepository");
 const friendRepository = require("../repository/friendsRepository");
 const userRepository = require("../repository/userRepository");
+const conversationService = require("./conversationService");
 const {
   deleteFiles,
   extractS3ObjectKey,
@@ -313,6 +314,53 @@ const MomentService = {
           }
         : null,
       moments: await attachMomentMeta(moments, userId)
+    };
+  },
+
+  async getUserProfile(targetUserId, requesterId) {
+    if (!requesterId) {
+      throw createError("Unauthorized", 401);
+    }
+
+    if (!targetUserId) {
+      throw createError("User not found", 404);
+    }
+
+    if (String(targetUserId) === String(requesterId)) {
+      return this.getMyProfile(requesterId);
+    }
+
+    const [user, friendIds, conversations] = await Promise.all([
+      userRepository.getById(targetUserId),
+      getFriendUserIds(requesterId),
+      conversationService.getConversations(requesterId)
+    ]);
+
+    if (!user) {
+      throw createError("User not found", 404);
+    }
+
+    const hasSharedConversation = (conversations || []).some((conversation) =>
+      Array.isArray(conversation.participants) &&
+      conversation.participants.some((participant) => String(participant.userId) === String(targetUserId))
+    );
+
+    if (!friendIds.includes(String(targetUserId)) && !hasSharedConversation) {
+      throw createError("You do not have permission to view this profile", 403);
+    }
+
+    const moments = await momentRepository.getByAuthorId(targetUserId);
+
+    return {
+      user: {
+        userId: user.userId,
+        userName: user.userName,
+        avartarUrl: user.avartarUrl,
+        email: user.email,
+        phone: user.phone,
+        status: user.status
+      },
+      moments: await attachMomentMeta(moments, requesterId)
     };
   },
 

@@ -37,12 +37,13 @@ const getLastMessageText = ({ type, content, metadata }) => {
       ? content.text
       : "";
 
-  if (metadata?.isAnnouncement) {
-    return `[Thong bao] ${contentText}`.trim();
-  }
+  const baseText = contentText || MEDIA_FALLBACK_BY_TYPE[type] || "[Tin nhan]";
+  const prefixes = [];
 
-  if (contentText) return contentText;
-  return MEDIA_FALLBACK_BY_TYPE[type] || "[Tin nhan]";
+  if (metadata?.isImportant) prefixes.push("[Quan trong]");
+  if (metadata?.isAnnouncement) prefixes.push("[Thong bao]");
+
+  return [...prefixes, baseText].join(" ").trim();
 };
 
 module.exports = (socketConfig) => {
