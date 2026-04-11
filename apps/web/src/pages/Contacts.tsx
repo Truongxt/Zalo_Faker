@@ -209,7 +209,7 @@ export default function Contacts() {
   });
 
   return (
-    <div className="flex-1 flex flex-col bg-white dark:bg-dark-100 overflow-hidden">
+    <div className="flex-1 min-w-0 flex flex-col bg-white dark:bg-dark-100 overflow-hidden">
       <div className="h-16 border-b border-gray-200 dark:border-gray-800 flex items-center px-6 justify-between flex-shrink-0">
         <div className="flex items-center gap-3">
           {activeTab === 'friends' && <UserIcon className="w-6 h-6 text-primary-500" />}

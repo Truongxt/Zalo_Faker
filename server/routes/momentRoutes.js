@@ -10,6 +10,7 @@ router.post("/", upload, momentController.createMoment);
 router.put("/:momentId", upload, momentController.updateMoment);
 router.get("/friends", momentController.getFriendMoments);
 router.get("/me", momentController.getMyProfile);
+router.get("/user/:userId", momentController.getUserProfile);
 router.get("/reacted", momentController.getReactedMoments);
 router.get("/:momentId/comments", momentController.getMomentComments);
 router.post("/:momentId/comments", momentController.commentMoment);

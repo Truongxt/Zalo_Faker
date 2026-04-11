@@ -168,7 +168,7 @@ export function useOfflineQueue() {
             senderId: string,
             type: string,
             content: any,
-            metadata?: { isAnnouncement?: boolean },
+            metadata?: { isAnnouncement?: boolean; isImportant?: boolean },
             replyTo?: string
         ) => {
             const message: PendingMessage = {
