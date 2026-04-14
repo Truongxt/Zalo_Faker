@@ -1,10 +1,12 @@
-import { useState } from "react";
-import { Href, Tabs, useRouter } from "expo-router";
-import { Pressable, Text, TouchableOpacity, View } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import { Href, Tabs, useRouter, useSegments } from "expo-router";
+import { Alert, Pressable, Text, TouchableOpacity, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Header } from "@/components/ui";
 import { Colors } from "@/constants/colors";
+import { socketService } from "@/lib/socket";
+import { useAuthStore } from "@/stores/authStore";
 
 type MenuItem = {
   icon: keyof typeof Ionicons.glyphMap;
@@ -15,7 +17,7 @@ type MenuItem = {
 const MENU_ITEMS: MenuItem[] = [
   {
     icon: "person-add-outline",
-    label: "Them ban",
+    label: "Thêm bạn",
     route: "/friends/add",
   },
 ];
@@ -29,23 +31,99 @@ function TabIcon({ name, focused }: { name: string; focused: boolean }) {
     profile: focused ? "person" : "person-outline",
   };
 
-  return <Ionicons name={icons[name]} size={24} color={focused ? Colors.primary : "#9CA3AF"} />;
+  return (
+    <Ionicons
+      name={icons[name]}
+      size={24}
+      color={focused ? Colors.primary : "#9CA3AF"}
+    />
+  );
 }
 
 export default function TabsLayout() {
   const insets = useSafeAreaInsets();
   const [menuOpen, setMenuOpen] = useState(false);
   const router = useRouter();
+  const { user } = useAuthStore();
+  const incomingHandledRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    socketService.connect();
+    const socket = socketService.getSocket();
+    if (!socket || !user?.id) return;
+
+    const handleIncomingCall = (data: any) => {
+      const key = `${data?.fromUserId || ""}-${data?.conversationId || ""}-${data?.callType || ""}`;
+      if (!key || incomingHandledRef.current === key) return;
+      incomingHandledRef.current = key;
+
+      const callerName = data?.callerName || "Nguoi dung";
+      const callTypeLabel = data?.callType === "video" ? "video" : "thoai";
+
+      Alert.alert(
+        "Cuoc goi den",
+        `${callerName} dang goi ${callTypeLabel} cho ban`,
+        [
+          {
+            text: "Tu choi",
+            style: "cancel",
+            onPress: () => {
+              socketService.emit("video:reject-call", {
+                toUserId: data?.fromUserId,
+                conversationId: data?.conversationId,
+              });
+              incomingHandledRef.current = null;
+            },
+          },
+          {
+            text: "Nhan",
+            onPress: () => {
+              const callId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+              router.push({
+                pathname: "/call/[callId]",
+                params: {
+                  callId,
+                  callType: data?.callType || "audio",
+                  conversationId: String(data?.conversationId || ""),
+                  fromUserId: String(data?.fromUserId || ""),
+                  toUserId: String(user.id),
+                  toUserName: user.fullName || "",
+                  toUserAvatar: user.avatarUrl || "",
+                  callerName: callerName,
+                  callerAvatar: data?.callerAvatar || "",
+                  isCaller: "false",
+                  autoAccept: "true",
+                },
+              });
+              incomingHandledRef.current = null;
+            },
+          },
+        ],
+      );
+    };
+
+    socket.on("video:incoming-call", handleIncomingCall);
+    return () => {
+      socket.off("video:incoming-call", handleIncomingCall);
+    };
+  }, [router, user?.id, user?.fullName, user?.avatarUrl]);
+
+  const segments = useSegments() as string[];
+  const isDetailScreen =
+    segments.includes("[conversationId]") || segments.includes("[callId]");
 
   return (
     <View style={{ flex: 1 }}>
-      <Header onAddPress={() => setMenuOpen((prev) => !prev)} />
+      {!isDetailScreen && (
+        <Header onAddPress={() => setMenuOpen((prev) => !prev)} />
+      )}
 
       <Tabs
         screenOptions={{
           headerShown: false,
           tabBarActiveTintColor: Colors.primary,
           tabBarInactiveTintColor: "#9CA3AF",
+          tabBarHideOnKeyboard: true,
           tabBarStyle: {
             borderTopWidth: 0.5,
             borderTopColor: "#E5E7EB",
@@ -62,37 +140,47 @@ export default function TabsLayout() {
         <Tabs.Screen
           name="chat"
           options={{
-            title: "Tin nhan",
+            title: "Tin nhắn",
             href: "/(tabs)/chat/chats",
-            tabBarIcon: ({ focused }) => <TabIcon name="chat" focused={focused} />,
+            tabBarIcon: ({ focused }) => (
+              <TabIcon name="chat" focused={focused} />
+            ),
           }}
         />
         <Tabs.Screen
           name="contacts"
           options={{
-            title: "Danh ba",
-            tabBarIcon: ({ focused }) => <TabIcon name="contacts" focused={focused} />,
+            title: "Danh bạ",
+            tabBarIcon: ({ focused }) => (
+              <TabIcon name="contacts" focused={focused} />
+            ),
           }}
         />
         <Tabs.Screen
           name="moments"
           options={{
-            title: "Khoanh khac",
-            tabBarIcon: ({ focused }) => <TabIcon name="moments" focused={focused} />,
+            title: "Khoảnh khắc",
+            tabBarIcon: ({ focused }) => (
+              <TabIcon name="moments" focused={focused} />
+            ),
           }}
         />
         <Tabs.Screen
           name="discover"
           options={{
-            title: "Kham pha",
-            tabBarIcon: ({ focused }) => <TabIcon name="discover" focused={focused} />,
+            title: "Khám phá",
+            tabBarIcon: ({ focused }) => (
+              <TabIcon name="discover" focused={focused} />
+            ),
           }}
         />
         <Tabs.Screen
           name="profile"
           options={{
-            title: "Ca nhan",
-            tabBarIcon: ({ focused }) => <TabIcon name="profile" focused={focused} />,
+            title: "Cá nhân",
+            tabBarIcon: ({ focused }) => (
+              <TabIcon name="profile" focused={focused} />
+            ),
           }}
         />
       </Tabs>

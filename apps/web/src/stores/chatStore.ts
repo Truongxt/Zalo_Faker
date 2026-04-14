@@ -1,4 +1,8 @@
 import { create } from 'zustand'
+import { createJSONStorage, persist } from 'zustand/middleware'
+
+const MAX_CACHED_CONVERSATIONS = 200
+const MAX_CACHED_MESSAGES_PER_CONVERSATION = 120
 
 export interface Label {
     _id: string
@@ -19,27 +23,144 @@ export interface Message {
         fileName?: string
         fileSize?: number
         duration?: number
+        transcript?: string
     }
+    metadata?: {
+        isAnnouncement?: boolean
+        isImportant?: boolean
+        transcript?: string
+        transcriptStatus?: string
+        transcriptUpdatedAt?: string
+        transcriptProvider?: string
+    } | null
     replyTo?: string
     reactions: { userId: string; emoji: string }[]
     readBy: { userId: string; readAt: string }[]
     isDeleted: boolean
     createdAt: string
+    // Added for helper
+    lastRead?: string
 }
+
+const normalizeMessageContent = (rawContent: unknown): Message['content'] => {
+    if (typeof rawContent === 'string') {
+        return { text: rawContent }
+    }
+
+    if (!rawContent || typeof rawContent !== 'object') {
+        return {}
+    }
+
+    const content = rawContent as Record<string, unknown>
+
+    const text =
+        typeof content.text === 'string'
+            ? content.text
+            : typeof content.message === 'string'
+                ? content.message
+                : typeof content.content === 'string'
+                    ? content.content
+                    : undefined
+
+    const mediaUrl =
+        typeof content.mediaUrl === 'string'
+            ? content.mediaUrl
+            : typeof content.url === 'string'
+                ? content.url
+                : typeof content.fileUrl === 'string'
+                    ? content.fileUrl
+                    : undefined
+
+    return {
+        text,
+        mediaUrl,
+        thumbnail: typeof content.thumbnail === 'string' ? content.thumbnail : undefined,
+        fileName: typeof content.fileName === 'string' ? content.fileName : undefined,
+        fileSize: typeof content.fileSize === 'number' ? content.fileSize : undefined,
+        duration: typeof content.duration === 'number' ? content.duration : undefined,
+        transcript: typeof content.transcript === 'string' ? content.transcript : undefined,
+    }
+}
+
+const normalizeMessageMetadata = (rawMetadata: unknown): Message['metadata'] => {
+    if (!rawMetadata || typeof rawMetadata !== 'object') {
+        return null
+    }
+
+    const metadata = rawMetadata as Record<string, unknown>
+
+    return {
+        isAnnouncement: Boolean(metadata.isAnnouncement),
+        isImportant: Boolean(metadata.isImportant),
+        transcript: typeof metadata.transcript === 'string' ? metadata.transcript : undefined,
+        transcriptStatus: typeof metadata.transcriptStatus === 'string' ? metadata.transcriptStatus : undefined,
+        transcriptUpdatedAt: typeof metadata.transcriptUpdatedAt === 'string' ? metadata.transcriptUpdatedAt : undefined,
+        transcriptProvider: typeof metadata.transcriptProvider === 'string' ? metadata.transcriptProvider : undefined,
+    }
+}
+
+export const normalizeMessage = (msg: any): Message => ({
+    ...msg,
+    id: msg?.id || msg?._id || `temp-${Date.now()}-${Math.random()}`,
+    content: normalizeMessageContent(msg?.content),
+    metadata: normalizeMessageMetadata(msg?.metadata),
+    reactions: Array.isArray(msg?.reactions) ? msg.reactions : [],
+    readBy: Array.isArray(msg?.readBy) ? msg.readBy : [],
+    isDeleted: Boolean(msg?.isDeleted),
+    createdAt: msg?.createdAt || new Date().toISOString(),
+})
+
 
 export interface Participant {
     userId: string
-    role: 'admin' | 'member'
+    role: 'admin' | 'deputy' | 'member'
     joinedAt: string
     lastRead?: string
     // User info (populated)
     fullName?: string
     avatarUrl?: string
-    status?: 'online' | 'offline'
+    status?: 'online' | 'offline' | 'away' | 'busy' | string
     nickname?: string
     isPinned?: boolean
     isMuted?: boolean
+    muteUntil?: string | null
+    isHidden?: boolean
     labelIds?: string[]
+}
+
+export type GroupPermissionScope = 'all' | 'admin_deputy' | 'admin'
+
+export interface GroupJoinRequest {
+    requestId: string
+    userId: string
+    requestedAt: string
+    status: 'pending' | 'approved' | 'rejected'
+    reviewedAt?: string
+    reviewedBy?: string
+}
+
+export interface GroupPinnedMessage {
+    messageId: string
+    senderId: string
+    type: Message['type']
+    content: Message['content']
+    metadata?: Message['metadata']
+    pinnedAt: string
+    pinnedBy: string
+}
+
+export interface GroupSettings {
+    invite: {
+        code: string
+        approvalRequired: boolean
+    }
+    joinRequests: GroupJoinRequest[]
+    permissions: {
+        sendMedia: GroupPermissionScope
+        pinMessage: GroupPermissionScope
+        sendAnnouncement: GroupPermissionScope
+    }
+    pinnedMessage: GroupPinnedMessage | null
 }
 
 export interface Conversation {
@@ -49,6 +170,7 @@ export interface Conversation {
     avatar?: string
     background?: string
     participants: Participant[]
+    groupSettings?: GroupSettings
     lastMessage?: {
         content: string
         type: string
@@ -60,6 +182,77 @@ export interface Conversation {
     updatedAt: string
 }
 
+const getConversationTimestamp = (conv: Partial<Conversation> & Record<string, any>) => {
+    const updatedAt = conv.updatedAt ? new Date(conv.updatedAt).getTime() : 0
+    const lastMessageTs = conv.lastMessage?.timestamp
+        ? new Date(conv.lastMessage.timestamp).getTime()
+        : 0
+    return Math.max(updatedAt, lastMessageTs)
+}
+
+const buildConversationKey = (conv: Partial<Conversation> & Record<string, any>) => {
+    if (conv.type === 'private') {
+        const participantKey = (conv.participants || [])
+            .map((p: any) => String(p?.userId || ''))
+            .filter(Boolean)
+            .sort()
+            .join('|')
+        if (participantKey) return `private:${participantKey}`
+    }
+
+    const id = conv.id || conv._id
+    if (id) return `id:${String(id)}`
+
+    const groupParticipantKey = (conv.participants || [])
+        .map((p: any) => String(p?.userId || ''))
+        .filter(Boolean)
+        .sort()
+        .join('|')
+    return `group:${conv.name || ''}:${groupParticipantKey}`
+}
+
+const normalizeConversation = (conv: Partial<Conversation> & Record<string, any>): Conversation => ({
+    ...(conv as Conversation),
+    id: String(conv.id || conv._id || ''),
+    participants: Array.isArray(conv.participants) ? conv.participants : [],
+    unreadCount: Number(conv.unreadCount || 0),
+    createdAt: conv.createdAt || new Date().toISOString(),
+    updatedAt: conv.updatedAt || conv.lastMessage?.timestamp || new Date().toISOString(),
+})
+
+const dedupeConversations = (conversations: Array<Partial<Conversation> & Record<string, any>>) => {
+    const bestByKey = new Map<string, Conversation>()
+
+    for (const conv of conversations) {
+        if (!conv) continue
+        const normalized = normalizeConversation(conv)
+        const key = buildConversationKey(normalized)
+        const existing = bestByKey.get(key)
+
+        if (!existing) {
+            bestByKey.set(key, normalized)
+            continue
+        }
+
+        const currentTs = getConversationTimestamp(normalized)
+        const existingTs = getConversationTimestamp(existing)
+        const newer = currentTs >= existingTs ? normalized : existing
+        const older = currentTs >= existingTs ? existing : normalized
+
+        // Keep richer data when merging duplicates
+        bestByKey.set(key, {
+            ...older,
+            ...newer,
+            participants: newer.participants?.length ? newer.participants : older.participants,
+            unreadCount: Math.max(Number(older.unreadCount || 0), Number(newer.unreadCount || 0)),
+            lastMessage: newer.lastMessage || older.lastMessage,
+            updatedAt: newer.updatedAt || older.updatedAt,
+        })
+    }
+
+    return Array.from(bestByKey.values())
+}
+
 interface ChatState {
     conversations: Conversation[]
     activeConversation: Conversation | null
@@ -69,6 +262,8 @@ interface ChatState {
     isLoadingMessages: boolean
     labels: Label[]
     isLoadingLabels: boolean
+    cacheOwnerUserId: string | null
+    lastSyncedAt: number | null
 
     // Actions
     setLabels: (labels: Label[]) => void
@@ -93,21 +288,57 @@ interface ChatState {
 
     setLoadingConversations: (loading: boolean) => void
     setLoadingMessages: (loading: boolean) => void
+    initializeCacheForUser: (userId: string) => void
+    clearChatState: () => void
+    setLastSyncedAt: (value: number | null) => void
 
     // Helpers
     getConversationById: (id: string) => Conversation | undefined
     getMessagesForConversation: (id: string) => Message[]
 }
 
-export const useChatStore = create<ChatState>((set, get) => ({
-    conversations: [],
-    activeConversation: null,
-    messages: {},
-    typingUsers: {},
+const createInitialState = () => ({
+    conversations: [] as Conversation[],
+    activeConversation: null as Conversation | null,
+    messages: {} as Record<string, Message[]>,
+    typingUsers: {} as Record<string, string[]>,
     isLoadingConversations: false,
     isLoadingMessages: false,
-    labels: [],
+    labels: [] as Label[],
     isLoadingLabels: false,
+    cacheOwnerUserId: null as string | null,
+    lastSyncedAt: null as number | null,
+})
+
+const normalizeAndDedupeMessages = (messages: Message[] = []) => {
+    const deduped: Message[] = []
+    const seen = new Set<string>()
+
+    for (const raw of messages || []) {
+        const normalized = normalizeMessage(raw)
+        const id = String(normalized?.id || '')
+        if (!id || seen.has(id)) continue
+        seen.add(id)
+        deduped.push(normalized)
+    }
+
+    return deduped
+}
+
+const trimCachedMessages = (messagesByConversation: Record<string, Message[]>) => {
+    const next: Record<string, Message[]> = {}
+
+    for (const [conversationId, messages] of Object.entries(messagesByConversation || {})) {
+        if (!Array.isArray(messages) || messages.length === 0) continue
+        next[conversationId] = messages.slice(-MAX_CACHED_MESSAGES_PER_CONVERSATION)
+    }
+
+    return next
+}
+
+export const useChatStore = create<ChatState>()(
+    persist((set, get) => ({
+    ...createInitialState(),
 
     setLabels: (labels) => set({ labels }),
     addLabel: (label) => set((state) => ({ labels: [...state.labels, label] })),
@@ -118,10 +349,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
         labels: state.labels.filter(l => l._id !== id)
     })),
 
-    setConversations: (conversations) => set({ conversations }),
+    setConversations: (conversations) => set({
+        conversations: dedupeConversations(conversations)
+    }),
 
     addConversation: (conversation) => set((state) => ({
-        conversations: [conversation, ...state.conversations]
+        conversations: dedupeConversations([conversation, ...state.conversations])
     })),
 
     updateConversation: (id, updates) => set((state) => ({
@@ -143,21 +376,31 @@ export const useChatStore = create<ChatState>((set, get) => ({
     setActiveConversation: (conversation) => set({ activeConversation: conversation }),
 
     setMessages: (conversationId, messages) => set((state) => ({
-        messages: { ...state.messages, [conversationId]: messages }
-    })),
-
-    addMessage: (conversationId, message) => set((state) => ({
         messages: {
             ...state.messages,
-            [conversationId]: [...(state.messages[conversationId] || []), message]
+            [conversationId]: normalizeAndDedupeMessages(messages)
         }
     })),
+
+    addMessage: (conversationId, message) => set((state) => {
+        const normalizedMessage = normalizeMessage(message)
+        const current = state.messages[conversationId] || []
+        if (current.some(m => m.id === normalizedMessage.id)) return state
+        return {
+            messages: {
+                ...state.messages,
+                [conversationId]: [...current, normalizedMessage]
+            }
+        }
+    }),
 
     updateMessage: (conversationId, messageId, updates) => set((state) => ({
         messages: {
             ...state.messages,
-            [conversationId]: (state.messages[conversationId] || []).map((m) =>
-                m.id === messageId ? { ...m, ...updates } : m
+            [conversationId]: normalizeAndDedupeMessages(
+                (state.messages[conversationId] || []).map((m) =>
+                    m.id === messageId ? { ...m, ...updates } : m
+                )
             )
         }
     })),
@@ -194,7 +437,41 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     setLoadingConversations: (isLoadingConversations) => set({ isLoadingConversations }),
     setLoadingMessages: (isLoadingMessages) => set({ isLoadingMessages }),
+    setLastSyncedAt: (lastSyncedAt) => set({ lastSyncedAt }),
+
+    initializeCacheForUser: (userId) => {
+        const normalizedUserId = String(userId || '')
+        if (!normalizedUserId) return
+
+        const owner = get().cacheOwnerUserId
+        if (!owner) {
+            set({ cacheOwnerUserId: normalizedUserId })
+            return
+        }
+
+        if (String(owner) !== normalizedUserId) {
+            set({
+                ...createInitialState(),
+                cacheOwnerUserId: normalizedUserId,
+            })
+        }
+    },
+
+    clearChatState: () => set({ ...createInitialState() }),
 
     getConversationById: (id) => get().conversations.find((c) => c.id === id),
     getMessagesForConversation: (id) => get().messages[id] || [],
-}))
+}), {
+    name: 'chat-storage',
+    storage: createJSONStorage(() => localStorage),
+    partialize: (state) => ({
+        cacheOwnerUserId: state.cacheOwnerUserId,
+        lastSyncedAt: state.lastSyncedAt,
+        conversations: state.conversations.slice(0, MAX_CACHED_CONVERSATIONS),
+        messages: trimCachedMessages(state.messages),
+        labels: state.labels,
+    }),
+})
+)
+
+

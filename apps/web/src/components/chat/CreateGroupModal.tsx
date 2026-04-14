@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { X, Search, Users, Check } from 'lucide-react'
-import { getUsers, createGroup } from '@/services/api'
+import { createGroup, getFriends } from '@/services/api'
 import { useAuthStore } from '@/stores/authStore'
 import { useChatStore } from '@/stores/chatStore'
 import { useNavigate } from 'react-router-dom'
@@ -22,16 +22,15 @@ export default function CreateGroupModal({ isOpen, onClose }: CreateGroupModalPr
     const [isLoading, setIsLoading] = useState(false)
     const [isCreating, setIsCreating] = useState(false)
 
-    // Tạm thời lấy danh sách all users để dùng như friends
+    // Lấy danh sách bạn bè
     useEffect(() => {
-        if (isOpen) {
+        if (isOpen && user?.id) {
             setIsLoading(true)
-            getUsers()
+            getFriends(user.id)
                 .then((data: any) => {
-                    // Loại bỏ chính mình ra khỏi list
-                    setContacts(data.filter((u: any) => u.id !== user?.id && u._id !== user?.id))
+                    setContacts(data)
                 })
-                .catch((err: Error) => console.error('Error fetching users:', err))
+                .catch((err: Error) => console.error('Error fetching friends:', err))
                 .finally(() => setIsLoading(false))
         } else {
             // Reset state khi bị đóng
@@ -41,10 +40,12 @@ export default function CreateGroupModal({ isOpen, onClose }: CreateGroupModalPr
         }
     }, [isOpen, user?.id])
 
-    const filteredContacts = contacts.filter(c => 
-        c.fullName.toLowerCase().includes(searchQuery.toLowerCase()) || 
-        c.phoneNumber.includes(searchQuery)
-    )
+    const filteredContacts = contacts.filter(c => {
+        const name = (c.fullName || c.userName || '').toLowerCase()
+        const query = searchQuery.toLowerCase()
+        const phone = (c.phoneNumber || c.phone || '')
+        return name.includes(query) || phone.includes(searchQuery)
+    })
 
     const handleToggleSelect = (id: string) => {
         setSelectedIds(prev => 
@@ -71,15 +72,17 @@ export default function CreateGroupModal({ isOpen, onClose }: CreateGroupModalPr
                 createdBy: user.id
             })
 
-            // add conversation to store
-            addConversation({
+            // add conversation to store (map _id to id)
+            const groupWithId = {
                 ...newGroup,
+                id: newGroup.id || newGroup._id,
                 unreadCount: 0
-            })
+            }
+            addConversation(groupWithId)
             
             // set active and navigate
-            setActiveConversation(newGroup)
-            navigate(`/chat/${newGroup.id}`)
+            setActiveConversation(groupWithId)
+            navigate(`/chat/${groupWithId.id}`)
 
             onClose()
         } catch (error) {
@@ -168,14 +171,14 @@ export default function CreateGroupModal({ isOpen, onClose }: CreateGroupModalPr
                                             ) : (
                                                 <div className="w-10 h-10 rounded-full bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center">
                                                     <span className="text-primary-600 dark:text-primary-400 font-medium">
-                                                        {contact.fullName.charAt(0).toUpperCase()}
+                                                        {(contact.fullName || contact.userName || 'U').charAt(0).toUpperCase()}
                                                     </span>
                                                 </div>
                                             )}
                                             
                                             <div className="flex-1 min-w-0">
                                                 <p className="font-medium text-gray-900 dark:text-white truncate">
-                                                    {contact.fullName}
+                                                    {contact.fullName || contact.userName}
                                                 </p>
                                             </div>
                                         </button>

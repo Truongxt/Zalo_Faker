@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useChatStore, Label } from '@/stores/chatStore';
 import { createLabel, updateLabel, deleteLabel } from '@/services/api';
 import { X, Plus, Edit2, Trash2, Check } from 'lucide-react';
@@ -29,7 +29,7 @@ export default function LabelManagerModal({ isOpen, onClose }: Props) {
 
         try {
             if (editingId) {
-                const res = await updateLabel(editingId, { name, color });
+                await updateLabel(editingId, { name, color });
                 updateLabelStore(editingId, { name, color });
                 addToast('Đã cập nhật phân loại', 'success');
             } else {

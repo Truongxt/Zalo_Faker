@@ -41,22 +41,22 @@
 
   /* Primary button */
   .btn-primary {
-    @apply inline-flex items-center justify-center px-4 py-2.5 bg-primary-500 text-white font-medium rounded-lg hover: bg-primary-600 active:bg-primary-700 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply inline-flex items-center justify-center px-4 py-2.5 bg-primary-500 text-white font-medium rounded-lg hover:bg-primary-600 active:bg-primary-700 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed;
   }
 
   /* Secondary button */
   .btn-secondary {
-    @apply inline-flex items-center justify-center px-4 py-2.5 bg-gray-100 text-gray-700 font-medium rounded-lg hover: bg-gray-200 active:bg-gray-300 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply inline-flex items-center justify-center px-4 py-2.5 bg-gray-100 text-gray-700 font-medium rounded-lg hover:bg-gray-200 active:bg-gray-300 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed;
   }
 
   /* Ghost button */
   .btn-ghost {
-    @apply inline-flex items-center justify-center px-4 py-2.5 text-gray-700 font-medium rounded-lg hover: bg-gray-100 active:bg-gray-200 transition-all duration-200 focus:outline-none;
+    @apply inline-flex items-center justify-center px-4 py-2.5 text-gray-700 font-medium rounded-lg hover:bg-gray-100 active:bg-gray-200 transition-all duration-200 focus:outline-none;
   }
 
   /* Input field */
   .input {
-    @apply w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-500 focus: outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all duration-200;
+    @apply w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all duration-200;
   }
 
   .dark .input {
@@ -100,7 +100,9 @@
 
   /* Message bubble */
   .message-bubble {
-    @apply max-w-[70%] px-4 py-2 rounded-2xl break-words;
+    @apply w-fit max-w-full px-4 py-2 rounded-2xl;
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
 
   .message-sent {
@@ -131,7 +133,7 @@
 
   /* Sidebar */
   .sidebar {
-    @apply w-80 bg-white border-r border-gray-200 flex flex-col h-screen;
+    @apply w-full min-w-0 bg-white border-r border-gray-200 flex flex-col h-full;
   }
 
   .dark .sidebar {
@@ -140,7 +142,7 @@
 
   /* Chat item */
   .chat-item {
-    @apply flex items-center gap-3 p-3 rounded-lg cursor-pointer hover: bg-gray-100 transition-colors duration-150;
+    @apply flex items-center gap-3 p-3 rounded-lg cursor-pointer hover:bg-gray-100 transition-colors duration-150;
   }
 
   .chat-item.active {

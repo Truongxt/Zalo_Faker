@@ -1,11 +1,103 @@
 const messageService = require("../services/messageService")
+const conversationService = require("../services/conversationService")
+const GroupService = require("../services/groupService")
+const conversationModel = require("../models/conversation")
+
+const getLastMessageContent = ({ type, content, metadata }) => {
+    const contentText =
+        typeof content === "string"
+            ? content
+            : typeof content?.text === "string"
+                ? content.text
+                : ""
+
+    const baseText = contentText
+        || (type === "image"
+            ? "[Hình ảnh]"
+            : type === "video"
+                ? "[Video]"
+                : type === "voice"
+                    ? "[Tin nhắn thoại]"
+                    : type === "sticker"
+                        ? "[Nhãn dán]"
+                        : "[File]")
+
+    const prefixes = []
+    if (metadata?.isImportant) prefixes.push("[Quan trọng]")
+    if (metadata?.isAnnouncement) prefixes.push("[Thông báo]")
+
+    return [...prefixes, baseText].join(" ").trim()
+}
 
 const createMessage = async (req, res) => {
     try {
-        const message = await messageService.createMessage(req.body)
-        res.json(message)
+        const senderId = req.user?.userId
+        const payload = {
+            ...req.body,
+            senderId
+        }
+
+        if (!senderId) {
+            return res.status(401).json({ message: "Unauthorized" })
+        }
+
+        if (!payload.conversationId) {
+            return res.status(400).json({ message: "conversationId is required" })
+        }
+
+        const conversation = await conversationService.getConversation(payload.conversationId)
+
+        if (!conversation) {
+            return res.status(404).json({ message: "Conversation not found" })
+        }
+
+        if (conversation.type === "group") {
+            GroupService.ensureCanSendMessage(conversation, {
+                userId: senderId,
+                type: payload.type,
+                metadata: payload.metadata
+            })
+        }
+
+        const message = await messageService.createMessage(payload)
+        const normalizedMessage = { ...message, id: message._id }
+
+        const lastMessageContent = payload.metadata?.isAnnouncement
+            ? `[Thông báo] ${payload.content?.text || ""}`.trim()
+            : payload.content?.text
+                || (payload.type === "image"
+                    ? "[Hình ảnh]"
+                    : payload.type === "video"
+                        ? "[Video]"
+                        : payload.type === "voice"
+                            ? "[Tin nhắn thoại]"
+                            : payload.type === "sticker"
+                                ? "[Nhãn dán]"
+                                : "[File]")
+
+        await conversationModel.updateConversation(payload.conversationId, {
+            lastMessage: {
+                content: getLastMessageContent({
+                    type: payload.type,
+                    content: payload.content,
+                    metadata: payload.metadata,
+                }),
+                type: payload.type || "text",
+                senderId,
+                timestamp: message.createdAt,
+            },
+        })
+
+        const io = req.app.get("io")
+        if (io) {
+            io.to(`conv:${payload.conversationId}`).emit("chat:message", normalizedMessage)
+            // Backward compatibility for any legacy clients still listening old room id
+            io.to(payload.conversationId).emit("chat:message", normalizedMessage)
+        }
+
+        res.json(normalizedMessage)
     } catch (error) {
-        res.status(500).json({ message: error.message })
+        res.status(error.statusCode || 500).json({ message: error.message })
     }
 }
 
@@ -44,6 +136,7 @@ const deleteMessage = async (req, res) => {
         res.status(500).json({ message: error.message })
     }
 }
+
 const getMessagesByConversationId = async (req, res) => {
     try {
         const messages = await messageService.getMessagesByConversationId(req.params.conversationId)
@@ -55,7 +148,11 @@ const getMessagesByConversationId = async (req, res) => {
 
 const deleteMessagesByRoom = async (req, res) => {
     try {
-        const result = await messageService.deleteMessagesByConversationId(req.params.roomId)
+        const roomId = req.params.roomId;
+        const result = await messageService.deleteMessagesByConversationId(roomId)
+        await conversationModel.updateConversation(roomId, {
+            lastMessage: null
+        })
         res.json(result)
     } catch (error) {
         res.status(500).json({ message: error.message })

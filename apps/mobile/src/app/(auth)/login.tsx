@@ -20,14 +20,14 @@ export default function LoginScreen() {
   const insets = useSafeAreaInsets();
   const { login } = useAuthStore();
 
-  const [email, setEmail] = useState("");
+  const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
   const handleLogin = async () => {
-    if (!email.trim()) {
-      Alert.alert("Lỗi", "Vui lòng nhập email");
+    if (!identifier.trim()) {
+      Alert.alert("Lỗi", "Vui lòng nhập email hoặc số điện thoại");
       return;
     }
     if (!password.trim()) {
@@ -38,7 +38,7 @@ export default function LoginScreen() {
     setIsLoading(true);
     try {
       const { user, accessToken, refreshToken } = await userService.login(
-        email.trim().toLowerCase(),
+        identifier.trim(),
         password,
       );
       login(user, accessToken, refreshToken);
@@ -48,7 +48,21 @@ export default function LoginScreen() {
         error?.response?.data?.message ||
         error?.message ||
         "Đăng nhập thất bại";
-      Alert.alert("Đăng nhập thất bại", message);
+      if (/locked/i.test(message)) {
+        Alert.alert(
+          "Tài khoản bị khóa",
+          "Bạn có muốn mở khóa tài khoản ngay không?",
+          [
+            { text: "Hủy", style: "cancel" },
+            {
+              text: "Mở khóa",
+              onPress: () => router.push("/(auth)/unlock-account"),
+            },
+          ],
+        );
+      } else {
+        Alert.alert("Đăng nhập thất bại", message);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -74,9 +88,9 @@ export default function LoginScreen() {
           {/* Logo */}
           <View className="items-center mb-12">
             <View className="w-20 h-20 rounded-2xl bg-[#0068FF] items-center justify-center mb-4 shadow-lg">
-              <Text className="text-white text-3xl font-bold">UIA</Text>
+              <Text className="text-white text-3xl font-bold">ZF</Text>
             </View>
-            <Text className="text-2xl font-bold text-gray-900">Hehe Haha</Text>
+            <Text className="text-2xl font-bold text-gray-900">Zalo Faker</Text>
             <Text className="text-gray-500 mt-1 text-sm">
               Đăng nhập để tiếp tục
             </Text>
@@ -84,16 +98,16 @@ export default function LoginScreen() {
 
           {/* Form */}
           <View className="gap-4">
-            {/* Email */}
+            {/* Email or phone */}
             <View>
               <Text className="text-sm font-medium text-gray-700 mb-1.5">
-                Email
+                Email hoặc số điện thoại
               </Text>
               <TextInput
-                value={email}
-                onChangeText={setEmail}
-                placeholder="example@email.com"
-                keyboardType="email-address"
+                value={identifier}
+                onChangeText={setIdentifier}
+                placeholder="example@email.com hoặc 09xxxxxxxx"
+                keyboardType="default"
                 autoCapitalize="none"
                 autoCorrect={false}
                 returnKeyType="next"
@@ -139,6 +153,13 @@ export default function LoginScreen() {
                   </Text>
                 </TouchableOpacity>
               </Link>
+              <Link href="/(auth)/unlock-account" asChild>
+                <TouchableOpacity className="mt-2">
+                  <Text className="text-amber-600 text-sm font-medium">
+                    Mở khóa tài khoản
+                  </Text>
+                </TouchableOpacity>
+              </Link>
             </View>
 
             {/* Login button */}
@@ -162,7 +183,7 @@ export default function LoginScreen() {
           {/* Register link */}
           <View className="flex-row justify-center mt-8">
             <Text className="text-gray-500 text-sm">Chưa có tài khoản? </Text>
-            <Link href="/(auth)/register" asChild>
+            <Link href="/(auth)/register-otp" asChild>
               <TouchableOpacity>
                 <Text className="text-[#0068FF] text-sm font-semibold">
                   Đăng ký ngay

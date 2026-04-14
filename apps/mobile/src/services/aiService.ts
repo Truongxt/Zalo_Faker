@@ -1,24 +1,60 @@
 import apiClient from "./apiClient";
 
+type AskAIEnvelope = {
+  success?: boolean;
+  data?: {
+    reply?: string;
+  };
+};
+
+type AIHistoryEnvelope = {
+  success?: boolean;
+  data?: AIHistoryItem[];
+};
+
 export interface AskAIResponse {
   answer: string;
-  dbSummary?: string;
-  meta?: {
-    model?: string;
-    contextCount?: number;
-    usedConversationId?: string | null;
-    retrievalMode?: string;
-  };
+}
+
+export interface AIHistoryItem {
+  userId: string;
+  chatId: string;
+  conversationId?: string | null;
+  question: string;
+  answer: string;
+  askedAt: string;
 }
 
 class AIService {
   async ask(question: string, conversationId?: string): Promise<AskAIResponse> {
-    const response = await apiClient.post<AskAIResponse>("/api/ai/ask", {
+    const response = await apiClient.post<AskAIEnvelope>("/api/ai/chat", {
       question,
       conversationId,
     });
 
-    return response.data;
+    return {
+      answer: response.data?.data?.reply || "",
+    };
+  }
+
+  async getHistory(limit = 30, conversationId?: string): Promise<AIHistoryItem[]> {
+    const response = await apiClient.get<AIHistoryEnvelope>("/api/ai/history", {
+      params: {
+        limit,
+        conversationId,
+      },
+    });
+
+    return Array.isArray(response.data?.data) ? response.data.data : [];
+  }
+
+  async deleteConversationHistory(conversationId: string): Promise<number> {
+    const response = await apiClient.delete<{
+      success?: boolean;
+      data?: { deletedCount?: number };
+    }>(`/api/ai/history/${conversationId}`);
+
+    return response.data?.data?.deletedCount || 0;
   }
 
   async generateResponse(prompt: string): Promise<string> {

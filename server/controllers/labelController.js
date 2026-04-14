@@ -5,7 +5,7 @@ const labelController = {
     try {
       const { name, color } = req.body;
       const data = {
-        userId: req.user.id,
+        userId: req.user.userId,
         name,
         color
       };
@@ -18,7 +18,7 @@ const labelController = {
 
   getLabels: async (req, res) => {
     try {
-      const labels = await labelService.getLabelsByUserId(req.user.id);
+      const labels = await labelService.getLabelsByUserId(req.user.userId);
       res.json(labels);
     } catch (err) {
       res.status(500).json({ message: err.message });

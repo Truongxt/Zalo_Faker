@@ -87,6 +87,7 @@ export function useOfflineQueue() {
                                 senderId: message.senderId,
                                 type: message.type,
                                 content: message.content,
+                                metadata: message.metadata,
                                 replyTo: message.replyTo,
                             }, (res) => {
                                 if (res.success) {
@@ -162,13 +163,21 @@ export function useOfflineQueue() {
 
     // Store message for offline queue
     const storeOfflineMessage = useCallback(
-        async (conversationId: string, senderId: string, type: string, content: any, replyTo?: string) => {
+        async (
+            conversationId: string,
+            senderId: string,
+            type: string,
+            content: any,
+            metadata?: { isAnnouncement?: boolean; isImportant?: boolean },
+            replyTo?: string
+        ) => {
             const message: PendingMessage = {
                 id: `offline-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
                 conversationId,
                 senderId,
                 type: type as any,
                 content,
+                metadata,
                 replyTo,
                 status: 'pending',
                 retryCount: 0,

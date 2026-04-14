@@ -15,6 +15,7 @@ const MessageModel = {
         senderId: messageData.senderId,
         type: messageData.type, // 'text' | 'image' | 'video' | 'file'
         content: messageData.content,
+        metadata: messageData.metadata || null,
         replyTo: messageData.replyTo || null,
         reactions: messageData.reactions || [], // Array of Reaction
         readBy: messageData.readBy || [], // Array of ReadReceipt
@@ -24,7 +25,7 @@ const MessageModel = {
     };
     try {
       await dynamodb.put(params).promise();
-      return { _id: messageId, ...messageData, createdAt };
+      return params.Item;
     } catch (error) {
       console.error("Error creating message:", error);
       throw error;
@@ -32,10 +33,22 @@ const MessageModel = {
   },
 
   getMessages: async () => {
-    const params = { TableName: tableName };
     try {
-      const messages = await dynamodb.scan(params).promise();
-      return messages.Items;
+      let items = [];
+      let ExclusiveStartKey;
+
+      do {
+        const page = await dynamodb.scan({
+          TableName: tableName,
+          ConsistentRead: true,
+          ExclusiveStartKey
+        }).promise();
+
+        items = items.concat(page.Items || []);
+        ExclusiveStartKey = page.LastEvaluatedKey;
+      } while (ExclusiveStartKey);
+
+      return items;
     } catch (error) {
       console.error("Error getting messages:", error);
       throw error;
@@ -46,7 +59,7 @@ const MessageModel = {
     const updateFields = [];
     const ExpressionAttributeNames = {};
     const ExpressionAttributeValues = {};
-    const allowedFields = ["conversationId", "senderId", "type", "content", "replyTo", "reactions", "readBy", "isDeleted"];
+    const allowedFields = ["conversationId", "senderId", "type", "content", "metadata", "replyTo", "reactions", "readBy", "isDeleted"];
     allowedFields.forEach(field => {
       if (messageData[field] !== undefined) {
         updateFields.push(`#${field} = :${field}`);
@@ -117,15 +130,25 @@ const MessageModel = {
   getMessagesByConversationId: async (conversationId) => {
     // conversationId không phải Partition Key → không dùng query() được
     // Phải dùng scan() + FilterExpression (hoặc tạo GSI để tối ưu sau)
-    const params = {
-      TableName: tableName,
-      FilterExpression: "conversationId = :conversationId",
-      ExpressionAttributeValues: { ":conversationId": conversationId }
-    };
     try {
-      const data = await dynamodb.scan(params).promise();
+      let items = [];
+      let ExclusiveStartKey;
+
+      do {
+        const page = await dynamodb.scan({
+          TableName: tableName,
+          ConsistentRead: true,
+          FilterExpression: "conversationId = :conversationId",
+          ExpressionAttributeValues: { ":conversationId": conversationId },
+          ExclusiveStartKey
+        }).promise();
+
+        items = items.concat(page.Items || []);
+        ExclusiveStartKey = page.LastEvaluatedKey;
+      } while (ExclusiveStartKey);
+
       // Sắp xếp theo thời gian tạo (cũ → mới)
-      return data.Items.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+      return items.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
     } catch (error) {
       console.error("Error getting messages by conversation id:", error);
       throw error;

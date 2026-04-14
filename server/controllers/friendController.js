@@ -1,4 +1,5 @@
 const friendService = require("../services/friendService");
+const { emitToUser } = require("../utils/socketEmitter");
 
 const FriendController = {
 
@@ -17,6 +18,12 @@ const FriendController = {
     }
 
     const result = await friendService.sendFriendRequest(fromUserId, toUserId, message);
+
+    emitToUser(toUserId, "friend:request_received", {
+      request: result,
+      fromUserId: Number(fromUserId),
+      toUserId: Number(toUserId),
+    });
 
     return res.status(201).json({
       message: "Friend request sent",
@@ -38,6 +45,15 @@ const FriendController = {
       console.log("Accept request body:", { fromUserId, toUserId });
 
       const result = await friendService.acceptFriendRequest(fromUserId, toUserId);
+
+      emitToUser(fromUserId, "friend:request_accepted", {
+        fromUserId: Number(fromUserId),
+        toUserId: Number(toUserId),
+      });
+      emitToUser(toUserId, "friend:request_accepted", {
+        fromUserId: Number(fromUserId),
+        toUserId: Number(toUserId),
+      });
 
       res.status(200).json({
         message: "Friend request accepted",
@@ -115,6 +131,135 @@ async getExitingFriend(req, res) {
       res.status(500).json({
         message: error.message
       });
+    }
+  },
+
+  // từ chối lời mời kết bạn
+  async rejectFriendRequest(req, res) {
+    try {
+      const { fromUserId, toUserId } = req.body;
+
+      if (!fromUserId || !toUserId) {
+        return res.status(400).json({ message: "fromUserId và toUserId là bắt buộc" });
+      }
+
+      await friendService.rejectFriendRequest(fromUserId, toUserId);
+
+      emitToUser(fromUserId, "friend:request_rejected", {
+        fromUserId: Number(fromUserId),
+        toUserId: Number(toUserId),
+      });
+      emitToUser(toUserId, "friend:request_rejected", {
+        fromUserId: Number(fromUserId),
+        toUserId: Number(toUserId),
+      });
+
+      res.status(200).json({ message: "Đã từ chối lời mời kết bạn" });
+    } catch (error) {
+      res.status(500).json({ message: error.message });
+    }
+  }
+  ,
+
+  async removeFriend(req, res) {
+    try {
+      const actorId = Number(req.user?.userId);
+      const friendId = Number(req.params.friendId);
+
+      if (!actorId) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+
+      const result = await friendService.removeFriend(actorId, friendId);
+
+      const io = req.app.get("io");
+      if (io) {
+        io.to(`user:${actorId}`).emit("friend:removed", { userId: actorId, friendId });
+        io.to(`user:${friendId}`).emit("friend:removed", { userId: friendId, friendId: actorId });
+      }
+
+      return res.status(200).json({
+        message: "Unfriended successfully",
+        data: result,
+      });
+    } catch (error) {
+      const status = error.statusCode || 500;
+      return res.status(status).json({ message: error.message });
+    }
+  },
+
+  async blockUser(req, res) {
+    try {
+      const actorId = Number(req.user?.userId);
+      const targetUserId = Number(req.params.targetUserId);
+      const message = req.body?.message || "";
+
+      if (!actorId) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+
+      const result = await friendService.blockUser(actorId, targetUserId, message);
+
+      const io = req.app.get("io");
+      if (io) {
+        io.to(`user:${actorId}`).emit("friend:blocked", { userId: actorId, targetUserId });
+        io.to(`user:${targetUserId}`).emit("friend:blocked_by", { userId: targetUserId, blockedByUserId: actorId });
+      }
+
+      return res.status(200).json({
+        message: "User blocked successfully",
+        data: result,
+      });
+    } catch (error) {
+      const status = error.statusCode || 500;
+      return res.status(status).json({ message: error.message });
+    }
+  },
+
+  async unblockUser(req, res) {
+    try {
+      const actorId = Number(req.user?.userId);
+      const targetUserId = Number(req.params.targetUserId);
+
+      if (!actorId) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+
+      const result = await friendService.unblockUser(actorId, targetUserId);
+
+      const io = req.app.get("io");
+      if (io) {
+        io.to(`user:${actorId}`).emit("friend:unblocked", { userId: actorId, targetUserId });
+      }
+
+      return res.status(200).json({
+        message: "User unblocked successfully",
+        data: result,
+      });
+    } catch (error) {
+      const status = error.statusCode || 500;
+      return res.status(status).json({ message: error.message });
+    }
+  },
+
+  async getBlockedUsers(req, res) {
+    try {
+      const actorId = Number(req.user?.userId);
+      const userId = Number(req.params.userId);
+
+      if (!actorId) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+
+      if (actorId !== userId) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+
+      const users = await friendService.getBlockedUsers(userId);
+      return res.status(200).json({ data: users });
+    } catch (error) {
+      const status = error.statusCode || 500;
+      return res.status(status).json({ message: error.message });
     }
   }
 

@@ -16,6 +16,10 @@ export interface PendingMessage {
         fileSize?: number
         duration?: number
     }
+    metadata?: {
+        isAnnouncement?: boolean
+        isImportant?: boolean
+    }
     replyTo?: string
     status: 'pending' | 'failed' | 'sent'
     retryCount: number

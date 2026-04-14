@@ -2,7 +2,7 @@ import { View, Text, TouchableOpacity, FlatList, Image } from "react-native";
 import { router } from "expo-router";
 import { useState, useCallback } from "react";
 import { useFocusEffect } from "@react-navigation/native";
-import apiClient from "@/services/apiClient";
+import { getGroups } from "@/services/groupService";
 
 export default function GroupsScreen() {
   const [groups, setGroups] = useState<any[]>([]);
@@ -10,8 +10,8 @@ export default function GroupsScreen() {
   // fetch groups
   const fetchGroups = async () => {
     try {
-      const res = await apiClient.get("/api/groups");
-      setGroups(res.data || []);
+      const data = await getGroups();
+      setGroups(data || []);
     } catch (error) {
       console.log("fetch groups error:", error);
     }

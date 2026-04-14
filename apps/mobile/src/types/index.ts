@@ -7,16 +7,86 @@ export interface User {
   phone: string | null;
   fullName: string;
   avatarUrl: string | null;
+  birthday?: string | null;
+  gender?: string | null;
   bio: string | null;
   status: "online" | "offline" | "away" | "busy";
   lastSeen: string | null;
   createdAt: string;
+  hasHiddenPin?: boolean;
+}
+
+// Raw user shape returned from server
+export interface ServerUser {
+  userId: string;
+  email: string;
+  phone: string;
+  userName: string;
+  avartarUrl: string | null;
+  birthday: string | null;
+  gender: string;
+  status: string;
+  accountStatus?: "active" | "locked" | "deleted";
+  presenceStatus?: "online" | "offline";
+  lastActiveAt?: string | null;
+  createdAt: string;
+  hiddenChatPin?: string | null;
+}
+
+// User service request/response types
+export interface LoginResponse {
+  user: User;
+  accessToken: string;
+  refreshToken: string;
+}
+
+export interface UpdateUserData {
+  userName?: string;
+  phone?: string;
+  avartarUrl?: string;
+  birthday?: string;
+  gender?: string;
+  password?: string;
+  status?: string;
+  bio?: string;
+}
+
+export interface RegisterData {
+  email: string;
+  password: string;
+  userName: string;
+  phone: string;
+  gender: string;
+  birthday: string;
+  avartarUrl: string;
+  status?: string;
+}
+
+export interface ForgotPasswordResponse {
+  message: string;
+  expiresIn: number;
+}
+
+export interface UploadResponse {
+  url: string;
+}
+
+// ========================
+// Login History
+// ========================
+export interface LoginHistoryItem {
+  userId: string;
+  loginId: string;
+  loginAt: string;
+  platform: string;   // "mobile" | "web" | "unknown"
+  deviceInfo: string;
+  ipAddress: string;
 }
 
 // ========================
 // Message
 // ========================
-export type MessageType = "text" | "image" | "video" | "file" | "voice" | "sticker" | "system";
+export type MessageType = "text" | "image" | "video" | "file" | "voice" | "sticker" | "call" | "system";
 
 export interface MessageReaction {
   emoji: string;
@@ -31,6 +101,7 @@ export interface MessageAttachment {
   size?: number;
   duration?: number; // voice/video duration
   thumbnailUrl?: string;
+  transcript?: string;
 }
 
 export interface Message {
@@ -39,7 +110,8 @@ export interface Message {
   senderId: string;
   senderName: string;
   senderAvatar: string | null;
-  content: string;
+  content: any;
+  metadata?: any;
   type: MessageType;
   attachments?: MessageAttachment[];
   reactions?: MessageReaction[];
@@ -60,6 +132,38 @@ export interface Message {
 // ========================
 export type ConversationType = "private" | "group";
 
+export interface Label {
+  _id: string;
+  userId: string;
+  name: string;
+  color: string;
+}
+
+export interface GroupPinnedMessage {
+  messageId: string;
+  senderId: string;
+  type: MessageType;
+  content: any; // Using any for simplicity as it matches message content
+  metadata?: any;
+  pinnedAt: string;
+  pinnedBy: string;
+}
+
+export type GroupPermissionScope = 'all' | 'admin_deputy' | 'admin';
+
+export interface GroupSettings {
+  invite: {
+    code: string;
+    approvalRequired: boolean;
+  };
+  permissions: {
+    sendMedia: GroupPermissionScope;
+    pinMessage: GroupPermissionScope;
+    sendAnnouncement: GroupPermissionScope;
+  };
+  pinnedMessage: GroupPinnedMessage | null;
+}
+
 export interface Participant {
   userId: string;
   fullName: string;
@@ -67,6 +171,11 @@ export interface Participant {
   role: "admin" | "member";
   joinedAt: string;
   nickname?: string;
+  isPinned?: boolean;
+  isMuted?: boolean;
+  muteUntil?: string | null;
+  labelIds?: string[];
+  isHidden?: boolean;
 }
 
 export interface Conversation {
@@ -74,7 +183,9 @@ export interface Conversation {
   type: ConversationType;
   name: string | null; // null for private, group name for group
   avatarUrl: string | null;
+  background?: string;
   participants: Participant[];
+  groupSettings?: GroupSettings;
   lastMessage: {
     content: string;
     senderId: string;
@@ -207,6 +318,21 @@ export interface MomentComment {
   commentId: string;
   userId: string;
   content: string;
+  replyTo: {
+    commentId: string;
+    userId: string;
+    content: string;
+    author?: MomentAuthor | null;
+  } | null;
+  reactions: Array<{
+    userId: string;
+    userName: string;
+    emoji: string;
+    updatedAt?: string;
+  }>;
+  reactionCount: number;
+  currentUserReaction: string | null;
+  canDelete?: boolean;
   createdAt: string;
   updatedAt: string;
   author: MomentAuthor | null;

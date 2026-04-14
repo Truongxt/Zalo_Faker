@@ -1,4 +1,5 @@
 import { io, Socket } from 'socket.io-client'
+import { useAuthStore } from '@/stores/authStore'
 
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3000'
 
@@ -11,26 +12,34 @@ class SocketService {
 
     connect(userId: string) {
         this.currentUserId = userId
+        const latestToken = useAuthStore.getState().accessToken
 
         const refreshPresenceAndRooms = () => {
             if (!this.socket) return
             console.log('✅ Socket connected:', this.socket.id)
-            if (this.currentUserId) {
-                this.socket.emit('user:join', this.currentUserId)
+            if (this.joinedRooms.size > 0) {
+                console.log('🏘️ Re-joining rooms:', Array.from(this.joinedRooms))
+                this.joinedRooms.forEach((conversationId) => {
+                    this.socket?.emit('room:join', conversationId)
+                })
             }
-            this.joinedRooms.forEach((conversationId) => {
-                this.socket?.emit('room:join', conversationId)
-            })
         }
+
 
         if (!this.socket) {
             this.socket = io(SOCKET_URL, {
                 transports: ['websocket', 'polling'],
-                reconnectionAttempts: 5,
+                reconnection: true,
+                reconnectionAttempts: Infinity,
                 reconnectionDelay: 1000,
+                auth: {
+                    token: latestToken,
+                    platform: 'web'
+                }
             })
 
             this.socket.on('connect', refreshPresenceAndRooms)
+            this.socket.on('reconnect', refreshPresenceAndRooms)
 
             this.socket.on('disconnect', (reason) => {
                 console.log('❌ Socket disconnected:', reason)
@@ -38,9 +47,19 @@ class SocketService {
 
             this.socket.on('connect_error', (error) => {
                 console.error('Socket connection error:', error.message)
+                // Ensure reconnect always uses latest access token
+                if (this.socket) {
+                    this.socket.auth = { token: useAuthStore.getState().accessToken, platform: 'web' }
+                }
             })
-        } else if (this.socket.connected) {
-            refreshPresenceAndRooms()
+        } else {
+            // Keep auth token fresh for existing socket instance
+            this.socket.auth = { token: latestToken, platform: 'web' }
+            if (this.socket.connected) {
+                refreshPresenceAndRooms()
+            } else {
+                this.socket.connect()
+            }
         }
 
         return this.socket
@@ -67,29 +86,44 @@ class SocketService {
         this.socket?.emit('room:leave', conversationId)
     }
 
+    // Vào nhiều phòng chat cùng lúc
+    joinRooms(conversationIds: string[]) {
+        conversationIds.forEach(id => {
+            if (!this.joinedRooms.has(id)) {
+                this.joinedRooms.add(id)
+                this.socket?.emit('room:join', id)
+            }
+        })
+    }
+
     // Gửi tin nhắn
     sendMessage(data: {
         conversationId: string
-        senderId: string
+        senderId?: string
         type: string
-        content: { text?: string; mediaUrl?: string; fileName?: string; fileSize?: number }
+        content: { text?: string; mediaUrl?: string; fileName?: string; fileSize?: number; duration?: number }
+        metadata?: { isAnnouncement?: boolean; isImportant?: boolean }
         replyTo?: string
+        clientTempId?: string
     }, callback?: (res: { success: boolean; message?: any; error?: string }) => void) {
+        if (!this.socket?.connected && this.currentUserId) {
+            this.connect(this.currentUserId)
+        }
         this.socket?.emit('chat:send', data, callback)
     }
 
     // Typing
-    sendTyping(conversationId: string, userId: string) {
-        this.socket?.emit('chat:typing', { conversationId, userId })
+    sendTyping(conversationId: string, _userId?: string) {
+        this.socket?.emit('chat:typing', { conversationId })
     }
 
-    stopTyping(conversationId: string, userId: string) {
-        this.socket?.emit('chat:stop_typing', { conversationId, userId })
+    stopTyping(conversationId: string, _userId?: string) {
+        this.socket?.emit('chat:stop_typing', { conversationId })
     }
 
     // Đã đọc
-    markAsRead(conversationId: string, messageId: string, userId: string) {
-        this.socket?.emit('chat:read', { conversationId, messageId, userId })
+    markAsRead(conversationId: string, messageId: string, _userId?: string) {
+        this.socket?.emit('chat:read', { conversationId, messageId })
     }
 
     // Lắng nghe event
@@ -110,14 +144,14 @@ class SocketService {
     }
 
     recallMessage(
-        data: { messageId: string; conversationId: string; senderId: string },
+        data: { messageId: string; conversationId: string; senderId?: string },
         callback?: (res: { success: boolean; error?: string }) => void
     ) {
         this.socket?.emit('chat:recall', data, callback)
     }
 
     reactToMessage(
-        data: { messageId: string; conversationId: string; userId: string; emoji: string },
+        data: { messageId: string; conversationId: string; userId?: string; emoji: string },
         callback?: (res: { success: boolean; error?: string }) => void
     ) {
         this.socket?.emit('chat:reaction', data, callback)

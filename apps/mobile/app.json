@@ -25,17 +25,27 @@
           "cameraPermission": "Cho phép Zalo Faker sử dụng camera"
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      "@react-native-community/datetimepicker"
     ],
     "experiments": {
       "typedRoutes": true
     },
     "ios": {
       "bundleIdentifier": "com.zalofaker.app",
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "Cho phep Zalo Faker su dung microphone de goi thoai",
+        "NSCameraUsageDescription": "Cho phep Zalo Faker su dung camera de goi video"
+      }
     },
     "android": {
       "package": "com.zalofaker.app",
+      "softwareKeyboardLayoutMode": "resize",
+      "permissions": [
+        "RECORD_AUDIO",
+        "CAMERA"
+      ],
       "adaptiveIcon": {
         "foregroundImage": "./src/assets/adaptive-icon.png",
         "backgroundColor": "#0068FF"

@@ -10,11 +10,12 @@
  *   joinedAt: Date (ISO string),
  *   lastRead: Date (ISO string),
  *   isPinned: Boolean,
- *   isMuted: Boolean
+ *   isMuted: Boolean,
+ *   muteUntil: Date (ISO string) | null
  * }
  */
 
-function createParticipant({ userId, role, nickname, joinedAt, lastRead, isPinned, isMuted }) {
+function createParticipant({ userId, role, nickname, joinedAt, lastRead, isPinned, isMuted, muteUntil }) {
   return {
     userId,
     role,
@@ -22,7 +23,8 @@ function createParticipant({ userId, role, nickname, joinedAt, lastRead, isPinne
     joinedAt: joinedAt || new Date().toISOString(),
     lastRead: lastRead || null,
     isPinned: isPinned || false,
-    isMuted: isMuted || false
+    isMuted: isMuted || false,
+    muteUntil: muteUntil || null
   };
 }
 

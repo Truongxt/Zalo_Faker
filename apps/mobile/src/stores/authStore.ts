@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import type { User } from "@/types";
 import storage from "@/lib/storage";
+import { useChatStore } from "@/stores/chatStore";
 
 interface AuthState {
   user: User | null;
@@ -50,13 +51,16 @@ export const useAuthStore = create<AuthState>()(
         }),
 
       logout: () =>
-        set({
-          user: null,
-          accessToken: null,
-          refreshToken: null,
-          isAuthenticated: false,
-          isLoading: false,
-        }),
+        (() => {
+          useChatStore.getState().clearChatState();
+          set({
+            user: null,
+            accessToken: null,
+            refreshToken: null,
+            isAuthenticated: false,
+            isLoading: false,
+          });
+        })(),
 
       updateUser: (updates) =>
         set((state) => ({

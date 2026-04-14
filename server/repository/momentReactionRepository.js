@@ -2,6 +2,9 @@ const { dynamodb } = require("../utils/aws-helper");
 
 const TABLE_NAME = "MomentReaction";
 const MOMENT_INDEX = "MomentIdUpdatedAtIndex";
+const isMissingMomentIndexError = (error) =>
+  error?.code === "ValidationException" &&
+  String(error?.message || "").includes(MOMENT_INDEX);
 
 const MomentReactionRepository = {
   async createOrUpdate(reaction) {
@@ -45,17 +48,33 @@ const MomentReactionRepository = {
   },
 
   async getByMomentId(momentId) {
-    const result = await dynamodb.query({
-      TableName: TABLE_NAME,
-      IndexName: MOMENT_INDEX,
-      KeyConditionExpression: "momentId = :momentId",
-      ExpressionAttributeValues: {
-        ":momentId": momentId
-      },
-      ScanIndexForward: false
-    }).promise();
+    try {
+      const result = await dynamodb.query({
+        TableName: TABLE_NAME,
+        IndexName: MOMENT_INDEX,
+        KeyConditionExpression: "momentId = :momentId",
+        ExpressionAttributeValues: {
+          ":momentId": String(momentId)
+        },
+        ScanIndexForward: false
+      }).promise();
 
-    return result.Items || [];
+      return result.Items || [];
+    } catch (error) {
+      if (!isMissingMomentIndexError(error)) {
+        throw error;
+      }
+
+      const result = await dynamodb.scan({
+        TableName: TABLE_NAME,
+        FilterExpression: "momentId = :momentId",
+        ExpressionAttributeValues: {
+          ":momentId": String(momentId)
+        }
+      }).promise();
+
+      return result.Items || [];
+    }
   },
 
   async delete(userId, momentId) {

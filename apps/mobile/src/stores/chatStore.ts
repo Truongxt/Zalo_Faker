@@ -1,5 +1,48 @@
 import { create } from "zustand";
-import type { Message, Conversation } from "@/types";
+import { createJSONStorage, persist } from "zustand/middleware";
+import type { Message, Conversation, Label } from "@/types";
+import storage from "@/lib/storage";
+
+const MAX_CACHED_CONVERSATIONS = 200;
+const MAX_CACHED_MESSAGES_PER_CONVERSATION = 80;
+
+const createInitialState = () => ({
+  conversations: [] as Conversation[],
+  activeConversation: null as Conversation | null,
+  messages: {} as Record<string, Message[]>,
+  typingUsers: {} as Record<string, string[]>,
+  isLoadingConversations: false,
+  isLoadingMessages: false,
+  labels: [] as Label[],
+  isLoadingLabels: false,
+  unlockedHiddenChats: false,
+  cacheOwnerUserId: null as string | null,
+});
+
+const dedupeMessages = (messages: Message[] = []) => {
+  const deduped: Message[] = [];
+  const seen = new Set<string>();
+
+  for (const message of messages) {
+    const id = String(message?.id || "");
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    deduped.push(message);
+  }
+
+  return deduped;
+};
+
+const trimCachedMessages = (messages: Record<string, Message[]>) => {
+  const next: Record<string, Message[]> = {};
+
+  for (const [conversationId, list] of Object.entries(messages || {})) {
+    if (!Array.isArray(list) || list.length === 0) continue;
+    next[conversationId] = list.slice(-MAX_CACHED_MESSAGES_PER_CONVERSATION);
+  }
+
+  return next;
+};
 
 interface ChatState {
   conversations: Conversation[];
@@ -8,6 +51,10 @@ interface ChatState {
   typingUsers: Record<string, string[]>; // conversationId -> userIds
   isLoadingConversations: boolean;
   isLoadingMessages: boolean;
+  labels: Label[];
+  isLoadingLabels: boolean;
+  unlockedHiddenChats: boolean;
+  cacheOwnerUserId: string | null;
 
   // Actions
   setConversations: (conversations: Conversation[]) => void;
@@ -30,94 +77,166 @@ interface ChatState {
   setLoadingConversations: (loading: boolean) => void;
   setLoadingMessages: (loading: boolean) => void;
 
+  setLabels: (labels: Label[]) => void;
+  addLabel: (label: Label) => void;
+  updateLabel: (id: string, updates: Partial<Label>) => void;
+  removeLabel: (id: string) => void;
+  setUnlockedHiddenChats: (val: boolean) => void;
+  initializeCacheForUser: (userId: string) => void;
+  clearChatState: () => void;
+
   // Helpers
   getMessagesForConversation: (id: string) => Message[];
 }
 
-export const useChatStore = create<ChatState>((set, get) => ({
-  conversations: [],
-  activeConversation: null,
-  messages: {},
-  typingUsers: {},
-  isLoadingConversations: false,
-  isLoadingMessages: false,
+export const useChatStore = create<ChatState>()(
+  persist(
+    (set, get) => ({
+      ...createInitialState(),
 
-  setConversations: (conversations) => set({ conversations }),
+      setConversations: (conversations) => set({ conversations }),
 
-  addConversation: (conversation) =>
-    set((state) => ({
-      conversations: [conversation, ...state.conversations],
-    })),
+      addConversation: (conversation) =>
+        set((state) => ({
+          conversations: [conversation, ...state.conversations],
+        })),
 
-  updateConversation: (id, updates) =>
-    set((state) => ({
-      conversations: state.conversations.map((c) =>
-        c.id === id ? { ...c, ...updates } : c,
-      ),
-      activeConversation:
-        state.activeConversation?.id === id
-          ? { ...state.activeConversation, ...updates }
-          : state.activeConversation,
-    })),
+      updateConversation: (id, updates) =>
+        set((state) => ({
+          conversations: state.conversations.map((c) =>
+            c.id === id ? { ...c, ...updates } : c,
+          ),
+          activeConversation:
+            state.activeConversation?.id === id
+              ? { ...state.activeConversation, ...updates }
+              : state.activeConversation,
+        })),
 
-  removeConversation: (id) =>
-    set((state) => ({
-      conversations: state.conversations.filter((c) => c.id !== id),
-      activeConversation:
-        state.activeConversation?.id === id ? null : state.activeConversation,
-    })),
+      removeConversation: (id) =>
+        set((state) => ({
+          conversations: state.conversations.filter((c) => c.id !== id),
+          activeConversation:
+            state.activeConversation?.id === id ? null : state.activeConversation,
+        })),
 
-  setActiveConversation: (conversation) =>
-    set({ activeConversation: conversation }),
+      setActiveConversation: (conversation) =>
+        set({ activeConversation: conversation }),
 
-  setMessages: (conversationId, messages) =>
-    set((state) => ({
-      messages: { ...state.messages, [conversationId]: messages },
-    })),
+      setMessages: (conversationId, messages) =>
+        set((state) => ({
+          messages: {
+            ...state.messages,
+            [conversationId]: dedupeMessages(messages),
+          },
+        })),
 
-  addMessage: (conversationId, message) =>
-    set((state) => ({
-      messages: {
-        ...state.messages,
-        [conversationId]: [...(state.messages[conversationId] || []), message],
+      addMessage: (conversationId, message) =>
+        set((state) => {
+          const current = state.messages[conversationId] || [];
+          const incomingId = String(message?.id || "");
+          if (!incomingId) return state;
+
+          const existed = current.some((m) => String(m?.id || "") === incomingId);
+          if (existed) return state;
+
+          return {
+            messages: {
+              ...state.messages,
+              [conversationId]: [...current, message],
+            },
+          };
+        }),
+
+      updateMessage: (conversationId, messageId, updates) =>
+        set((state) => {
+          const current = state.messages[conversationId] || [];
+          const updatedList = current.map((m) =>
+            m.id === messageId ? { ...m, ...updates } : m,
+          );
+
+          return {
+            messages: {
+              ...state.messages,
+              [conversationId]: dedupeMessages(updatedList),
+            },
+          };
+        }),
+
+      addTypingUser: (conversationId, userId) =>
+        set((state) => {
+          const current = state.typingUsers[conversationId] || [];
+          if (current.includes(userId)) return state;
+          return {
+            typingUsers: {
+              ...state.typingUsers,
+              [conversationId]: [...current, userId],
+            },
+          };
+        }),
+
+      removeTypingUser: (conversationId, userId) =>
+        set((state) => ({
+          typingUsers: {
+            ...state.typingUsers,
+            [conversationId]: (state.typingUsers[conversationId] || []).filter(
+              (id) => id !== userId,
+            ),
+          },
+        })),
+
+      setLoadingConversations: (isLoadingConversations) =>
+        set({ isLoadingConversations }),
+      setLoadingMessages: (isLoadingMessages) => set({ isLoadingMessages }),
+
+      setLabels: (labels) => set({ labels }),
+      addLabel: (label) =>
+        set((state) => ({ labels: [...state.labels, label] })),
+      updateLabel: (id, updates) =>
+        set((state) => ({
+          labels: state.labels.map((l) => (l._id === id ? { ...l, ...updates } : l)),
+        })),
+      removeLabel: (id) =>
+        set((state) => ({
+          labels: state.labels.filter((l) => l._id !== id),
+        })),
+
+      setUnlockedHiddenChats: (unlockedHiddenChats) => set({ unlockedHiddenChats }),
+
+      initializeCacheForUser: (userId) => {
+        const normalizedUserId = String(userId || "");
+        if (!normalizedUserId) return;
+
+        const owner = get().cacheOwnerUserId;
+        if (!owner) {
+          set({ cacheOwnerUserId: normalizedUserId });
+          return;
+        }
+
+        if (String(owner) !== normalizedUserId) {
+          set({
+            ...createInitialState(),
+            cacheOwnerUserId: normalizedUserId,
+          });
+        }
       },
-    })),
 
-  updateMessage: (conversationId, messageId, updates) =>
-    set((state) => ({
-      messages: {
-        ...state.messages,
-        [conversationId]: (state.messages[conversationId] || []).map((m) =>
-          m.id === messageId ? { ...m, ...updates } : m,
-        ),
-      },
-    })),
+      clearChatState: () =>
+        set({
+          ...createInitialState(),
+        }),
 
-  addTypingUser: (conversationId, userId) =>
-    set((state) => {
-      const current = state.typingUsers[conversationId] || [];
-      if (current.includes(userId)) return state;
-      return {
-        typingUsers: {
-          ...state.typingUsers,
-          [conversationId]: [...current, userId],
-        },
-      };
+      getMessagesForConversation: (id) => get().messages[id] || [],
     }),
-
-  removeTypingUser: (conversationId, userId) =>
-    set((state) => ({
-      typingUsers: {
-        ...state.typingUsers,
-        [conversationId]: (state.typingUsers[conversationId] || []).filter(
-          (id) => id !== userId,
-        ),
-      },
-    })),
-
-  setLoadingConversations: (isLoadingConversations) =>
-    set({ isLoadingConversations }),
-  setLoadingMessages: (isLoadingMessages) => set({ isLoadingMessages }),
-
-  getMessagesForConversation: (id) => get().messages[id] || [],
-}));
+    {
+      name: "chat-storage",
+      storage: createJSONStorage(() => storage),
+      partialize: (state) => ({
+        cacheOwnerUserId: state.cacheOwnerUserId,
+        conversations: state.conversations.slice(0, MAX_CACHED_CONVERSATIONS),
+        messages: trimCachedMessages(state.messages),
+        labels: state.labels,
+        unlockedHiddenChats: state.unlockedHiddenChats,
+      }),
+    },
+  ),
+);

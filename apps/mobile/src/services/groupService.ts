@@ -1,4 +1,4 @@
-import apiClient from "./apiClient";
+import { apiFetch } from "./fetchClient";
 
 export interface GroupAvatarFile {
   uri: string;
@@ -12,6 +12,13 @@ export interface CreateGroupPayload {
   memberIds: string[];
   avatarFile?: GroupAvatarFile | null;
 }
+
+export const getGroups = async () => apiFetch<any[]>("/api/groups");
+
+export const getGroupById = async (groupId: string) => {
+  const groups = await getGroups();
+  return groups.find((group) => group._id === groupId) || null;
+};
 
 export const createGroup = async (data: CreateGroupPayload) => {
   const { avatarFile, memberIds, ...rest } = data;
@@ -27,19 +34,30 @@ export const createGroup = async (data: CreateGroupPayload) => {
       type: avatarFile.mimeType || "image/jpeg",
     } as any);
 
-    const res = await apiClient.post("/api/groups", formData, {
-      headers: {
-        "Content-Type": "multipart/form-data",
-      },
+    return apiFetch("/api/groups", {
+      method: "POST",
+      body: formData,
     });
-
-    return res.data;
   }
 
-  const res = await apiClient.post("/api/groups", {
-    ...rest,
-    memberIds,
+  return apiFetch("/api/groups", {
+    method: "POST",
+    body: {
+      ...rest,
+      memberIds,
+    },
   });
+};
 
-  return res.data;
+export const pinGroupMessage = async (groupId: string, messageId: string) => {
+  return apiFetch(`/api/groups/${groupId}/pin-message`, {
+    method: "PUT",
+    body: { messageId },
+  });
+};
+
+export const unpinGroupMessage = async (groupId: string) => {
+  return apiFetch(`/api/groups/${groupId}/pin-message`, {
+    method: "DELETE",
+  });
 };
