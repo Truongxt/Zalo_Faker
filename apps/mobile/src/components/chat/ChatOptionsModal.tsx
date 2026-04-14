@@ -42,24 +42,21 @@ export function ChatOptionsModal({
 }: ChatOptionsModalProps) {
   const insets = useSafeAreaInsets();
   const { user, accessToken } = useAuthStore();
-  const {
-    labels,
-    setLabels,
-    addLabel,
-    updateConversation,
-  } = useChatStore();
+  const { labels, setLabels, addLabel, updateConversation } = useChatStore();
 
   const [isLoading, setIsLoading] = useState(false);
 
   // States for toggle mute
   const currentParticipant = conversation.participants?.find(
-    (p) => p.userId === user?.id
+    (p) => p.userId === user?.id,
   );
   const isMuted = currentParticipant?.isMuted || false;
   const conversationLabelIds = currentParticipant?.labelIds || [];
 
   // View states
-  const [activeTab, setActiveTab] = useState<"menu" | "background" | "labels">("menu");
+  const [activeTab, setActiveTab] = useState<"menu" | "background" | "labels">(
+    "menu",
+  );
   const [newLabelName, setNewLabelName] = useState("");
   const [isCreatingLabel, setIsCreatingLabel] = useState(false);
 
@@ -85,11 +82,11 @@ export function ChatOptionsModal({
       await conversationService.updateParticipantSetting(
         conversation.id,
         user.id,
-        { isMuted: !isMuted }
+        { isMuted: !isMuted },
       );
       updateConversation(conversation.id, {
         participants: conversation.participants?.map((p) =>
-          p.userId === user.id ? { ...p, isMuted: !isMuted } : p
+          p.userId === user.id ? { ...p, isMuted: !isMuted } : p,
         ),
       });
     } catch (error) {
@@ -102,7 +99,10 @@ export function ChatOptionsModal({
   const handleUpdateBackground = async (bgValue: string) => {
     try {
       setIsLoading(true);
-      await conversationService.updateConversationBackground(conversation.id, bgValue);
+      await conversationService.updateConversationBackground(
+        conversation.id,
+        bgValue,
+      );
       updateConversation(conversation.id, { background: bgValue });
       setActiveTab("menu");
     } catch (error) {
@@ -169,9 +169,9 @@ export function ChatOptionsModal({
 
   const toggleConversationLabel = async (labelId: string) => {
     if (!user?.id) return;
-    const isEditing = true; 
+    const isEditing = true;
     let newLabelIds = [...conversationLabelIds];
-    
+
     if (newLabelIds.includes(labelId)) {
       newLabelIds = newLabelIds.filter((id) => id !== labelId);
     } else {
@@ -182,11 +182,11 @@ export function ChatOptionsModal({
       await conversationService.updateParticipantSetting(
         conversation.id,
         user.id,
-        { labelIds: newLabelIds }
+        { labelIds: newLabelIds },
       );
       updateConversation(conversation.id, {
         participants: conversation.participants?.map((p) =>
-          p.userId === user.id ? { ...p, labelIds: newLabelIds } : p
+          p.userId === user.id ? { ...p, labelIds: newLabelIds } : p,
         ),
       });
     } catch (e) {
@@ -196,7 +196,9 @@ export function ChatOptionsModal({
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
-      <View style={{ flex: 1, backgroundColor: "#fff", paddingTop: insets.top }}>
+      <View
+        style={{ flex: 1, backgroundColor: "#fff", paddingTop: insets.top }}
+      >
         <View
           style={{
             flexDirection: "row",
@@ -206,10 +208,21 @@ export function ChatOptionsModal({
             borderBottomColor: "#F3F4F6",
           }}
         >
-          <TouchableOpacity onPress={() => (activeTab === "menu" ? onClose() : setActiveTab("menu"))}>
+          <TouchableOpacity
+            onPress={() =>
+              activeTab === "menu" ? onClose() : setActiveTab("menu")
+            }
+          >
             <Ionicons name="arrow-back" size={24} color="#111827" />
           </TouchableOpacity>
-          <Text style={{ fontSize: 18, fontWeight: "600", marginLeft: 16, color: "#111827" }}>
+          <Text
+            style={{
+              fontSize: 18,
+              fontWeight: "600",
+              marginLeft: 16,
+              color: "#111827",
+            }}
+          >
             {activeTab === "menu" && "Tùy chọn"}
             {activeTab === "background" && "Đổi hình nền"}
             {activeTab === "labels" && "Phân loại nhãn"}
@@ -218,21 +231,45 @@ export function ChatOptionsModal({
 
         {activeTab === "menu" && (
           <View style={{ flex: 1, padding: 16 }}>
-            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
-              <Text style={{ fontSize: 16, color: "#111827" }}>Tắt thông báo</Text>
+            <View
+              style={{
+                flexDirection: "row",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: 24,
+              }}
+            >
+              <Text style={{ fontSize: 16, color: "#111827" }}>
+                Tắt thông báo
+              </Text>
               {isLoading ? (
                 <ActivityIndicator color="#0068FF" />
               ) : (
-                <Switch value={isMuted} onValueChange={handleToggleMute} color="#0068FF" />
+                <Switch
+                  value={isMuted}
+                  onValueChange={handleToggleMute}
+                  trackColor={{ false: "#D1D5DB", true: "#93C5FD" }}
+                  thumbColor={isMuted ? "#0068FF" : "#F9FAFB"}
+                />
               )}
             </View>
 
-            <TouchableOpacity style={{ marginBottom: 24 }} onPress={() => setActiveTab("background")}>
-              <Text style={{ fontSize: 16, color: "#111827" }}>Đổi hình nền</Text>
+            <TouchableOpacity
+              style={{ marginBottom: 24 }}
+              onPress={() => setActiveTab("background")}
+            >
+              <Text style={{ fontSize: 16, color: "#111827" }}>
+                Đổi hình nền
+              </Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={{ marginBottom: 24 }} onPress={() => setActiveTab("labels")}>
-              <Text style={{ fontSize: 16, color: "#111827" }}>Phân loại nhãn</Text>
+            <TouchableOpacity
+              style={{ marginBottom: 24 }}
+              onPress={() => setActiveTab("labels")}
+            >
+              <Text style={{ fontSize: 16, color: "#111827" }}>
+                Phân loại nhãn
+              </Text>
             </TouchableOpacity>
           </View>
         )}
@@ -250,10 +287,16 @@ export function ChatOptionsModal({
               }}
             >
               <Ionicons name="image-outline" size={24} color="#0068FF" />
-              <Text style={{ color: "#0068FF", marginTop: 8, fontWeight: "500" }}>Chọn ảnh từ thiết bị</Text>
+              <Text
+                style={{ color: "#0068FF", marginTop: 8, fontWeight: "500" }}
+              >
+                Chọn ảnh từ thiết bị
+              </Text>
             </TouchableOpacity>
 
-            <Text style={{ fontSize: 14, color: "#6B7280", marginBottom: 12 }}>Bảng màu có sẵn</Text>
+            <Text style={{ fontSize: 14, color: "#6B7280", marginBottom: 12 }}>
+              Bảng màu có sẵn
+            </Text>
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
               {PRESET_BACKGROUNDS.map((bg) => {
                 const isActive = conversation.background === bg.value;
@@ -272,30 +315,62 @@ export function ChatOptionsModal({
                       justifyContent: "center",
                     }}
                   >
-                    <Text style={{ fontSize: 12, textAlign: "center", padding: 4 }}>{bg.name}</Text>
+                    <Text
+                      style={{ fontSize: 12, textAlign: "center", padding: 4 }}
+                    >
+                      {bg.name}
+                    </Text>
                   </TouchableOpacity>
                 );
               })}
             </View>
-            {isLoading && <ActivityIndicator style={{ marginTop: 24 }} size="large" color="#0068FF" />}
+            {isLoading && (
+              <ActivityIndicator
+                style={{ marginTop: 24 }}
+                size="large"
+                color="#0068FF"
+              />
+            )}
           </View>
         )}
 
         {activeTab === "labels" && (
           <View style={{ flex: 1, padding: 16 }}>
-             <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 16 }}>
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                marginBottom: 16,
+              }}
+            >
               <TextInput
                 value={newLabelName}
                 onChangeText={setNewLabelName}
                 placeholder="Nhập tên nhãn mới..."
-                style={{ flex: 1, borderWidth: 1, borderColor: "#E5E7EB", borderRadius: 8, padding: 10 }}
+                style={{
+                  flex: 1,
+                  borderWidth: 1,
+                  borderColor: "#E5E7EB",
+                  borderRadius: 8,
+                  padding: 10,
+                }}
               />
               <TouchableOpacity
                 onPress={handleCreateLabel}
                 disabled={isCreatingLabel || !newLabelName.trim()}
-                style={{ marginLeft: 12, backgroundColor: "#0068FF", paddingHorizontal: 16, paddingVertical: 12, borderRadius: 8 }}
+                style={{
+                  marginLeft: 12,
+                  backgroundColor: "#0068FF",
+                  paddingHorizontal: 16,
+                  paddingVertical: 12,
+                  borderRadius: 8,
+                }}
               >
-                {isCreatingLabel ? <ActivityIndicator color="#FFF" /> : <Text style={{ color: "#FFF", fontWeight: "600" }}>Tạo</Text>}
+                {isCreatingLabel ? (
+                  <ActivityIndicator color="#FFF" />
+                ) : (
+                  <Text style={{ color: "#FFF", fontWeight: "600" }}>Tạo</Text>
+                )}
               </TouchableOpacity>
             </View>
 
@@ -315,11 +390,26 @@ export function ChatOptionsModal({
                       borderBottomColor: "#F3F4F6",
                     }}
                   >
-                     <View style={{width: 20, height: 20, borderRadius: 4, backgroundColor: item.color, marginRight: 12}} />
-                     <Text style={{ flex: 1, fontSize: 16, color: "#111827" }}>{item.name}</Text>
-                     <Switch value={isSelected} onValueChange={() => toggleConversationLabel(item._id)} color="#0068FF" />
+                    <View
+                      style={{
+                        width: 20,
+                        height: 20,
+                        borderRadius: 4,
+                        backgroundColor: item.color,
+                        marginRight: 12,
+                      }}
+                    />
+                    <Text style={{ flex: 1, fontSize: 16, color: "#111827" }}>
+                      {item.name}
+                    </Text>
+                    <Switch
+                      value={isSelected}
+                      onValueChange={() => toggleConversationLabel(item._id)}
+                      trackColor={{ false: "#D1D5DB", true: "#93C5FD" }}
+                      thumbColor={isSelected ? "#0068FF" : "#F9FAFB"}
+                    />
                   </TouchableOpacity>
-                )
+                );
               }}
             />
           </View>

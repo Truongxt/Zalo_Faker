@@ -9,6 +9,23 @@ type FriendApiResponse = {
   data: Friends;
 };
 
+const resolvePresenceStatus = (
+  presenceStatus?: string | null,
+  fallbackStatus?: string | null,
+): "online" | "offline" => {
+  const normalizedPresence = String(presenceStatus || "").trim().toLowerCase();
+  if (normalizedPresence === "online" || normalizedPresence === "offline") {
+    return normalizedPresence;
+  }
+
+  const normalizedFallback = String(fallbackStatus || "").trim().toLowerCase();
+  if (normalizedFallback === "online" || normalizedFallback === "offline") {
+    return normalizedFallback;
+  }
+
+  return "offline";
+};
+
 class FriendsService {
   async sendFriendRequests(
     fromUserId: string,
@@ -58,12 +75,7 @@ class FriendsService {
               birthday: item.birthday ?? null,
               gender: item.gender ?? null,
               bio: item.bio ?? null,
-              status:
-                item.presenceStatus === "online" || item.presenceStatus === "offline"
-                  ? item.presenceStatus
-                  : item.status === "active"
-                    ? "online"
-                    : "offline",
+              status: resolvePresenceStatus(item.presenceStatus, item.status),
               lastSeen: item.lastActiveAt ?? null,
               createdAt: item.createdAt || new Date().toISOString(),
             },

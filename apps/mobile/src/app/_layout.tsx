@@ -12,6 +12,7 @@ import {
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { socketService } from "@/lib/socket";
 import { useAuthStore } from "@/stores/authStore";
+import { useChatStore } from "@/stores/chatStore";
 import FlashMessage from "react-native-flash-message";
 // Giữ splash screen
 SplashScreen.preventAutoHideAsync().catch((error) => {
@@ -23,7 +24,8 @@ SplashScreen.preventAutoHideAsync().catch((error) => {
 
 export default function RootLayout() {
   const router = useRouter();
-  const { initialized, initialize, isAuthenticated, user, logout } = useAuthStore();
+  const { initialized, initialize, isAuthenticated, user, logout } =
+    useAuthStore();
 
   useEffect(() => {
     initialize().finally(() => {
@@ -38,6 +40,8 @@ export default function RootLayout() {
       socketService.disconnect();
       return;
     }
+
+    useChatStore.getState().initializeCacheForUser(String(user.id));
 
     socketService.connect();
 
@@ -77,39 +81,43 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider initialMetrics={initialWindowMetrics}>
-      <StatusBar style="light" backgroundColor="#0068FF" translucent={false} />
+        <StatusBar
+          style="light"
+          backgroundColor="#0068FF"
+          translucent={false}
+        />
 
-      <Stack screenOptions={{ headerShown: false }}>
-        {isAuthenticated ? (
-          <>
-            <Stack.Screen name="(tabs)" />
-            <Stack.Screen
-              name="chat/[conversationId]"
-              options={{ animation: "slide_from_right" }}
-            />
-            <Stack.Screen
-              name="call/[callId]"
-              options={{ presentation: "fullScreenModal" }}
-            />
-            <Stack.Screen
-              name="profile/[userId]"
-              options={{ animation: "slide_from_right" }}
-            />
-            <Stack.Screen
-              name="group/create"
-              options={{ presentation: "modal" }}
-            />
-            <Stack.Screen
-              name="group/[groupId]"
-              options={{ animation: "slide_from_right" }}
-            />
-          </>
-        ) : (
-          <Stack.Screen name="(auth)" />
-        )}
-      </Stack>
-      <FlashMessage />
-    </SafeAreaProvider>
+        <Stack screenOptions={{ headerShown: false }}>
+          {isAuthenticated ? (
+            <>
+              <Stack.Screen name="(tabs)" />
+              <Stack.Screen
+                name="chat/[conversationId]"
+                options={{ animation: "slide_from_right" }}
+              />
+              <Stack.Screen
+                name="call/[callId]"
+                options={{ presentation: "fullScreenModal" }}
+              />
+              <Stack.Screen
+                name="profile/[userId]"
+                options={{ animation: "slide_from_right" }}
+              />
+              <Stack.Screen
+                name="group/create"
+                options={{ presentation: "modal" }}
+              />
+              <Stack.Screen
+                name="group/[groupId]"
+                options={{ animation: "slide_from_right" }}
+              />
+            </>
+          ) : (
+            <Stack.Screen name="(auth)" />
+          )}
+        </Stack>
+        <FlashMessage />
+      </SafeAreaProvider>
     </GestureHandlerRootView>
   );
 }

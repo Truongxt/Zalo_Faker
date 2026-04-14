@@ -7,6 +7,9 @@ const userRepository = require("../repository/userRepository");
 const { verifyAccessToken } = require("../utils/jwt");
 const { redisClient, getIsRedisReady, safeGet } = require("../utils/redisClient");
 
+const PRESENCE_TTL_SECONDS = 90;
+const PRESENCE_HEARTBEAT_MS = 30000;
+
 const presenceKey = (userId, platform) => `presence:${userId}:${platform}`;
 const allPresencePattern = (userId) => `presence:${userId}:*`;
 const normalizePlatform = (platform) => {
@@ -66,6 +69,12 @@ module.exports = (socketConfig) => {
     cors: { origin: "*" },
   });
 
+  const touchPresence = async (userId, platform, socketId) => {
+    if (!getIsRedisReady()) return;
+    const key = presenceKey(userId, platform);
+    await redisClient.set(key, socketId, { EX: PRESENCE_TTL_SECONDS });
+  };
+
   io.use(async (socket, next) => {
     try {
       const token = socket.handshake.auth?.token;
@@ -121,11 +130,17 @@ module.exports = (socketConfig) => {
     try {
       if (!getIsRedisReady()) return false;
 
-      for await (const _key of redisClient.scanIterator({
+      for await (const key of redisClient.scanIterator({
         MATCH: allPresencePattern(userId),
         COUNT: 10,
       })) {
-        return true;
+        const socketId = await redisClient.get(key);
+        if (socketId && io.sockets.sockets.has(socketId)) {
+          return true;
+        }
+
+        // Cleanup stale presence keys left behind by abrupt disconnects.
+        await redisClient.del(key);
       }
 
       return false;
@@ -211,6 +226,8 @@ module.exports = (socketConfig) => {
     const { userId, platform } = socket;
     console.log(`Socket connected: ${socket.id} | User: ${userId} | Platform: ${platform}`);
 
+    let presenceHeartbeat = null;
+
     socket.join(`user:${userId}`);
 
     try {
@@ -219,8 +236,14 @@ module.exports = (socketConfig) => {
       const wasOnlineBefore = await isUserOnline(userId);
 
       if (getIsRedisReady()) {
-        const key = presenceKey(userId, platform);
-        await redisClient.set(key, socket.id);
+        await touchPresence(userId, platform, socket.id);
+
+        presenceHeartbeat = setInterval(() => {
+          if (!socket.connected || !getIsRedisReady()) return;
+          touchPresence(userId, platform, socket.id).catch((err) => {
+            console.warn("Failed to refresh presence TTL:", err?.message || err);
+          });
+        }, PRESENCE_HEARTBEAT_MS);
       }
 
       await userRepository
@@ -526,6 +549,11 @@ module.exports = (socketConfig) => {
 
     socket.on("disconnect", async () => {
       try {
+        if (presenceHeartbeat) {
+          clearInterval(presenceHeartbeat);
+          presenceHeartbeat = null;
+        }
+
         if (getIsRedisReady()) {
           const key = presenceKey(socket.userId, socket.platform);
           const storedSocketId = await redisClient.get(key);

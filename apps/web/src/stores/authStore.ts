@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
+import { useChatStore } from './chatStore'
 
 export interface User {
     id: string
@@ -59,13 +60,16 @@ export const useAuthStore = create<AuthState>()(
 
             setError: (error) => set({ error, isLoading: false }),
 
-            logout: () => set({
-                user: null,
-                accessToken: null,
-                refreshToken: null,
-                isLoading: false,
-                error: null
-            }),
+            logout: () => {
+                useChatStore.getState().clearChatState()
+                set({
+                    user: null,
+                    accessToken: null,
+                    refreshToken: null,
+                    isLoading: false,
+                    error: null
+                })
+            },
 
             updateProfile: (updates) => set((state) => ({
                 user: state.user ? { ...state.user, ...updates } : null

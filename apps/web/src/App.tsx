@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { useAuthStore } from "@/stores/authStore";
+import { useChatStore } from "@/stores/chatStore";
 import { ToastProvider } from "@/contexts/ToastContext";
 import { socketService } from "@/lib/socket";
 
@@ -68,6 +69,14 @@ function PublicRoute({ children }: { children: React.ReactNode }) {
 
 export default function App() {
   const { isLoading, initialized, user, logout } = useAuthStore();
+  const initializeCacheForUser = useChatStore(
+    (state) => state.initializeCacheForUser,
+  );
+
+  useEffect(() => {
+    if (!user?.id) return;
+    initializeCacheForUser(String(user.id));
+  }, [user?.id, initializeCacheForUser]);
 
   useEffect(() => {
     if (!user?.id) {
