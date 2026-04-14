@@ -136,6 +136,7 @@ const deleteMessage = async (req, res) => {
         res.status(500).json({ message: error.message })
     }
 }
+
 const getMessagesByConversationId = async (req, res) => {
     try {
         const messages = await messageService.getMessagesByConversationId(req.params.conversationId)
@@ -147,7 +148,11 @@ const getMessagesByConversationId = async (req, res) => {
 
 const deleteMessagesByRoom = async (req, res) => {
     try {
-        const result = await messageService.deleteMessagesByConversationId(req.params.roomId)
+        const roomId = req.params.roomId;
+        const result = await messageService.deleteMessagesByConversationId(roomId)
+        await conversationModel.updateConversation(roomId, {
+            lastMessage: null
+        })
         res.json(result)
     } catch (error) {
         res.status(500).json({ message: error.message })

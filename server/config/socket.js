@@ -9,7 +9,7 @@ const { redisClient, getIsRedisReady, safeGet } = require("../utils/redisClient"
 
 const presenceKey = (userId, platform) => `presence:${userId}:${platform}`;
 const allPresencePattern = (userId) => `presence:${userId}:*`;
-const sessionKey = (userId) => `auth:session:${String(userId)}`;
+const sessionKey = (userId, platform = "unknown") => `auth:session:${String(userId)}:${String(platform).toLowerCase()}`;
 
 const MEDIA_FALLBACK_BY_TYPE = {
   image: "[Hinh anh]",
@@ -69,18 +69,19 @@ module.exports = (socketConfig) => {
       }
 
       const decodedSessionId = decoded.sessionId;
+      const platform = decoded.platform || "unknown";
       if (!decodedSessionId) {
         return next(new Error("Authentication error: Session expired"));
       }
 
-      const activeSessionId = await safeGet(sessionKey(decoded.userId));
+      const activeSessionId = await safeGet(sessionKey(decoded.userId, platform));
       if (!activeSessionId || activeSessionId !== decodedSessionId) {
         return next(new Error("Authentication error: Session expired"));
       }
 
       socket.userId = String(decoded.userId);
       socket.userEmail = decoded.email;
-      socket.platform = socket.handshake.auth?.platform || "web";
+      socket.platform = platform;
       socket.sessionId = String(decodedSessionId);
 
       next();
@@ -159,6 +160,10 @@ module.exports = (socketConfig) => {
       const existingSocket = io.sockets.sockets.get(socketId);
       if (!existingSocket) continue;
 
+      const samePlatform = existingSocket.platform === socket.platform;
+      if (!samePlatform) continue;
+
+      // If on the same platform but same session (e.g. multiple tabs), do not disconnect
       const sameSession = existingSocket.sessionId && existingSocket.sessionId === socket.sessionId;
       if (sameSession) continue;
 

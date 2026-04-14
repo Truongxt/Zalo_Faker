@@ -22,7 +22,7 @@ const PERMANENT_LOCK_OTP_TTL_SECONDS = 300;
 const PERMANENT_LOCK_RESEND_LIMIT_SECONDS = 60;
 
 const normalizeEmail = (email) => String(email || "").trim().toLowerCase();
-const buildSessionKey = (userId) => `auth:session:${String(userId)}`;
+const buildSessionKey = (userId, platform = "unknown") => `auth:session:${String(userId)}:${String(platform).toLowerCase()}`;
 const generateSessionId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 
 const generateOtp = () => String(Math.floor(100000 + Math.random() * 900000));
@@ -188,12 +188,13 @@ const UserService = {
       email: user.email,
       accountStatus,
       sessionId,
+      platform: loginMeta.platform || "unknown",
     };
 
     const accessToken = signAccessToken(payload);
     const refreshToken = signRefreshToken(payload);
 
-    await safeSet(buildSessionKey(user.userId), sessionId);
+    await safeSet(buildSessionKey(user.userId, payload.platform), sessionId);
 
     await refreshTokenRepository.deleteByUserId(user.userId);
     await refreshTokenRepository.create({
@@ -232,9 +233,11 @@ const UserService = {
       const sessionId = decoded?.sessionId;
 
       if (userId && sessionId) {
-        const activeSessionId = await safeGet(buildSessionKey(userId));
+        const platform = decoded?.platform || "unknown";
+        const sessionKey = buildSessionKey(userId, platform);
+        const activeSessionId = await safeGet(sessionKey);
         if (activeSessionId === sessionId) {
-          await safeDel(buildSessionKey(userId));
+          await safeDel(sessionKey);
         }
       }
     } catch (_err) {
@@ -267,16 +270,16 @@ const UserService = {
     if (accountStatus === "locked") throw new Error("Account is locked");
     if (accountStatus === "deleted") throw new Error("Account is deleted");
 
-    // 3. Tạo access token mới
     const sessionId = decoded.sessionId;
+    const platform = decoded.platform || "unknown";
     if (!sessionId) throw new Error("Session expired");
 
-    const activeSessionId = await safeGet(buildSessionKey(decoded.userId));
+    const activeSessionId = await safeGet(buildSessionKey(decoded.userId, platform));
     if (!activeSessionId || activeSessionId !== sessionId) {
       throw new Error("Session expired");
     }
 
-    const payload = { userId: decoded.userId, email: decoded.email, accountStatus, sessionId };
+    const payload = { userId: decoded.userId, email: decoded.email, accountStatus, sessionId, platform };
     const newAccessToken = signAccessToken(payload);
 
     return { accessToken: newAccessToken };
