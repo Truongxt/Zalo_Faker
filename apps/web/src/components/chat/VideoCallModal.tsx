@@ -4,6 +4,23 @@ import { useAuthStore } from '@/stores/authStore';
 import { PhoneOff, Mic, MicOff, Video, VideoOff } from 'lucide-react';
 import { socketService } from '@/lib/socket';
 
+const AUDIO_RECORDER_MIME_CANDIDATES = [
+  'audio/webm;codecs=opus',
+  'audio/webm',
+  'audio/mp4',
+  'audio/ogg;codecs=opus',
+];
+
+const pickSupportedRecorderMimeType = (): string | undefined => {
+  if (typeof MediaRecorder === 'undefined' || typeof MediaRecorder.isTypeSupported !== 'function') {
+    return undefined;
+  }
+
+  return AUDIO_RECORDER_MIME_CANDIDATES.find((mimeType) => MediaRecorder.isTypeSupported(mimeType));
+};
+
+// Helper to convert base64 to Blob if needed for other purposes, but most logic now uses ArrayBuffer for streaming.
+
 export default function VideoCallModal() {
   const {
     isCalling,
@@ -24,15 +41,51 @@ export default function VideoCallModal() {
   const [remoteFrame, setRemoteFrame] = useState<string | null>(null);
   const streamIntervalRef = useRef<any>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const activeAudioPlayersRef = useRef<Set<HTMLAudioElement>>(new Set());
+  const audioObjectUrlsRef = useRef<Set<string>>(new Set());
+  const audioContextRef = useRef<AudioContext | null>(null);
 
   const targetUserId = callData?.isCaller ? callData?.toUserId : callData?.fromUserId;
+
+  const cleanupRemoteAudioPlayers = () => {
+    activeAudioPlayersRef.current.forEach((player) => {
+      try {
+        player.pause();
+        player.src = '';
+        player.load();
+      } catch {
+        // noop
+      }
+    });
+    activeAudioPlayersRef.current.clear();
+
+    audioObjectUrlsRef.current.forEach((url) => {
+      try {
+        URL.revokeObjectURL(url);
+      } catch {
+        // noop
+      }
+    });
+    audioObjectUrlsRef.current.clear();
+
+    if (audioContextRef.current) {
+      audioContextRef.current.close().catch(() => {
+        // noop
+      });
+      audioContextRef.current = null;
+    }
+  };
+
 
   const endCall = (notifyRemote = true) => {
     const state = useCallStore.getState();
     state.localStream?.getTracks().forEach((track) => track.stop());
 
     if (streamIntervalRef.current) clearInterval(streamIntervalRef.current);
-    if (mediaRecorderRef.current) mediaRecorderRef.current.stop();
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
+    cleanupRemoteAudioPlayers();
     
     setLocalStream(null);
 
@@ -90,9 +143,56 @@ export default function VideoCallModal() {
       if (String(data?.fromUserId || '') !== String(targetUserId || '')) return;
 
       if (data.audio) {
-        // Play audio chunk
-        const audio = new Audio(data.audio);
-        audio.play().catch(e => console.warn('[WEB] Audio play error:', e));
+        if (!isRemoteAcceptedRef.current) {
+          setIsRemoteAccepted(true);
+          isRemoteAcceptedRef.current = true;
+        }
+
+        try {
+          const payload = String(data.audio);
+          let base64Data = payload;
+          if (payload.startsWith('data:')) {
+            const commaIndex = payload.indexOf(',');
+            if (commaIndex > 0) base64Data = payload.slice(commaIndex + 1);
+          }
+
+          const mimeType = typeof data?.audioMimeType === 'string' ? data.audioMimeType : 'audio/webm';
+          
+          const binaryString = atob(base64Data);
+          const len = binaryString.length;
+          const bytes = new Uint8Array(len);
+          for (let i = 0; i < len; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+          }
+          const blob = new Blob([bytes], { type: mimeType });
+          
+          const objectUrl = URL.createObjectURL(blob);
+          audioObjectUrlsRef.current.add(objectUrl);
+
+          const player = new Audio(objectUrl);
+          player.autoplay = true;
+          player.volume = 1;
+
+          activeAudioPlayersRef.current.add(player);
+
+          const cleanup = () => {
+            activeAudioPlayersRef.current.delete(player);
+            if (audioObjectUrlsRef.current.has(objectUrl)) {
+              audioObjectUrlsRef.current.delete(objectUrl);
+              URL.revokeObjectURL(objectUrl);
+            }
+          };
+
+          player.onended = cleanup;
+          player.onerror = cleanup;
+          
+          player.play().catch(e => {
+            console.warn('[WEB] Playback failed for chunk:', e);
+            cleanup();
+          });
+        } catch (err) {
+          console.warn('[WEB] handleAudioFrame failed:', err);
+        }
       }
     };
 
@@ -105,17 +205,34 @@ export default function VideoCallModal() {
     socket?.on('video:audio-frame', handleAudioFrame);
 
     const initFakeWebRtc = async () => {
+      let stream: MediaStream;
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
+        stream = await navigator.mediaDevices.getUserMedia({
           video: callData.callType === 'video',
-          audio: true, // we still keep audio local if needed, but it's not streamed easily
+          audio: true,
         });
-
-        if (!mounted) {
-          stream.getTracks().forEach((track) => track.stop());
-          return;
+      } catch (err: any) {
+        console.error('Failed to get camera/mic:', err);
+        const name = String(err?.name || '');
+        if (name === 'NotAllowedError' || name === 'SecurityError') {
+          alert('Trinh duyet dang chan Camera/Microphone. Hay cap quyen roi thu lai.');
+        } else if (name === 'NotFoundError' || name === 'OverconstrainedError') {
+          alert('Khong tim thay thiet bi Camera/Microphone phu hop.');
+        } else if (name === 'NotReadableError') {
+          alert('Camera/Microphone dang duoc ung dung khac su dung.');
+        } else {
+          alert('Khong the truy cap Camera/Microphone. Vui long thu lai.');
         }
+        endCall(false);
+        return;
+      }
 
+      if (!mounted) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+
+      try {
         setLocalStream(stream);
 
         if (localVideoRef.current) {
@@ -165,12 +282,25 @@ export default function VideoCallModal() {
             }, 400); // ~2.5 FPS for stability
         }
 
-        // 3. Start real-time audio chunking
+        // 3. Start real-time audio chunking (optional, do not fail whole call if codec unsupported)
         try {
-          const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+          const audioTracks = stream.getAudioTracks();
+          if (!audioTracks.length) {
+            console.warn('[WEB] No audio track available to record');
+            return;
+          }
+
+          const audioOnlyStream = new MediaStream(audioTracks);
+          const preferredMimeType = pickSupportedRecorderMimeType();
+          const recorder = preferredMimeType
+            ? new MediaRecorder(audioOnlyStream, { mimeType: preferredMimeType })
+            : new MediaRecorder(audioOnlyStream);
+
           mediaRecorderRef.current = recorder;
+          
           recorder.ondataavailable = async (event) => {
             if (event.data.size > 0 && socket && targetUserId && isRemoteAcceptedRef.current) {
+              const chunkMimeType = event.data.type || recorder.mimeType || preferredMimeType || '';
               const reader = new FileReader();
               reader.onloadend = () => {
                 const base64Audio = reader.result as string;
@@ -178,38 +308,49 @@ export default function VideoCallModal() {
                   toUserId: targetUserId,
                   fromUserId: user.id,
                   conversationId: callData.conversationId,
-                  audio: base64Audio
+                  audio: base64Audio,
+                  audioMimeType: chunkMimeType,
                 });
               };
               reader.readAsDataURL(event.data);
             }
           };
-          recorder.start(1000); // 1s chunks
-        } catch (e) {
-          console.warn('[WEB] MediaRecorder failed (likely codec), trying fallback...');
-          const recorder = new MediaRecorder(stream);
-          mediaRecorderRef.current = recorder;
-          recorder.ondataavailable = async (event) => {
-            if (event.data.size > 0 && socket && targetUserId && isRemoteAcceptedRef.current) {
-              const reader = new FileReader();
-              reader.onloadend = () => {
-                const base64Audio = reader.result as string;
-                socket.emit('video:audio-frame', {
-                  toUserId: targetUserId,
-                  fromUserId: user.id,
-                  conversationId: callData.conversationId,
-                  audio: base64Audio
-                });
-              };
-              reader.readAsDataURL(event.data);
+
+          const runStandaloneCycle = () => {
+            if (!mounted || !isRemoteAcceptedRef.current) {
+               if (mounted) setTimeout(runStandaloneCycle, 1000);
+               return;
+            }
+            
+            try {
+              if (recorder.state === 'inactive') {
+                recorder.start();
+                // Record for 1.5 seconds per chunk
+                setTimeout(() => {
+                  if (recorder.state === 'recording') {
+                    recorder.stop();
+                  }
+                }, 1500);
+              }
+            } catch (e) {
+              console.warn('[WEB] Recorder cycle error:', e);
             }
           };
-          recorder.start(1000);
+
+          recorder.onstop = () => {
+             if (mounted) {
+                // Small gap to prevent overlapping starts
+                setTimeout(runStandaloneCycle, 100);
+             }
+          };
+
+          runStandaloneCycle();
+        } catch (audioErr) {
+          console.warn('[WEB] MediaRecorder unavailable, continue call without audio chunk relay:', audioErr);
         }
 
       } catch (err) {
-        console.error('Failed to get camera/mic:', err);
-        alert('Hay cap quyen Camera va Microphone de goi video.');
+        console.error('Failed to initialize call pipeline:', err);
         endCall(false);
       }
     };
@@ -219,6 +360,10 @@ export default function VideoCallModal() {
     return () => {
       mounted = false;
       if (streamIntervalRef.current) clearInterval(streamIntervalRef.current);
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stop();
+      }
+      cleanupRemoteAudioPlayers();
       socket?.off('video:call-answered', handleCallAnswered);
       socket?.off('video:call-rejected', handleCallRejected);
       socket?.off('video:call-ended', handleCallEnded);
