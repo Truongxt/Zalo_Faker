@@ -651,6 +651,7 @@ module.exports = (socketConfig) => {
         fromUserId: socket.userId,
         conversationId: data.conversationId,
         audio: data.audio, // base64 string
+        audioMimeType: data.audioMimeType,
       });
     });
 

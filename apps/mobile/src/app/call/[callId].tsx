@@ -21,6 +21,21 @@ import * as FileSystem from "expo-file-system";
 type CallType = "video" | "audio";
 type CallState = "ringing" | "accepted" | "ended";
 
+const extractMimeTypeFromDataUrl = (value: string): string => {
+  if (!value?.startsWith("data:")) return "";
+  const endIndex = value.indexOf(";base64,");
+  if (endIndex <= 5) return "";
+  return value.slice(5, endIndex).toLowerCase();
+};
+
+const extensionFromMimeType = (mimeType: string): string => {
+  if (mimeType.includes("webm")) return "webm";
+  if (mimeType.includes("ogg")) return "ogg";
+  if (mimeType.includes("mpeg")) return "mp3";
+  if (mimeType.includes("mp4") || mimeType.includes("m4a") || mimeType.includes("aac")) return "m4a";
+  return "m4a";
+};
+
 export default function CallScreen() {
   const params = useLocalSearchParams<any>();
   const router = useRouter();
@@ -181,16 +196,27 @@ export default function CallScreen() {
         }
         setIsRemoteAccepted(true);
         try {
-          // data.audio is a Base64 data URI (data:audio/webm;base64,...) or just base64
-          // On Web we sent reader.readAsDataURL(blob) -> contains header
-          let base64Data = data.audio;
+          const audioPayload = String(data.audio);
+          const mimeFromPayload = extractMimeTypeFromDataUrl(audioPayload);
+          const fallbackMime = String(data?.audioMimeType || "").toLowerCase();
+          const mimeType = mimeFromPayload || fallbackMime || "audio/mp4";
+
+          let base64Data = audioPayload;
           if (base64Data.includes("base64,")) {
             base64Data = base64Data.split("base64,")[1];
           }
 
-          const fileUri = `${FileSystem.cacheDirectory}remote_audio_${Date.now()}.m4a`;
+          const extension = extensionFromMimeType(mimeType);
+          const fileUri = `${FileSystem.cacheDirectory}remote_audio_${Date.now()}.${extension}`;
           await FileSystem.writeAsStringAsync(fileUri, base64Data, {
             encoding: FileSystem.EncodingType.Base64,
+          });
+
+          await Audio.setAudioModeAsync({
+            allowsRecordingIOS: true,
+            playsInSilentModeIOS: true,
+            shouldDuckAndroid: false,
+            playThroughEarpieceAndroid: false,
           });
 
           const { sound } = await Audio.Sound.createAsync(
@@ -254,18 +280,24 @@ export default function CallScreen() {
     const startAudioCapture = async () => {
       if (!mountedRef.current) return;
 
+      const permissionResponse = await Audio.requestPermissionsAsync();
+      if (!permissionResponse.granted) {
+        console.log("[MOBILE] Microphone permission denied");
+        return;
+      }
+
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+        shouldDuckAndroid: false,
+        playThroughEarpieceAndroid: false,
+      });
+
       const runAudio = async () => {
         if (!mountedRef.current) return;
 
         try {
           const targetId = isCaller ? toUserId : fromUserId;
-          
-          // Request and setup audio mode
-          await Audio.requestPermissionsAsync();
-          await Audio.setAudioModeAsync({
-            allowsRecordingIOS: true,
-            playsInSilentModeIOS: true,
-          });
 
           const recording = new Audio.Recording();
           audioRecordingRef.current = recording;
@@ -309,7 +341,8 @@ export default function CallScreen() {
                   toUserId: targetId,
                   fromUserId: String(user.id),
                   conversationId,
-                  audio: "data:audio/m4a;base64," + base64
+                  audio: "data:audio/mp4;base64," + base64,
+                  audioMimeType: "audio/mp4",
                 });
             }
           }
