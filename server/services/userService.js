@@ -128,7 +128,8 @@ const UserService = {
       "status",
       "presenceStatus",
       "lastActiveAt",
-      "userName"
+      "userName",
+      "hiddenChatPin"
     ];
 
     for (const field of allowedFields) {
@@ -727,6 +728,13 @@ const UserService = {
     await safeDel(verifiedKey);
 
     return { message: "Registration completed", user: safeUser };
+  },
+
+  comparePassword: async (userId, password) => {
+    const user = await userRepository.getById(userId);
+    if (!user) throw new Error("User not found");
+    const isMatch = await bcrypt.compare(password + "nhan123@@", user.password);
+    return isMatch;
   }
 
 };

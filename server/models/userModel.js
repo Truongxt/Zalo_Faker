@@ -16,6 +16,7 @@ class userModel {
         presenceStatus,
         lastActiveAt,
         userName,
+        hiddenChatPin,
     }) {
         const normalizedAccountStatus = userModel.normalizeAccountStatus(accountStatus || status);
         const normalizedPresenceStatus = userModel.normalizePresenceStatus(presenceStatus);
@@ -28,6 +29,7 @@ class userModel {
         this.gender = gender;
         this.password = password;
         this.phone = phone;
+        this.hiddenChatPin = hiddenChatPin || null;
 
         // Account lifecycle status: active | locked | deleted
         this.accountStatus = normalizedAccountStatus;

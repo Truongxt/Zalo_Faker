@@ -17,6 +17,7 @@ export interface User {
     status: 'online' | 'offline' | 'away' | string
     lastSeen: string | null
     createdAt: string
+    hasHiddenPin?: boolean
 }
 
 interface AuthState {
