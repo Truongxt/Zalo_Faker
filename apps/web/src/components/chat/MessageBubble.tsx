@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { Message } from '@/stores/chatStore'
 import { formatDistanceToNow } from 'date-fns'
 import { vi } from 'date-fns/locale'
-import { Check, CheckCheck, Reply, SmilePlus, Trash2, Share, Pin, Star } from 'lucide-react'
+import { Check, CheckCheck, Reply, SmilePlus, Trash2, Share, Pin, Star, Video, Phone } from 'lucide-react'
 import VoicePlayer from './VoicePlayer'
 
 interface MessageBubbleProps {
@@ -269,6 +269,54 @@ export default function MessageBubble({
                         />
                     </div>
                 )
+
+            case 'call': {
+                let callData: any = {};
+                try {
+                    callData = typeof content.text === 'string' ? JSON.parse(content.text) : content;
+                } catch (e) {
+                    callData = { status: 'unknown' };
+                }
+
+                const isVideo = callData.callType === 'video';
+                const status = callData.status; // 'finished' | 'missed' | 'rejected' | 'cancelled'
+                const duration = callData.duration || 0;
+
+                const formatDuration = (s: number) => {
+                    const mins = Math.floor(s / 60);
+                    const secs = s % 60;
+                    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+                };
+
+                const getStatusText = () => {
+                    if (status === 'finished') return isSent ? 'Cuộc gọi đi' : 'Cuộc gọi đến';
+                    if (status === 'missed') return isSent ? 'Cuộc gọi không nhấc máy' : 'Cuộc gọi nhỡ';
+                    if (status === 'rejected') return isSent ? 'Cuộc gọi bị từ chối' : 'Cuộc gọi bị từ chối';
+                    if (status === 'cancelled') return 'Cuộc gọi đã hủy';
+                    return 'Cuộc gọi';
+                };
+
+                return (
+                    <div className="flex items-center gap-3 py-1">
+                        <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                            status === 'missed' || status === 'rejected' 
+                                ? 'bg-red-100 dark:bg-red-900/30 text-red-500' 
+                                : 'bg-primary-100 dark:bg-primary-900/30 text-primary-500'
+                        }`}>
+                            {isVideo ? <Video className="w-5 h-5" /> : <Phone className="w-5 h-5" />}
+                        </div>
+                        <div className="flex flex-col">
+                            <span className="font-medium text-sm">{getStatusText()}</span>
+                            {status === 'finished' && (
+                                <span className="text-xs opacity-70">{formatDuration(duration)}</span>
+                            )}
+                            {status === 'missed' && !isSent && (
+                                <span className="text-xs text-red-500 font-medium">Nhấn để gọi lại</span>
+                            )}
+                        </div>
+                    </div>
+                );
+            }
 
             default:
                 return renderHighlightedText(content.text, 'whitespace-pre-wrap [overflow-wrap:anywhere] [word-break:break-word]')

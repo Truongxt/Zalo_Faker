@@ -6,7 +6,7 @@ import {
   StatusBar,
   Animated,
   Alert,
-  NativeModules,
+  Image,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -14,60 +14,41 @@ import { Ionicons } from "@expo/vector-icons";
 import { useAuthStore } from "@/stores/authStore";
 import { socketService } from "@/lib/socket";
 import { Avatar } from "@/components/ui/Avatar";
+import { CameraView, useCameraPermissions } from "expo-camera";
+import { Audio } from "expo-av";
+import * as FileSystem from "expo-file-system";
 
 type CallType = "video" | "audio";
 type CallState = "ringing" | "accepted" | "ended";
 
-const RTC_CONFIG = {
-  iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+const extractMimeTypeFromDataUrl = (value: string): string => {
+  if (!value?.startsWith("data:")) return "";
+  const endIndex = value.indexOf(";base64,");
+  if (endIndex <= 5) return "";
+  return value.slice(5, endIndex).toLowerCase();
 };
 
-let cachedWebRtcModule: any | null | undefined = undefined;
-const getWebRtc = () => {
-  if (cachedWebRtcModule !== undefined) return cachedWebRtcModule;
-
-  const nativeWebRtc = (NativeModules as any)?.WebRTCModule;
-  if (!nativeWebRtc) {
-    cachedWebRtcModule = null;
-    return null;
-  }
-
-  try {
-    const dynamicRequire = eval("require");
-    cachedWebRtcModule = dynamicRequire("react-native-webrtc");
-    return cachedWebRtcModule;
-  } catch {
-    cachedWebRtcModule = null;
-    return null;
-  }
+const extensionFromMimeType = (mimeType: string): string => {
+  if (mimeType.includes("webm")) return "webm";
+  if (mimeType.includes("ogg")) return "ogg";
+  if (mimeType.includes("mpeg")) return "mp3";
+  if (mimeType.includes("mp4") || mimeType.includes("m4a") || mimeType.includes("aac")) return "m4a";
+  return "m4a";
 };
 
 export default function CallScreen() {
-  const params = useLocalSearchParams<{
-    callId?: string;
-    callType?: string;
-    conversationId?: string;
-    fromUserId?: string;
-    toUserId?: string;
-    toUserName?: string;
-    toUserAvatar?: string;
-    callerName?: string;
-    callerAvatar?: string;
-    isCaller?: string;
-  }>();
-
+  const params = useLocalSearchParams<any>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user } = useAuthStore();
-
-  const webRtcModule = useRef<any | null>(getWebRtc()).current;
-  const RTCView = webRtcModule?.RTCView;
+  const [permission, requestPermission] = useCameraPermissions();
 
   const callType: CallType = params.callType === "video" ? "video" : "audio";
   const isCaller = String(params.isCaller) === "true";
+  const autoAccept = String(params.autoAccept) === "true";
   const toUserId = String(params.toUserId || "");
   const fromUserId = String(params.fromUserId || user?.id || "");
-  const conversationId = String(params.conversationId || "");
+  const conversationId = String(params.conversationId || params.callId || "");
 
   const displayName = useMemo(() => {
     if (isCaller) return params.toUserName || "Nguoi dung";
@@ -79,325 +60,360 @@ export default function CallScreen() {
     return params.callerAvatar || null;
   }, [isCaller, params.callerAvatar, params.toUserAvatar]);
 
-  const [callState, setCallState] = useState<CallState>("ringing");
-  const [isMuted, setIsMuted] = useState(false);
-  const [isSpeaker, setIsSpeaker] = useState(true);
-  const [isCameraOff, setIsCameraOff] = useState(false);
-  const [duration, setDuration] = useState(0);
+  const [callState, setCallState] = useState<CallState>(autoAccept ? "accepted" : "ringing");
   const [isRemoteAccepted, setIsRemoteAccepted] = useState(false);
-  const [localVideoUrl, setLocalVideoUrl] = useState<string | null>(null);
-  const [remoteVideoUrl, setRemoteVideoUrl] = useState<string | null>(null);
+  const [remoteFrame, setRemoteFrame] = useState<string | null>(null);
 
-  const timerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
-  const callStateRef = useRef<CallState>("ringing");
   const pulseAnim = useRef(new Animated.Value(1)).current;
-  const pcRef = useRef<any>(null);
-  const localStreamRef = useRef<any>(null);
-  const remoteStreamRef = useRef<any>(null);
-  const pendingCandidatesRef = useRef<any[]>([]);
-  const endingRef = useRef(false);
+  const cameraRef = useRef<any>(null);
+  const streamIntervalRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const audioIntervalRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const audioRecordingRef = useRef<Audio.Recording | null>(null);
+  const mountedRef = useRef(true);
+  const hasEmittedInitialSignal = useRef(false);
 
-  const cleanupMedia = () => {
-    if (pcRef.current) {
-      try {
-        pcRef.current.onicecandidate = null;
-        pcRef.current.ontrack = null;
-        pcRef.current.onconnectionstatechange = null;
-      } catch {
-        // noop
-      }
-      pcRef.current.close();
-      pcRef.current = null;
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, {
+          toValue: 1.2,
+          duration: 1000,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulseAnim, {
+          toValue: 1,
+          duration: 1000,
+          useNativeDriver: true,
+        }),
+      ]),
+    ).start();
+
+    if (!permission?.granted && permission?.canAskAgain) {
+      requestPermission();
     }
+  }, [pulseAnim, permission, requestPermission]);
 
-    const local = localStreamRef.current;
-    if (local) {
-      local.getTracks().forEach((track: any) => track.stop());
-      localStreamRef.current = null;
+  const cleanupMedia = async () => {
+    if (streamIntervalRef.current) clearTimeout(streamIntervalRef.current);
+    if (audioIntervalRef.current) clearTimeout(audioIntervalRef.current);
+    if (audioRecordingRef.current) {
+        try {
+            await audioRecordingRef.current.stopAndUnloadAsync();
+        } catch (e) {}
+        audioRecordingRef.current = null;
     }
-
-    const remote = remoteStreamRef.current;
-    if (remote) {
-      remote.getTracks().forEach((track: any) => track.stop());
-      remoteStreamRef.current = null;
-    }
-
-    pendingCandidatesRef.current = [];
-    setLocalVideoUrl(null);
-    setRemoteVideoUrl(null);
   };
 
-  useEffect(() => {
-    callStateRef.current = callState;
-  }, [callState]);
-
-  useEffect(() => {
-    if (callState !== "ringing") return;
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulseAnim, { toValue: 1.15, duration: 700, useNativeDriver: true }),
-        Animated.timing(pulseAnim, { toValue: 1, duration: 700, useNativeDriver: true }),
-      ]),
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [callState, pulseAnim]);
-
-  useEffect(() => {
-    if (callState === "accepted") {
-      timerRef.current = setInterval(() => setDuration((d) => d + 1), 1000);
-    }
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
-  }, [callState]);
-
-  useEffect(() => {
-    socketService.connect();
-    const socket = socketService.getSocket();
-    if (!socket || !user?.id) return;
-
-    const canUseWebRtc = Boolean(webRtcModule);
-    const mediaDevices = webRtcModule?.mediaDevices;
-    const RTCPeerConnection = webRtcModule?.RTCPeerConnection;
-    const RTCIceCandidate = webRtcModule?.RTCIceCandidate;
-    const RTCSessionDescription = webRtcModule?.RTCSessionDescription;
-
-    let mounted = true;
-    const targetUserId = isCaller ? toUserId : fromUserId;
-
-    const sendSignal = (signal: any) => {
-      if (!targetUserId) return;
-      socketService.emit("video:signal", {
-        toUserId: targetUserId,
-        conversationId,
-        signal,
-      });
-    };
-
-    const safeAddIceCandidate = async (candidate: any) => {
-      if (!canUseWebRtc) return;
-      const pc = pcRef.current;
-      if (!pc) return;
-
-      if (pc.remoteDescription) {
-        try {
-          await pc.addIceCandidate(new RTCIceCandidate(candidate));
-        } catch (err) {
-          console.error("Them ICE candidate that bai:", err);
-        }
-      } else {
-        pendingCandidatesRef.current.push(candidate);
-      }
-    };
-
-    const flushPendingCandidates = async () => {
-      if (!canUseWebRtc) return;
-      const pc = pcRef.current;
-      if (!pc || !pc.remoteDescription) return;
-
-      const pending = [...pendingCandidatesRef.current];
-      pendingCandidatesRef.current = [];
-
-      for (const candidate of pending) {
-        try {
-          await pc.addIceCandidate(new RTCIceCandidate(candidate));
-        } catch (err) {
-          console.error("Xu ly ICE candidate cho doi that bai:", err);
-        }
-      }
-    };
-
-    const handleAnswered = async (data: any) => {
-      if (!isCaller || String(data?.toUserId || "") !== String(user.id)) return;
-
-      setCallState("accepted");
-      setIsRemoteAccepted(true);
-
-      if (!canUseWebRtc) return;
-
-      const pc = pcRef.current;
-      if (!pc || pc.signalingState !== "stable") return;
-
-      try {
-        const offer = await pc.createOffer({
-          offerToReceiveAudio: true,
-          offerToReceiveVideo: callType === "video",
-        } as any);
-        await pc.setLocalDescription(offer);
-        sendSignal({ type: "offer", sdp: offer.sdp });
-      } catch (err) {
-        console.error("Tao offer that bai:", err);
-      }
-    };
-
-    const handleSignal = async (data: any) => {
-      if (!canUseWebRtc || !mounted) return;
-      if (String(data?.conversationId || "") !== String(conversationId || "")) return;
-      if (String(data?.fromUserId || "") !== String(targetUserId || "")) return;
-
-      const signal = data?.signal;
-      const pc = pcRef.current;
-      if (!pc || !signal?.type) return;
-
-      try {
-        if (signal.type === "offer") {
-          await pc.setRemoteDescription(new RTCSessionDescription({ type: "offer", sdp: signal.sdp }));
-          await flushPendingCandidates();
-
-          const answer = await pc.createAnswer();
-          await pc.setLocalDescription(answer);
-          sendSignal({ type: "answer", sdp: answer.sdp });
-          setCallState("accepted");
-          setIsRemoteAccepted(true);
-        } else if (signal.type === "answer") {
-          await pc.setRemoteDescription(new RTCSessionDescription({ type: "answer", sdp: signal.sdp }));
-          await flushPendingCandidates();
-          setCallState("accepted");
-          setIsRemoteAccepted(true);
-        } else if (signal.type === "ice-candidate" && signal.candidate) {
-          await safeAddIceCandidate(signal.candidate);
-        }
-      } catch (err) {
-        console.error("Xu ly WebRTC signal that bai:", err);
-      }
-    };
-
-    const handleRejected = (data: any) => {
-      const me = String(user.id);
-      if (String(data?.toUserId || "") === me || String(data?.fromUserId || "") === me) {
-        endCallLocal(false);
-      }
-    };
-
-    const handleEnded = (data: any) => {
-      const me = String(user.id);
-      if (String(data?.toUserId || "") === me || String(data?.fromUserId || "") === me) {
-        endCallLocal(false);
-      }
-    };
-
-    const initWebRtc = async () => {
-      if (!canUseWebRtc) return;
-
-      try {
-        const stream = await mediaDevices.getUserMedia({
-          audio: true,
-          video: callType === "video",
-        });
-
-        if (!mounted) {
-          stream.getTracks().forEach((track: any) => track.stop());
-          return;
-        }
-
-        localStreamRef.current = stream;
-        if (callType === "video" && typeof stream.toURL === "function") {
-          setLocalVideoUrl(stream.toURL());
-        }
-
-        const pc = new RTCPeerConnection(RTC_CONFIG as any);
-        pcRef.current = pc;
-        const pcAny = pc as any;
-
-        stream.getTracks().forEach((track: any) => pc.addTrack(track, stream));
-
-        pcAny.onicecandidate = (event: any) => {
-          if (!event?.candidate) return;
-          sendSignal({ type: "ice-candidate", candidate: event.candidate });
-        };
-
-        pcAny.ontrack = (event: any) => {
-          const [remote] = event.streams || [];
-          if (remote) {
-            remoteStreamRef.current = remote;
-            setIsRemoteAccepted(true);
-            if (callType === "video" && typeof remote.toURL === "function") {
-              setRemoteVideoUrl(remote.toURL());
-            }
-          }
-        };
-
-        pcAny.onconnectionstatechange = () => {
-          if (pc.connectionState === "connected") {
-            setCallState("accepted");
-            setIsRemoteAccepted(true);
-          }
-        };
-      } catch (err) {
-        console.error("Khoi tao microphone/camera that bai:", err);
-        Alert.alert("Khong mo duoc camera", "Hay cap quyen camera va microphone cho ung dung.");
-      }
-    };
-
-    socket.on("video:call-answered", handleAnswered);
-    socket.on("video:call-rejected", handleRejected);
-    socket.on("video:call-ended", handleEnded);
-    if (canUseWebRtc) {
-      socket.on("video:signal", handleSignal);
-    }
-
-    initWebRtc();
-
-    if (isCaller && toUserId) {
-      socketService.emit("video:call-user", {
-        fromUserId: String(user.id),
-        toUserId,
-        conversationId,
-        callerName: user.fullName || "Nguoi dung",
-        callerAvatar: user.avatarUrl || null,
-        callType,
-      });
-    }
-
-    const timeout = setTimeout(() => {
-      if (callStateRef.current === "ringing") {
-        endCall();
-      }
-    }, 60_000);
-
-    return () => {
-      mounted = false;
-      socket.off("video:call-answered", handleAnswered);
-      socket.off("video:call-rejected", handleRejected);
-      socket.off("video:call-ended", handleEnded);
-      if (canUseWebRtc) {
-        socket.off("video:signal", handleSignal);
-      }
-      clearTimeout(timeout);
-      cleanupMedia();
-    };
-  }, [callType, conversationId, fromUserId, isCaller, toUserId, user?.avatarUrl, user?.fullName, user?.id]);
-
   const endCallLocal = (notifyRemote = true) => {
-    if (endingRef.current) return;
-    endingRef.current = true;
+    cleanupMedia();
+    setCallState("ended");
 
-    const targetId = isCaller ? toUserId : fromUserId;
-    if (notifyRemote && targetId) {
-      socketService.emit("video:end-call", {
-        toUserId: targetId,
-        fromUserId: String(user?.id || ""),
-        conversationId,
-      });
+    if (notifyRemote) {
+      const targetId = isCaller ? toUserId : fromUserId;
+      if (targetId) {
+        socketService.emit("video:end-call", {
+          toUserId: targetId,
+          fromUserId: String(user?.id || ""),
+          conversationId,
+        });
+      }
     }
 
-    cleanupMedia();
-
-    if (timerRef.current) clearInterval(timerRef.current);
-    setCallState("ended");
     setTimeout(() => {
       if (router.canGoBack()) router.back();
       else router.replace("/(tabs)/chat/chats");
     }, 600);
   };
 
-  const endCall = () => {
-    endCallLocal(true);
+  useEffect(() => {
+    // This effect re-runs when callState changes (e.g. ringing -> accepted).
+    // Reset mounted flag so frame handlers and capture loop remain active.
+    mountedRef.current = true;
+
+    const socket = socketService.getSocket();
+    if (!socket || !user?.id) return;
+
+    const handleAnswered = (data: any) => {
+      if (!isCaller || String(data?.toUserId || "") !== String(user.id)) return;
+      setCallState("accepted");
+      setIsRemoteAccepted(true);
+    };
+
+    const handleRejected = (data: any) => {
+      if (
+        String(data?.toUserId || "") !== String(user.id) ||
+        String(data?.conversationId || "") !== conversationId
+      ) {
+        return;
+      }
+      Alert.alert("Cuộc gọi bị từ chối", "Đầu bên kia đã từ chối cuộc gọi", [
+        { text: "Đóng", onPress: () => endCallLocal(false) },
+      ]);
+    };
+
+    const handleEnded = (data: any) => {
+      if (
+        String(data?.toUserId || "") !== String(user.id) ||
+        String(data?.conversationId || "") !== conversationId
+      ) {
+        return;
+      }
+      Alert.alert("Kết thúc", "Cuộc gọi đã kết thúc", [
+        { text: "Đóng", onPress: () => endCallLocal(false) },
+      ]);
+    };
+
+    const handleVideoFrame = (data: any) => {
+      if (!mountedRef.current) return;
+      
+      const incomingConvId = String(data?.conversationId || "");
+      if (incomingConvId !== conversationId) {
+        // Log mismatch once in a while to avoid spam but show it exists
+        if (Math.random() < 0.1) {
+           console.log(`[MOBILE] MISMATCH convId: Recv=${incomingConvId} vs local=${conversationId}`);
+        }
+        return;
+      }
+      
+      console.log(`[MOBILE] OK - Received frame from ${data.fromUserId}`);
+      if (callState !== "accepted") {
+        setCallState("accepted");
+      }
+      setIsRemoteAccepted(true);
+      if (data.frame) {
+        setRemoteFrame(data.frame);
+      }
+    };
+
+    const handleAudioFrame = async (data: any) => {
+      if (!mountedRef.current) return;
+      if (String(data?.conversationId || "") !== conversationId) return;
+      if (String(data?.fromUserId || "") !== (isCaller ? toUserId : fromUserId)) return;
+
+      if (data.audio) {
+        if (callState !== "accepted") {
+          setCallState("accepted");
+        }
+        setIsRemoteAccepted(true);
+        try {
+          const audioPayload = String(data.audio);
+          const mimeFromPayload = extractMimeTypeFromDataUrl(audioPayload);
+          const fallbackMime = String(data?.audioMimeType || "").toLowerCase();
+          const mimeType = mimeFromPayload || fallbackMime || "audio/mp4";
+
+          let base64Data = audioPayload;
+          if (base64Data.includes("base64,")) {
+            base64Data = base64Data.split("base64,")[1];
+          }
+
+          const extension = extensionFromMimeType(mimeType);
+          const fileUri = `${FileSystem.cacheDirectory}remote_audio_${Date.now()}.${extension}`;
+          await FileSystem.writeAsStringAsync(fileUri, base64Data, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+
+          await Audio.setAudioModeAsync({
+            allowsRecordingIOS: true,
+            playsInSilentModeIOS: true,
+            shouldDuckAndroid: false,
+            playThroughEarpieceAndroid: false,
+          });
+
+          const { sound } = await Audio.Sound.createAsync(
+            { uri: fileUri },
+            { shouldPlay: true }
+          );
+
+          // Auto unload after play
+          sound.setOnPlaybackStatusUpdate((status: any) => {
+            if (status.didJustFinish) {
+              sound.unloadAsync();
+              FileSystem.deleteAsync(fileUri).catch(() => {});
+            }
+          });
+        } catch (e) {
+          console.log("[MOBILE] Audio playback error:", e);
+        }
+      }
+    };
+
+    const startCaptureLoop = async () => {
+      if (!mountedRef.current || callType !== "video") return;
+      
+      const run = async () => {
+        if (!mountedRef.current || !cameraRef.current) {
+          streamIntervalRef.current = setTimeout(run, 1000);
+          return;
+        }
+
+        try {
+          const targetId = isCaller ? toUserId : fromUserId;
+          // Capture image frame
+          // REMOVED skipProcessing/fastMode to avoid "Failed to capture image"
+          const photo = await cameraRef.current.takePictureAsync({
+            base64: true,
+            quality: 0.1,
+          });
+
+          if (photo?.base64 && targetId && mountedRef.current) {
+            console.log(`[MOBILE] EMITTING frame to ${targetId}`);
+            socketService.emit("video:frame", {
+              toUserId: targetId,
+              fromUserId: String(user.id),
+              conversationId,
+              frame: "data:image/jpeg;base64," + photo.base64
+            });
+          }
+        } catch (e) {
+          console.log("[MOBILE] Capture error:", e);
+        }
+
+        if (mountedRef.current) {
+          streamIntervalRef.current = setTimeout(run, 600); // Slower to be safe
+        }
+      };
+
+      // Give camera 1.5s to warm up
+      streamIntervalRef.current = setTimeout(run, 1500);
+    };
+
+    const startAudioCapture = async () => {
+      if (!mountedRef.current) return;
+
+      const permissionResponse = await Audio.requestPermissionsAsync();
+      if (!permissionResponse.granted) {
+        console.log("[MOBILE] Microphone permission denied");
+        return;
+      }
+
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+        shouldDuckAndroid: false,
+        playThroughEarpieceAndroid: false,
+      });
+
+      const runAudio = async () => {
+        if (!mountedRef.current) return;
+
+        try {
+          const targetId = isCaller ? toUserId : fromUserId;
+
+          const recording = new Audio.Recording();
+          audioRecordingRef.current = recording;
+          
+          await recording.prepareToRecordAsync({
+             android: {
+               extension: '.m4a',
+               outputFormat: 2, // MPEG_4
+               audioEncoder: 3, // AAC
+               sampleRate: 44100,
+               numberOfChannels: 1,
+               bitRate: 64000,
+             },
+             ios: {
+               extension: '.m4a',
+               audioQuality: 0, // Low
+               sampleRate: 44100,
+               numberOfChannels: 1,
+               bitRate: 64000,
+               linearPCMBitDepth: 16,
+               linearPCMIsBigEndian: false,
+               linearPCMIsFloat: false,
+             },
+             web: {} as any
+          });
+          
+          await recording.startAsync();
+          
+          // Record for 1.2s
+          await new Promise(resolve => setTimeout(resolve, 1200));
+
+          if (mountedRef.current && audioRecordingRef.current) {
+            await recording.stopAndUnloadAsync();
+            const uri = recording.getURI();
+            if (uri && targetId) {
+                const base64 = await FileSystem.readAsStringAsync(uri, {
+                   encoding: FileSystem.EncodingType.Base64
+                });
+                
+                socketService.emit("video:audio-frame", {
+                  toUserId: targetId,
+                  fromUserId: String(user.id),
+                  conversationId,
+                  audio: "data:audio/mp4;base64," + base64,
+                  audioMimeType: "audio/mp4",
+                });
+            }
+          }
+        } catch (e) {
+          console.log("[MOBILE] Audio recording error:", e);
+        }
+
+        if (mountedRef.current) {
+          audioIntervalRef.current = setTimeout(runAudio, 100); // Small gap between chunks
+        }
+      };
+
+      runAudio();
+    };
+
+    // Bind listeners first to avoid missing very-fast "answered/frame" events.
+    socket.on("video:call-answered", handleAnswered);
+    socket.on("video:call-rejected", handleRejected);
+    socket.on("video:call-ended", handleEnded);
+    socket.on("video:frame", handleVideoFrame);
+    socket.on("video:audio-frame", handleAudioFrame);
+
+    // Emit initial signals
+    if (!hasEmittedInitialSignal.current) {
+      hasEmittedInitialSignal.current = true;
+      if (isCaller && toUserId) {
+        socketService.emit("video:call-user", {
+          fromUserId: String(user.id),
+          toUserId,
+          conversationId,
+          callerName: user.fullName || "Nguoi dung",
+          callerAvatar: user.avatarUrl || null,
+          callType,
+        });
+      } else if (autoAccept && fromUserId) {
+        socketService.emit("video:answer-call", {
+          toUserId: fromUserId,
+          fromUserId: String(user.id),
+          conversationId,
+        });
+      }
+    }
+
+    if (callState === "accepted") {
+      startCaptureLoop();
+      startAudioCapture();
+    }
+
+    return () => {
+      mountedRef.current = false;
+      cleanupMedia();
+      socket.off("video:call-answered", handleAnswered);
+      socket.off("video:call-rejected", handleRejected);
+      socket.off("video:call-ended", handleEnded);
+      socket.off("video:frame", handleVideoFrame);
+      socket.off("video:audio-frame", handleAudioFrame);
+    };
+  }, [isCaller, toUserId, fromUserId, callType, conversationId, user?.id, callState]);
+
+  const acceptCall = () => {
+    socketService.emit("video:answer-call", {
+      toUserId: fromUserId,
+      fromUserId: String(user?.id || ""),
+      conversationId,
+    });
+    setCallState("accepted");
+    setIsRemoteAccepted(false);
   };
 
   const rejectCall = () => {
-    const targetId = fromUserId;
+    const targetId = isCaller ? toUserId : fromUserId;
     if (targetId) {
       socketService.emit("video:reject-call", {
         toUserId: targetId,
@@ -408,219 +424,84 @@ export default function CallScreen() {
     endCallLocal(false);
   };
 
-  const acceptCall = () => {
-    socketService.emit("video:answer-call", {
-      toUserId: fromUserId,
-      fromUserId: String(user?.id || ""),
-      conversationId,
-    });
-    setCallState("accepted");
-    setIsRemoteAccepted(true);
-  };
-
-  const toggleMute = () => {
-    const stream = localStreamRef.current;
-    if (!stream) {
-      setIsMuted((v) => !v);
-      return;
-    }
-
-    const track = stream.getAudioTracks()[0];
-    if (!track) return;
-
-    const nextMuted = !isMuted;
-    track.enabled = !nextMuted;
-    setIsMuted(nextMuted);
-  };
-
-  const toggleCamera = () => {
-    const stream = localStreamRef.current;
-    if (!stream) {
-      setIsCameraOff((v) => !v);
-      return;
-    }
-
-    const track = stream.getVideoTracks()[0];
-    if (!track) return;
-
-    const nextOff = !isCameraOff;
-    track.enabled = !nextOff;
-    setIsCameraOff(nextOff);
-  };
-
-  const formatDuration = (secs: number) => {
-    const m = Math.floor(secs / 60).toString().padStart(2, "0");
-    const s = (secs % 60).toString().padStart(2, "0");
-    return `${m}:${s}`;
-  };
-
-  const bgColor = callType === "video" ? "#1C1C1E" : "#0068FF";
-  const canRenderVideo = Boolean(RTCView && callType === "video");
-
   return (
-    <View style={{ flex: 1, backgroundColor: bgColor }}>
-      <StatusBar barStyle="light-content" />
+    <View style={{ flex: 1, backgroundColor: "#111827" }}>
+      <StatusBar barStyle="light-content" backgroundColor="#111827" />
 
-      <View style={{ paddingTop: insets.top + 16, alignItems: "center", paddingHorizontal: 24 }}>
-        <Text style={{ color: "rgba(255,255,255,0.7)", fontSize: 13 }}>
-          {callType === "video" ? "Cuoc goi video" : "Cuoc goi thoai"}
-        </Text>
-        <Text style={{ color: "#fff", fontSize: 26, fontWeight: "700", marginTop: 8 }}>
-          {displayName}
-        </Text>
-        <Text style={{ color: "rgba(255,255,255,0.7)", marginTop: 6, fontSize: 15 }}>
-          {callState === "ringing"
-            ? isCaller
-              ? "Dang do chuong..."
-              : "Cuoc goi den"
-            : callState === "accepted"
-              ? formatDuration(duration)
-              : "Da ket thuc"}
-        </Text>
-      </View>
+      {/* RENDER VIDEO OR AVATAR */}
+      {callType === "video" && callState === "accepted" ? (
+         <View style={{ flex: 1 }}>
+            {remoteFrame ? (
+               <Image source={{ uri: remoteFrame }} style={{ width: "100%", height: "100%", position: "absolute" }} resizeMode="cover" />
+            ) : (
+               <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+                  <Text style={{ color: "#fff" }}>Đang chờ đối tác...</Text>
+               </View>
+            )}
 
-      <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-        {!canRenderVideo ? (
-          <Animated.View style={{ transform: [{ scale: callState === "ringing" ? pulseAnim : 1 }] }}>
-            <View
+            {permission?.granted && (
+               <View style={{ position: "absolute", top: insets.top + 20, right: 20, width: 100, height: 150, borderRadius: 12, overflow: "hidden", borderWidth: 2, borderColor: "#374151" }}>
+                  <CameraView ref={cameraRef} style={{ flex: 1 }} facing="front" />
+               </View>
+            )}
+         </View>
+      ) : (
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+          <View style={{ position: "relative", alignItems: "center", justifyContent: "center" }}>
+            <Animated.View
               style={{
-                width: 120,
-                height: 120,
-                borderRadius: 60,
-                borderWidth: 3,
-                borderColor: "rgba(255,255,255,0.4)",
-                overflow: "hidden",
-                backgroundColor: "rgba(255,255,255,0.2)",
-                alignItems: "center",
-                justifyContent: "center",
+                position: "absolute",
+                width: 160,
+                height: 160,
+                borderRadius: 80,
+                backgroundColor: "rgba(59, 130, 246, 0.2)",
+                transform: [{ scale: pulseAnim }],
               }}
-            >
-              <Avatar name={String(displayName)} uri={displayAvatar || undefined} size={114} />
+            />
+            <View style={{ width: 120, height: 120, borderRadius: 60, overflow: "hidden", borderWidth: 4, borderColor: "#3b82f6" }}>
+              <Avatar uri={displayAvatar} size={120} name={displayName} />
             </View>
-          </Animated.View>
-        ) : remoteVideoUrl ? (
-          <RTCView streamURL={remoteVideoUrl} style={{ width: "100%", height: "100%" }} objectFit="cover" />
-        ) : localVideoUrl ? (
-          <RTCView streamURL={localVideoUrl} style={{ width: "100%", height: "100%" }} objectFit="cover" />
-        ) : (
-          <Animated.View style={{ transform: [{ scale: callState === "ringing" ? pulseAnim : 1 }] }}>
-            <View
-              style={{
-                width: 120,
-                height: 120,
-                borderRadius: 60,
-                borderWidth: 3,
-                borderColor: "rgba(255,255,255,0.4)",
-                overflow: "hidden",
-                backgroundColor: "rgba(255,255,255,0.2)",
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <Avatar name={String(displayName)} uri={displayAvatar || undefined} size={114} />
-            </View>
-          </Animated.View>
-        )}
-      </View>
-
-      {canRenderVideo && localVideoUrl && (
-        <View
-          style={{
-            position: "absolute",
-            top: insets.top + 12,
-            right: 12,
-            width: 120,
-            height: 180,
-            borderRadius: 12,
-            overflow: "hidden",
-            borderWidth: 1,
-            borderColor: "rgba(255,255,255,0.2)",
-            backgroundColor: "#0f172a",
-          }}
-        >
-          <RTCView streamURL={localVideoUrl} style={{ width: "100%", height: "100%" }} objectFit="cover" mirror />
-        </View>
-      )}
-
-      {!RTCView && callType === "video" && (
-        <View
-          style={{
-            position: "absolute",
-            left: 16,
-            right: 16,
-            bottom: 150,
-            backgroundColor: "rgba(0,0,0,0.45)",
-            borderRadius: 12,
-            padding: 10,
-          }}
-        >
-          <Text style={{ color: "#fff", textAlign: "center", fontSize: 12 }}>
-            Runtime hien tai chua co WebRTC native module nen camera video call khong hien.
+          </View>
+          <Text style={{ color: "#fff", fontSize: 24, fontWeight: "bold", marginTop: 24 }}>
+            {displayName}
+          </Text>
+          <Text style={{ color: "#9ca3af", fontSize: 16, marginTop: 8 }}>
+            {callState === "ended"
+              ? "Da ket thuc"
+              : callState === "accepted"
+                ? isRemoteAccepted
+                  ? callType === "audio"
+                    ? "Da ket noi thoai"
+                    : "Da ket noi video"
+                  : "Dang ket noi..."
+                : isCaller
+                  ? "Dang goi..."
+                  : "Cuoc goi den..."}
           </Text>
         </View>
       )}
 
-      <View style={{ paddingBottom: Math.max(insets.bottom, 40), paddingHorizontal: 40 }}>
-        {callState === "ringing" && !isCaller ? (
-          <View style={{ flexDirection: "row", justifyContent: "space-around" }}>
-            <TouchableOpacity onPress={rejectCall} style={{ alignItems: "center", gap: 8 }}>
-              <View style={{ width: 68, height: 68, borderRadius: 34, backgroundColor: "#FF3B30", alignItems: "center", justifyContent: "center" }}>
-                <Ionicons name="call" size={30} color="#fff" style={{ transform: [{ rotate: "135deg" }] }} />
-              </View>
-              <Text style={{ color: "rgba(255,255,255,0.8)", fontSize: 13 }}>Tu choi</Text>
-            </TouchableOpacity>
+      {/* CONTROLS */}
+      <View style={{ position: "absolute", bottom: insets.bottom + 40, left: 0, right: 0, flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 32 }}>
+        {callState === "ringing" && !isCaller && (
+          <TouchableOpacity
+            onPress={acceptCall}
+            style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: "#22c55e", justifyContent: "center", alignItems: "center" }}
+          >
+            <Ionicons name="call" size={32} color="#fff" />
+          </TouchableOpacity>
+        )}
 
-            <TouchableOpacity onPress={acceptCall} style={{ alignItems: "center", gap: 8 }}>
-              <View style={{ width: 68, height: 68, borderRadius: 34, backgroundColor: "#34C759", alignItems: "center", justifyContent: "center" }}>
-                <Ionicons name="call" size={30} color="#fff" />
-              </View>
-              <Text style={{ color: "rgba(255,255,255,0.8)", fontSize: 13 }}>Nhan</Text>
-            </TouchableOpacity>
-          </View>
-        ) : (
-          <>
-            <View style={{ flexDirection: "row", justifyContent: "space-around", marginBottom: 32 }}>
-              <TouchableOpacity onPress={toggleMute} style={{ alignItems: "center", gap: 8 }}>
-                <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: "rgba(255,255,255,0.2)", alignItems: "center", justifyContent: "center" }}>
-                  <Ionicons name={isMuted ? "mic-off" : "mic"} size={24} color="#fff" />
-                </View>
-                <Text style={{ color: "rgba(255,255,255,0.8)", fontSize: 12 }}>{isMuted ? "Bat mic" : "Tat mic"}</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity onPress={() => setIsSpeaker((v) => !v)} style={{ alignItems: "center", gap: 8 }}>
-                <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: "rgba(255,255,255,0.2)", alignItems: "center", justifyContent: "center" }}>
-                  <Ionicons name={isSpeaker ? "volume-high" : "volume-mute"} size={24} color="#fff" />
-                </View>
-                <Text style={{ color: "rgba(255,255,255,0.8)", fontSize: 12 }}>Loa ngoai</Text>
-              </TouchableOpacity>
-
-              {callType === "video" && (
-                <TouchableOpacity onPress={toggleCamera} style={{ alignItems: "center", gap: 8 }}>
-                  <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: "rgba(255,255,255,0.2)", alignItems: "center", justifyContent: "center" }}>
-                    <Ionicons name={isCameraOff ? "videocam-off" : "videocam"} size={24} color="#fff" />
-                  </View>
-                  <Text style={{ color: "rgba(255,255,255,0.8)", fontSize: 12 }}>Camera</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-
-            <View style={{ alignItems: "center" }}>
-              <TouchableOpacity onPress={endCall} style={{ alignItems: "center", gap: 8 }}>
-                <View style={{ width: 68, height: 68, borderRadius: 34, backgroundColor: "#FF3B30", alignItems: "center", justifyContent: "center" }}>
-                  <Ionicons name="call" size={30} color="#fff" style={{ transform: [{ rotate: "135deg" }] }} />
-                </View>
-                <Text style={{ color: "rgba(255,255,255,0.8)", fontSize: 13 }}>Ket thuc</Text>
-              </TouchableOpacity>
-            </View>
-          </>
+        {callState !== "ended" && (
+          <TouchableOpacity
+            onPress={() => (callState === "ringing" && !isCaller ? rejectCall() : endCallLocal(true))}
+            style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: "#ef4444", justifyContent: "center", alignItems: "center" }}
+          >
+            <Ionicons name="call" size={32} color="#fff" style={{ transform: [{ rotate: "135deg" }] }} />
+          </TouchableOpacity>
         )}
       </View>
-
-      {!isRemoteAccepted && callState === "accepted" && (
-        <View style={{ position: "absolute", top: insets.top + 64, alignSelf: "center" }}>
-          <Text style={{ color: "rgba(255,255,255,0.8)" }}>Dang ket noi video...</Text>
-        </View>
-      )}
     </View>
   );
 }
+
