@@ -14,6 +14,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useChatStore } from "@/stores/chatStore";
 import { useAuthStore } from "@/stores/authStore";
 import { conversationService } from "@/services/conversationService";
+import { userService } from "@/services/userService";
 import * as labelService from "@/services/labelService";
 import type { Conversation } from "@/types";
 
@@ -31,13 +32,24 @@ export function ConversationMenuModal({
   conversation,
   onClose,
 }: ConversationMenuModalProps) {
-  const { conversations, updateConversation, labels, setLabels, addLabel, updateLabel, removeLabel } = useChatStore();
+  const {
+    conversations,
+    updateConversation,
+    labels,
+    setLabels,
+    addLabel,
+    updateLabel,
+    removeLabel,
+  } = useChatStore();
   const { user } = useAuthStore();
 
   // Pick the LATEST data from store to avoid stale props issues
-  const liveConversation = conversations.find(c => c.id === conversation?.id) || conversation;
+  const liveConversation =
+    conversations.find((c) => c.id === conversation?.id) || conversation;
 
-  const [activeTab, setActiveTab] = useState<"menu" | "labels" | "mute">("menu");
+  const [activeTab, setActiveTab] = useState<"menu" | "labels" | "mute">(
+    "menu",
+  );
   const [pinLoading, setPinLoading] = useState(false);
   const [muteLoading, setMuteLoading] = useState(false);
   const [mutingOptionId, setMutingOptionId] = useState<string | null>(null);
@@ -56,9 +68,14 @@ export function ConversationMenuModal({
   const [isResetMode, setIsResetMode] = useState(false);
   const [loginPassword, setLoginPassword] = useState("");
 
-  const currentParticipant = liveConversation?.participants?.find((p) => p.userId === user?.id);
+  const currentParticipant = liveConversation?.participants?.find(
+    (p) => p.userId === user?.id,
+  );
   const isMuted = currentParticipant?.isMuted ?? false;
-  const isPinned = (currentParticipant as any)?.isPinned ?? liveConversation?.isPinned ?? false;
+  const isPinned =
+    (currentParticipant as any)?.isPinned ??
+    liveConversation?.isPinned ??
+    false;
   const selectedLabelIds: string[] = currentParticipant?.labelIds ?? [];
 
   useEffect(() => {
@@ -66,7 +83,10 @@ export function ConversationMenuModal({
       setActiveTab("menu");
       setNewLabelName("");
       if (labels.length === 0) {
-        labelService.getLabels().then(setLabels).catch(() => {});
+        labelService
+          .getLabels()
+          .then(setLabels)
+          .catch(() => {});
       }
     }
   }, [visible]);
@@ -77,12 +97,16 @@ export function ConversationMenuModal({
     if (!user?.id || !liveConversation) return;
     try {
       setPinLoading(true);
-      await conversationService.togglePin(liveConversation.id, user.id, !isPinned);
+      await conversationService.togglePin(
+        liveConversation.id,
+        user.id,
+        !isPinned,
+      );
       // Update local store
       updateConversation(liveConversation.id, {
         isPinned: !isPinned,
         participants: liveConversation.participants?.map((p) =>
-          p.userId === user.id ? ({ ...p, isPinned: !isPinned } as any) : p
+          p.userId === user.id ? ({ ...p, isPinned: !isPinned } as any) : p,
         ),
       });
       onClose();
@@ -134,18 +158,25 @@ export function ConversationMenuModal({
     try {
       setMutingOptionId(optionId);
       const muteUntil = option.getUntil();
-      await conversationService.updateParticipantSetting(liveConversation.id, user.id, {
-        isMuted: true,
-        muteUntil,
-      });
+      await conversationService.updateParticipantSetting(
+        liveConversation.id,
+        user.id,
+        {
+          isMuted: true,
+          muteUntil,
+        },
+      );
       updateConversation(liveConversation.id, {
         participants: liveConversation.participants?.map((p) =>
-          p.userId === user.id ? { ...p, isMuted: true, muteUntil } : p
+          p.userId === user.id ? { ...p, isMuted: true, muteUntil } : p,
         ),
       });
       onClose();
     } catch (e: any) {
-      console.error("[handleMuteOption] error:", e?.response?.data || e?.message || e);
+      console.error(
+        "[handleMuteOption] error:",
+        e?.response?.data || e?.message || e,
+      );
       Alert.alert("Lỗi", "Không thể tắt thông báo");
     } finally {
       setMutingOptionId(null);
@@ -156,18 +187,25 @@ export function ConversationMenuModal({
     if (!user?.id || !liveConversation) return;
     try {
       setMuteLoading(true);
-      await conversationService.updateParticipantSetting(liveConversation.id, user.id, {
-        isMuted: false,
-        muteUntil: null,
-      });
+      await conversationService.updateParticipantSetting(
+        liveConversation.id,
+        user.id,
+        {
+          isMuted: false,
+          muteUntil: null,
+        },
+      );
       updateConversation(liveConversation.id, {
         participants: liveConversation.participants?.map((p) =>
-          p.userId === user.id ? { ...p, isMuted: false, muteUntil: null } : p
+          p.userId === user.id ? { ...p, isMuted: false, muteUntil: null } : p,
         ),
       });
       onClose();
     } catch (e: any) {
-      console.error("[handleUnmute] error:", e?.response?.data || e?.message || e);
+      console.error(
+        "[handleUnmute] error:",
+        e?.response?.data || e?.message || e,
+      );
       Alert.alert("Lỗi", "Không thể bật thông báo");
     } finally {
       setMuteLoading(false);
@@ -180,19 +218,33 @@ export function ConversationMenuModal({
       ? selectedLabelIds.filter((id) => id !== labelId)
       : [...selectedLabelIds, labelId];
 
-    console.log("[toggleLabel] conversationId:", liveConversation.id, "userId:", user.id, "newIds:", newIds);
+    console.log(
+      "[toggleLabel] conversationId:",
+      liveConversation.id,
+      "userId:",
+      user.id,
+      "newIds:",
+      newIds,
+    );
     try {
-      await conversationService.updateParticipantSetting(liveConversation.id, user.id, {
-        labelIds: newIds,
-      });
+      await conversationService.updateParticipantSetting(
+        liveConversation.id,
+        user.id,
+        {
+          labelIds: newIds,
+        },
+      );
       // Update local store
       updateConversation(liveConversation.id, {
         participants: liveConversation.participants?.map((p) =>
-          p.userId === user.id ? { ...p, labelIds: newIds } : p
+          p.userId === user.id ? { ...p, labelIds: newIds } : p,
         ),
       });
     } catch (e: any) {
-      console.error("[toggleLabel] error:", e?.response?.data || e?.message || e);
+      console.error(
+        "[toggleLabel] error:",
+        e?.response?.data || e?.message || e,
+      );
       Alert.alert("Lỗi", "Không thể cập nhật nhãn. Vui lòng thử lại.");
     }
   };
@@ -246,7 +298,9 @@ export function ConversationMenuModal({
     if (!editingLabelId || !editingLabelName.trim()) return;
     try {
       setIsUpdatingLabel(true);
-      await labelService.updateLabel(editingLabelId, { name: editingLabelName.trim() });
+      await labelService.updateLabel(editingLabelId, {
+        name: editingLabelName.trim(),
+      });
       updateLabel(editingLabelId, { name: editingLabelName.trim() });
       setEditingLabelId(null);
     } catch (e: any) {
@@ -270,12 +324,16 @@ export function ConversationMenuModal({
     if (isAlreadyHidden) {
       // Unhide
       try {
-        await conversationService.updateParticipantSetting(liveConversation.id, user.id, {
-          isHidden: false,
-        });
+        await conversationService.updateParticipantSetting(
+          liveConversation.id,
+          user.id,
+          {
+            isHidden: false,
+          },
+        );
         updateConversation(liveConversation.id, {
           participants: liveConversation.participants?.map((p) =>
-            p.userId === user.id ? { ...p, isHidden: false } : p
+            p.userId === user.id ? { ...p, isHidden: false } : p,
           ),
         });
         Alert.alert("Thành công", "Đã bỏ ẩn cuộc trò chuyện");
@@ -294,12 +352,16 @@ export function ConversationMenuModal({
             text: "Ẩn",
             onPress: async () => {
               try {
-                await conversationService.updateParticipantSetting(liveConversation.id, user.id, {
-                  isHidden: true,
-                });
+                await conversationService.updateParticipantSetting(
+                  liveConversation.id,
+                  user.id,
+                  {
+                    isHidden: true,
+                  },
+                );
                 updateConversation(liveConversation.id, {
                   participants: liveConversation.participants?.map((p) =>
-                    p.userId === user.id ? { ...p, isHidden: true } : p
+                    p.userId === user.id ? { ...p, isHidden: true } : p,
                   ),
                 });
                 onClose();
@@ -331,9 +393,16 @@ export function ConversationMenuModal({
       setIsChangingPin(true);
       if (isResetMode) {
         // Reset using login password
-        const res = await userService.resetHiddenPin(user.id, loginPassword, newPin);
+        const res = await userService.resetHiddenPin(
+          user.id,
+          loginPassword,
+          newPin,
+        );
         if (res.success) {
-          Alert.alert("Thành công", "Đã đặt lại mã PIN mới bằng mật khẩu đăng nhập");
+          Alert.alert(
+            "Thành công",
+            "Đã đặt lại mã PIN mới bằng mật khẩu đăng nhập",
+          );
           setShowPinChange(false);
           setIsResetMode(false);
           setLoginPassword("");
@@ -372,9 +441,11 @@ export function ConversationMenuModal({
       await userService.updateHiddenPin(user.id, setupPinCode);
       useAuthStore.getState().updateUser({ hasHiddenPin: true });
       setShowPinSetup(false);
-      Alert.alert("Thành công", "Đã đặt mã PIN. Bây giờ bạn có thể ẩn cuộc trò chuyện.", [
-        { text: "OK", onPress: handleToggleHideConversation }
-      ]);
+      Alert.alert(
+        "Thành công",
+        "Đã đặt mã PIN. Bây giờ bạn có thể ẩn cuộc trò chuyện.",
+        [{ text: "OK", onPress: handleToggleHideConversation }],
+      );
     } catch (e) {
       Alert.alert("Lỗi", "Không thể đặt mã PIN");
     } finally {
@@ -383,8 +454,17 @@ export function ConversationMenuModal({
   };
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={onClose} />
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      onRequestClose={onClose}
+    >
+      <TouchableOpacity
+        style={styles.overlay}
+        activeOpacity={1}
+        onPress={onClose}
+      />
 
       <View style={styles.sheet}>
         <View style={styles.handle} />
@@ -399,7 +479,12 @@ export function ConversationMenuModal({
               onPress={handlePin}
               disabled={pinLoading}
             >
-              <View style={[styles.iconWrap, { backgroundColor: isPinned ? "#EEF2FF" : "#F3F4F6" }]}>
+              <View
+                style={[
+                  styles.iconWrap,
+                  { backgroundColor: isPinned ? "#EEF2FF" : "#F3F4F6" },
+                ]}
+              >
                 {pinLoading ? (
                   <ActivityIndicator size="small" color="#6366F1" />
                 ) : (
@@ -412,10 +497,14 @@ export function ConversationMenuModal({
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.menuLabel}>
-                  {isPinned ? "Bỏ ghim cuộc trò chuyện" : "Ghim cuộc trò chuyện"}
+                  {isPinned
+                    ? "Bỏ ghim cuộc trò chuyện"
+                    : "Ghim cuộc trò chuyện"}
                 </Text>
                 <Text style={styles.menuDesc}>
-                  {isPinned ? "Xoá khỏi danh sách ghim" : "Ghim lên đầu danh sách"}
+                  {isPinned
+                    ? "Xoá khỏi danh sách ghim"
+                    : "Ghim lên đầu danh sách"}
                 </Text>
               </View>
               <Ionicons name="chevron-forward" size={16} color="#D1D5DB" />
@@ -424,15 +513,22 @@ export function ConversationMenuModal({
             {/* Mute */}
             <TouchableOpacity
               style={styles.menuRow}
-              onPress={() => isMuted ? handleUnmute() : setActiveTab("mute")}
+              onPress={() => (isMuted ? handleUnmute() : setActiveTab("mute"))}
               disabled={muteLoading}
             >
-              <View style={[styles.iconWrap, { backgroundColor: isMuted ? "#FEF2F2" : "#F3F4F6" }]}>
+              <View
+                style={[
+                  styles.iconWrap,
+                  { backgroundColor: isMuted ? "#FEF2F2" : "#F3F4F6" },
+                ]}
+              >
                 {muteLoading ? (
                   <ActivityIndicator size="small" color="#EF4444" />
                 ) : (
                   <Ionicons
-                    name={isMuted ? "notifications-off" : "notifications-outline"}
+                    name={
+                      isMuted ? "notifications-off" : "notifications-outline"
+                    }
                     size={20}
                     color={isMuted ? "#EF4444" : "#374151"}
                   />
@@ -443,7 +539,9 @@ export function ConversationMenuModal({
                   {isMuted ? "Bật thông báo" : "Tắt thông báo"}
                 </Text>
                 <Text style={styles.menuDesc}>
-                  {isMuted ? "Nhận lại thông báo từ cuộc trò chuyện" : "Chọn thời gian tắt thông báo"}
+                  {isMuted
+                    ? "Nhận lại thông báo từ cuộc trò chuyện"
+                    : "Chọn thời gian tắt thông báo"}
                 </Text>
               </View>
               <Ionicons name="chevron-forward" size={16} color="#D1D5DB" />
@@ -454,7 +552,15 @@ export function ConversationMenuModal({
               style={styles.menuRow}
               onPress={() => setActiveTab("labels")}
             >
-              <View style={[styles.iconWrap, { backgroundColor: selectedLabelIds.length > 0 ? "#EFF6FF" : "#F3F4F6" }]}>
+              <View
+                style={[
+                  styles.iconWrap,
+                  {
+                    backgroundColor:
+                      selectedLabelIds.length > 0 ? "#EFF6FF" : "#F3F4F6",
+                  },
+                ]}
+              >
                 <Ionicons
                   name="pricetag-outline"
                   size={20}
@@ -471,13 +577,18 @@ export function ConversationMenuModal({
               </View>
               <Ionicons name="chevron-forward" size={16} color="#D1D5DB" />
             </TouchableOpacity>
-            
+
             {/* Hide */}
             <TouchableOpacity
               style={styles.menuRow}
               onPress={handleToggleHideConversation}
             >
-              <View style={[styles.iconWrap, { backgroundColor: isAlreadyHidden ? "#E0F2FE" : "#FEF2F2" }]}>
+              <View
+                style={[
+                  styles.iconWrap,
+                  { backgroundColor: isAlreadyHidden ? "#E0F2FE" : "#FEF2F2" },
+                ]}
+              >
                 <Ionicons
                   name={isAlreadyHidden ? "eye-outline" : "eye-off-outline"}
                   size={20}
@@ -485,11 +596,20 @@ export function ConversationMenuModal({
                 />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={[styles.menuLabel, { color: isAlreadyHidden ? "#0068FF" : "#EF4444" }]}>
-                   {isAlreadyHidden ? "Bỏ ẩn cuộc trò chuyện" : "Ẩn cuộc trò chuyện"}
+                <Text
+                  style={[
+                    styles.menuLabel,
+                    { color: isAlreadyHidden ? "#0068FF" : "#EF4444" },
+                  ]}
+                >
+                  {isAlreadyHidden
+                    ? "Bỏ ẩn cuộc trò chuyện"
+                    : "Ẩn cuộc trò chuyện"}
                 </Text>
                 <Text style={styles.menuDesc}>
-                  {isAlreadyHidden ? "Hiện lại trong danh sách tin nhắn" : "Giấu khỏi danh sách tin nhắn"}
+                  {isAlreadyHidden
+                    ? "Hiện lại trong danh sách tin nhắn"
+                    : "Giấu khỏi danh sách tin nhắn"}
                 </Text>
               </View>
               <Ionicons name="chevron-forward" size={16} color="#D1D5DB" />
@@ -502,15 +622,13 @@ export function ConversationMenuModal({
                 onPress={() => setShowPinChange(true)}
               >
                 <View style={[styles.iconWrap, { backgroundColor: "#F3F4F6" }]}>
-                  <Ionicons
-                    name="key-outline"
-                    size={20}
-                    color="#111827"
-                  />
+                  <Ionicons name="key-outline" size={20} color="#111827" />
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.menuLabel}>Đổi mã PIN ẩn</Text>
-                  <Text style={styles.menuDesc}>Thay đổi mã bảo vệ trò chuyện ẩn</Text>
+                  <Text style={styles.menuDesc}>
+                    Thay đổi mã bảo vệ trò chuyện ẩn
+                  </Text>
                 </View>
                 <Ionicons name="chevron-forward" size={16} color="#D1D5DB" />
               </TouchableOpacity>
@@ -524,13 +642,26 @@ export function ConversationMenuModal({
 
         {activeTab === "mute" && (
           <>
-            <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 4 }}>
-              <TouchableOpacity onPress={() => setActiveTab("menu")} style={{ marginRight: 12 }}>
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                marginBottom: 4,
+              }}
+            >
+              <TouchableOpacity
+                onPress={() => setActiveTab("menu")}
+                style={{ marginRight: 12 }}
+              >
                 <Ionicons name="arrow-back" size={22} color="#111827" />
               </TouchableOpacity>
               <View>
-                <Text style={[styles.title, { marginBottom: 0 }]}>Tắt thông báo</Text>
-                <Text style={{ fontSize: 13, color: "#9CA3AF", marginBottom: 16 }}>
+                <Text style={[styles.title, { marginBottom: 0 }]}>
+                  Tắt thông báo
+                </Text>
+                <Text
+                  style={{ fontSize: 13, color: "#9CA3AF", marginBottom: 16 }}
+                >
                   Chọn thời gian bạn muốn tắt thông báo
                 </Text>
               </View>
@@ -547,7 +678,8 @@ export function ConversationMenuModal({
                   borderRadius: 12,
                   borderWidth: 1,
                   borderColor: "#F3F4F6",
-                  backgroundColor: mutingOptionId === option.id ? "#EFF6FF" : "#FAFAFA",
+                  backgroundColor:
+                    mutingOptionId === option.id ? "#EFF6FF" : "#FAFAFA",
                   marginBottom: 10,
                 }}
               >
@@ -555,10 +687,18 @@ export function ConversationMenuModal({
                   <ActivityIndicator size="small" color="#0068FF" />
                 ) : (
                   <>
-                    <Text style={{ fontSize: 15, fontWeight: "600", color: "#111827" }}>
+                    <Text
+                      style={{
+                        fontSize: 15,
+                        fontWeight: "600",
+                        color: "#111827",
+                      }}
+                    >
                       {option.label}
                     </Text>
-                    <Text style={{ fontSize: 13, color: "#9CA3AF", marginTop: 3 }}>
+                    <Text
+                      style={{ fontSize: 13, color: "#9CA3AF", marginTop: 3 }}
+                    >
                       {option.desc}
                     </Text>
                   </>
@@ -574,8 +714,17 @@ export function ConversationMenuModal({
 
         {activeTab === "labels" && (
           <>
-            <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 16 }}>
-              <TouchableOpacity onPress={() => setActiveTab("menu")} style={{ marginRight: 12 }}>
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                marginBottom: 16,
+              }}
+            >
+              <TouchableOpacity
+                onPress={() => setActiveTab("menu")}
+                style={{ marginRight: 12 }}
+              >
                 <Ionicons name="arrow-back" size={22} color="#111827" />
               </TouchableOpacity>
               <Text style={styles.title}>Phân loại nhãn</Text>
@@ -613,7 +762,12 @@ export function ConversationMenuModal({
                 {creatingLabel ? (
                   <ActivityIndicator size="small" color="#fff" />
                 ) : (
-                  <Text style={{ color: newLabelName.trim() ? "#fff" : "#9CA3AF", fontWeight: "600" }}>
+                  <Text
+                    style={{
+                      color: newLabelName.trim() ? "#fff" : "#9CA3AF",
+                      fontWeight: "600",
+                    }}
+                  >
                     Tạo
                   </Text>
                 )}
@@ -657,7 +811,9 @@ export function ConversationMenuModal({
                         }}
                       >
                         <Ionicons
-                          name={isSelected ? "checkmark-circle" : "ellipse-outline"}
+                          name={
+                            isSelected ? "checkmark-circle" : "ellipse-outline"
+                          }
                           size={24}
                           color={isSelected ? "#0068FF" : "#D1D5DB"}
                           style={{ marginRight: 12 }}
@@ -686,30 +842,65 @@ export function ConversationMenuModal({
                             }}
                           />
                         ) : (
-                          <Text style={{ flex: 1, fontSize: 16, color: "#111827" }}>
+                          <Text
+                            style={{ flex: 1, fontSize: 16, color: "#111827" }}
+                          >
                             {item.name}
                           </Text>
                         )}
                       </TouchableOpacity>
 
                       {/* Actions */}
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                      <View
+                        style={{
+                          flexDirection: "row",
+                          alignItems: "center",
+                          gap: 8,
+                        }}
+                      >
                         {isEditing ? (
                           <>
-                            <TouchableOpacity onPress={handleSaveLabelUpdate} disabled={isUpdatingLabel}>
-                              <Ionicons name="checkmark" size={22} color="#10B981" />
+                            <TouchableOpacity
+                              onPress={handleSaveLabelUpdate}
+                              disabled={isUpdatingLabel}
+                            >
+                              <Ionicons
+                                name="checkmark"
+                                size={22}
+                                color="#10B981"
+                              />
                             </TouchableOpacity>
-                            <TouchableOpacity onPress={() => setEditingLabelId(null)}>
-                              <Ionicons name="close" size={22} color="#EF4444" />
+                            <TouchableOpacity
+                              onPress={() => setEditingLabelId(null)}
+                            >
+                              <Ionicons
+                                name="close"
+                                size={22}
+                                color="#EF4444"
+                              />
                             </TouchableOpacity>
                           </>
                         ) : (
                           <>
-                            <TouchableOpacity onPress={() => handleStartEditLabel(item)} style={{ padding: 4 }}>
-                              <Ionicons name="create-outline" size={20} color="#6B7280" />
+                            <TouchableOpacity
+                              onPress={() => handleStartEditLabel(item)}
+                              style={{ padding: 4 }}
+                            >
+                              <Ionicons
+                                name="create-outline"
+                                size={20}
+                                color="#6B7280"
+                              />
                             </TouchableOpacity>
-                            <TouchableOpacity onPress={() => handleDeleteLabel(item._id)} style={{ padding: 4 }}>
-                              <Ionicons name="trash-outline" size={20} color="#EF4444" />
+                            <TouchableOpacity
+                              onPress={() => handleDeleteLabel(item._id)}
+                              style={{ padding: 4 }}
+                            >
+                              <Ionicons
+                                name="trash-outline"
+                                size={20}
+                                color="#EF4444"
+                              />
                             </TouchableOpacity>
                           </>
                         )}
@@ -728,7 +919,9 @@ export function ConversationMenuModal({
         <View style={styles.overlay}>
           <View style={styles.pinModal}>
             <Text style={styles.pinTitle}>Cài đặt mã PIN</Text>
-            <Text style={styles.pinDesc}>Nhập 6 số để ẩn cuộc trò chuyện này.</Text>
+            <Text style={styles.pinDesc}>
+              Nhập 6 số để ẩn cuộc trò chuyện này.
+            </Text>
             <TextInput
               style={styles.pinInput}
               value={setupPinCode}
@@ -739,11 +932,20 @@ export function ConversationMenuModal({
               autoFocus
             />
             <View style={styles.pinActions}>
-              <TouchableOpacity onPress={() => { setShowPinSetup(false); setSetupPinCode(""); }}>
+              <TouchableOpacity
+                onPress={() => {
+                  setShowPinSetup(false);
+                  setSetupPinCode("");
+                }}
+              >
                 <Text style={styles.pinCancel}>Hủy</Text>
               </TouchableOpacity>
               <TouchableOpacity onPress={handleSavePin} disabled={isSettingPin}>
-                {isSettingPin ? <ActivityIndicator size="small" color="#0068FF" /> : <Text style={styles.pinConfirm}>Cài đặt</Text>}
+                {isSettingPin ? (
+                  <ActivityIndicator size="small" color="#0068FF" />
+                ) : (
+                  <Text style={styles.pinConfirm}>Cài đặt</Text>
+                )}
               </TouchableOpacity>
             </View>
           </View>
@@ -754,22 +956,33 @@ export function ConversationMenuModal({
       <Modal visible={showPinChange} transparent animationType="fade">
         <View style={styles.overlay}>
           <View style={styles.pinModal}>
-            <Text style={styles.pinTitle}>{isResetMode ? "Đặt lại mã PIN" : "Đổi mã PIN"}</Text>
-            
+            <Text style={styles.pinTitle}>
+              {isResetMode ? "Đặt lại mã PIN" : "Đổi mã PIN"}
+            </Text>
+
             <Text style={[styles.pinDesc, { marginBottom: 8 }]}>
-                {isResetMode ? "Mật khẩu đăng nhập" : "Nhập mã PIN cũ"}
+              {isResetMode ? "Mật khẩu đăng nhập" : "Nhập mã PIN cũ"}
             </Text>
             <TextInput
-              style={[styles.pinInput, { marginBottom: 16, fontSize: isResetMode ? 16 : 18 }]}
+              style={[
+                styles.pinInput,
+                { marginBottom: 16, fontSize: isResetMode ? 16 : 18 },
+              ]}
               value={isResetMode ? loginPassword : oldPin}
-              onChangeText={(t) => isResetMode ? setLoginPassword(t) : setOldPin(t.replace(/[^0-9]/g, ""))}
+              onChangeText={(t) =>
+                isResetMode
+                  ? setLoginPassword(t)
+                  : setOldPin(t.replace(/[^0-9]/g, ""))
+              }
               keyboardType={isResetMode ? "default" : "numeric"}
               maxLength={isResetMode ? 50 : 6}
               secureTextEntry
               placeholder={isResetMode ? "Nhập mật khẩu App" : "••••••"}
             />
 
-            <Text style={[styles.pinDesc, { marginBottom: 8 }]}>Nhập mã PIN mới</Text>
+            <Text style={[styles.pinDesc, { marginBottom: 8 }]}>
+              Nhập mã PIN mới
+            </Text>
             <TextInput
               style={[styles.pinInput, { marginBottom: 12, fontSize: 18 }]}
               value={newPin}
@@ -781,17 +994,39 @@ export function ConversationMenuModal({
             />
 
             {!isResetMode && (
-                <TouchableOpacity onPress={() => setIsResetMode(true)} style={{ alignSelf: 'flex-end', marginBottom: 20 }}>
-                    <Text style={{ color: '#0068FF', fontSize: 13 }}>Quên mã PIN?</Text>
-                </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => setIsResetMode(true)}
+                style={{ alignSelf: "flex-end", marginBottom: 20 }}
+              >
+                <Text style={{ color: "#0068FF", fontSize: 13 }}>
+                  Quên mã PIN?
+                </Text>
+              </TouchableOpacity>
             )}
 
             <View style={styles.pinActions}>
-              <TouchableOpacity onPress={() => { setShowPinChange(false); setOldPin(""); setNewPin(""); setIsResetMode(false); setLoginPassword(""); }}>
+              <TouchableOpacity
+                onPress={() => {
+                  setShowPinChange(false);
+                  setOldPin("");
+                  setNewPin("");
+                  setIsResetMode(false);
+                  setLoginPassword("");
+                }}
+              >
                 <Text style={styles.pinCancel}>Hủy</Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={handleUpdatePin} disabled={isChangingPin}>
-                {isChangingPin ? <ActivityIndicator size="small" color="#0068FF" /> : <Text style={styles.pinConfirm}>{isResetMode ? "Đặt lại" : "Cập nhật"}</Text>}
+              <TouchableOpacity
+                onPress={handleUpdatePin}
+                disabled={isChangingPin}
+              >
+                {isChangingPin ? (
+                  <ActivityIndicator size="small" color="#0068FF" />
+                ) : (
+                  <Text style={styles.pinConfirm}>
+                    {isResetMode ? "Đặt lại" : "Cập nhật"}
+                  </Text>
+                )}
               </TouchableOpacity>
             </View>
           </View>

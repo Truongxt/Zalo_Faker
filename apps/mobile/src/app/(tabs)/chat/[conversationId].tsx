@@ -586,6 +586,7 @@ export default function ChatRoomScreen() {
   const convId = conversationId || "";
   const convMessages: Message[] = (messages as any)[convId] || [];
   const conversation = conversations.find((c) => c.id === convId);
+  const hasCachedMessages = convMessages.length > 0;
 
   const [text, setText] = useState("");
   const [isLoading, setIsLoading] = useState(true);
@@ -729,13 +730,29 @@ export default function ChatRoomScreen() {
   // Load messages on mount
   useEffect(() => {
     if (!convId) return;
+
+    let cancelled = false;
+
     const load = async () => {
+      if (hasCachedMessages) {
+        setIsLoading(false);
+        await chatService.loadMessages(convId).catch(() => null);
+        return;
+      }
+
       setIsLoading(true);
-      await chatService.loadMessages(convId);
-      setIsLoading(false);
+      await chatService.loadMessages(convId).catch(() => null);
+      if (!cancelled) {
+        setIsLoading(false);
+      }
     };
+
     load();
-  }, [convId]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [convId, hasCachedMessages]);
 
   // Join socket room + listeners
   useEffect(() => {
@@ -1104,61 +1121,104 @@ export default function ChatRoomScreen() {
       {/* Input area */}
       <View
         style={{
-          flexDirection: "row",
-          alignItems: "flex-end",
           backgroundColor: "#fff",
-          paddingHorizontal: 6,
-          paddingVertical: 5,
-          paddingBottom: Math.max(insets.bottom, 4),
-          marginBottom: Platform.OS === "android" ? 0 : 5,
+          paddingHorizontal: 8,
+          paddingTop: 6,
+          paddingBottom: Math.max(insets.bottom, 6),
+          marginBottom: Platform.OS === "android" ? 0 : 4,
           borderTopWidth: 1,
           borderTopColor: "#F3F4F6",
-          gap: 3,
         }}
       >
-        <TouchableOpacity onPress={handlePickImage} style={{ padding: 6 }}>
-          <Ionicons name="image-outline" size={24} color="#6B7280" />
-        </TouchableOpacity>
-        <TouchableOpacity onPress={handlePickFile} style={{ padding: 6 }}>
-          <Ionicons name="attach-outline" size={24} color="#6B7280" />
-        </TouchableOpacity>
-
-        <TextInput
-          value={text}
-          onChangeText={handleTextChange}
-          placeholder="Nhập tin nhắn..."
-          placeholderTextColor="#9CA3AF"
-          multiline
+        <View
           style={{
-            flex: 1,
-            backgroundColor: "#F3F4F6",
-            borderRadius: 20,
-            paddingHorizontal: 14,
-            paddingVertical: 7,
-            fontSize: 15,
-            color: "#111827",
-            maxHeight: 120,
-          }}
-        />
-
-        <TouchableOpacity
-          onPress={handleSend}
-          disabled={!text.trim() || isSending}
-          style={{
-            backgroundColor: text.trim() && !isSending ? "#0068FF" : "#D1D5DB",
-            width: 40,
-            height: 40,
-            borderRadius: 20,
+            flexDirection: "row",
             alignItems: "center",
-            justifyContent: "center",
+            backgroundColor: "#ECEDEF",
+            borderRadius: 26,
+            minHeight: 50,
+            paddingLeft: 6,
+            paddingRight: 8,
           }}
         >
-          {isSending ? (
-            <ActivityIndicator size="small" color="#fff" />
-          ) : (
-            <Ionicons name="send" size={18} color="#fff" />
-          )}
-        </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => GrayToast("Tính năng sticker đang phát triển")}
+            style={{
+              width: 36,
+              height: 36,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Ionicons name="happy-outline" size={28} color="#7B8088" />
+          </TouchableOpacity>
+
+          <TextInput
+            value={text}
+            onChangeText={handleTextChange}
+            placeholder="Tin nhắn"
+            placeholderTextColor="#8A8F98"
+            multiline
+            style={{
+              flex: 1,
+              marginLeft: 4,
+              marginRight: 8,
+              fontSize: 17,
+              color: "#343A40",
+              maxHeight: 110,
+              paddingVertical: 8,
+            }}
+          />
+
+          <TouchableOpacity
+            onPress={handlePickFile}
+            style={{
+              width: 36,
+              height: 36,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Ionicons name="ellipsis-horizontal" size={23} color="#7B8088" />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={
+              text.trim()
+                ? handleSend
+                : () => GrayToast("Tính năng ghi âm đang phát triển")
+            }
+            disabled={isSending}
+            style={{
+              width: 36,
+              height: 36,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            {isSending ? (
+              <ActivityIndicator size="small" color="#7B8088" />
+            ) : (
+              <Ionicons
+                name={text.trim() ? "send" : "mic-outline"}
+                size={24}
+                color="#7B8088"
+              />
+            )}
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={handlePickImage}
+            style={{
+              width: 36,
+              height: 36,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Ionicons name="image-outline" size={24} color="#7B8088" />
+          </TouchableOpacity>
+        </View>
       </View>
     </KeyboardAvoidingView>
   );

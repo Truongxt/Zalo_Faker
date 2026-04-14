@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  Alert,
   Image,
   Linking,
   ScrollView,
@@ -17,6 +18,7 @@ import {
 import { Avatar } from "@/components/ui/Avatar";
 import { GrayToast } from "@/components/ui";
 import { chatService } from "@/services/chat";
+import { conversationService } from "@/services/conversationService";
 import { useAuthStore } from "@/stores/authStore";
 import { useChatStore } from "@/stores/chatStore";
 import type { Conversation, Message } from "@/types";
@@ -50,6 +52,49 @@ type LinkItem = {
 };
 
 const URL_REGEX = /(https?:\/\/[^\s]+)/gi;
+
+const MUTE_OPTIONS = [
+  {
+    id: "1h",
+    label: "Trong 1 giờ",
+    getUntil: () => new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+  },
+  {
+    id: "4h",
+    label: "Trong 4 giờ",
+    getUntil: () => new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString(),
+  },
+  {
+    id: "8am",
+    label: "Đến 8 giờ sáng",
+    getUntil: () => {
+      const now = new Date();
+      const next8am = new Date(now);
+      next8am.setHours(8, 0, 0, 0);
+      if (next8am <= now) next8am.setDate(next8am.getDate() + 1);
+      return next8am.toISOString();
+    },
+  },
+  {
+    id: "forever",
+    label: "Cho đến khi được mở lại",
+    getUntil: () => null,
+  },
+] as const;
+
+const formatMuteUntilLabel = (muteUntil?: string | null) => {
+  if (!muteUntil) return "Đã tắt cho đến khi bạn bật lại";
+
+  const time = new Date(muteUntil);
+  if (Number.isNaN(time.getTime())) return "Đã tắt thông báo";
+
+  return `Đang tắt đến ${time.toLocaleString("vi-VN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    day: "2-digit",
+    month: "2-digit",
+  })}`;
+};
 
 const isHttpUrl = (value: unknown): value is string =>
   typeof value === "string" && /^https?:\/\//i.test(value.trim());
@@ -330,7 +375,7 @@ export default function ConversationInfoScreen() {
   }>();
 
   const { user } = useAuthStore();
-  const { conversations, messages } = useChatStore();
+  const { conversations, messages, updateConversation } = useChatStore();
 
   const id = String(conversationId || "");
 
@@ -354,6 +399,14 @@ export default function ConversationInfoScreen() {
 
     return conversation.participants.find(
       (participant) => String(participant.userId) !== String(user.id),
+    );
+  }, [conversation, user?.id]);
+
+  const currentParticipant = useMemo(() => {
+    if (!conversation || !user?.id) return undefined;
+
+    return conversation.participants.find(
+      (participant) => String(participant.userId) === String(user.id),
     );
   }, [conversation, user?.id]);
 
@@ -390,8 +443,12 @@ export default function ConversationInfoScreen() {
       ? conversation.avatarUrl
       : otherParticipant?.avatarUrl;
 
-  const [isMuted, setIsMuted] = useState(false);
-  const [isPinned, setIsPinned] = useState(false);
+  const isMuted = currentParticipant?.isMuted ?? false;
+  const isPinned =
+    currentParticipant?.isPinned ?? conversation?.isPinned ?? false;
+  const muteUntil = currentParticipant?.muteUntil ?? null;
+  const [isUpdatingMute, setIsUpdatingMute] = useState(false);
+  const [isUpdatingPin, setIsUpdatingPin] = useState(false);
   const [showMedia, setShowMedia] = useState(true);
   const [showFiles, setShowFiles] = useState(true);
   const [showLinks, setShowLinks] = useState(true);
@@ -409,6 +466,116 @@ export default function ConversationInfoScreen() {
       await Linking.openURL(url);
     } catch {
       GrayToast("Không thể mở liên kết");
+    }
+  };
+
+  const patchCurrentParticipant = (updates: Record<string, unknown>) => {
+    if (!conversation || !user?.id) return;
+
+    const liveConversation =
+      useChatStore
+        .getState()
+        .conversations.find(
+          (item) => String(item.id) === String(conversation.id),
+        ) || conversation;
+
+    updateConversation(conversation.id, {
+      ...(Object.prototype.hasOwnProperty.call(updates, "isPinned")
+        ? { isPinned: Boolean(updates.isPinned) }
+        : {}),
+      participants: liveConversation.participants.map((participant) =>
+        String(participant.userId) === String(user.id)
+          ? ({ ...participant, ...updates } as any)
+          : participant,
+      ),
+    });
+  };
+
+  const updateMuteSetting = async ({
+    isMuted: nextMuted,
+    muteUntil: nextMuteUntil,
+    successMessage,
+  }: {
+    isMuted: boolean;
+    muteUntil: string | null;
+    successMessage: string;
+  }) => {
+    if (!conversation || !user?.id || isUpdatingMute) return;
+
+    try {
+      setIsUpdatingMute(true);
+      await conversationService.updateParticipantSetting(
+        conversation.id,
+        user.id,
+        {
+          isMuted: nextMuted,
+          muteUntil: nextMuteUntil,
+        },
+      );
+      patchCurrentParticipant({ isMuted: nextMuted, muteUntil: nextMuteUntil });
+      GrayToast(successMessage);
+    } catch {
+      GrayToast(
+        nextMuted ? "Không thể tắt thông báo" : "Không thể bật thông báo",
+      );
+    } finally {
+      setIsUpdatingMute(false);
+    }
+  };
+
+  const handleMutePress = () => {
+    if (!conversation || !user?.id || isUpdatingMute) return;
+
+    if (isMuted) {
+      void updateMuteSetting({
+        isMuted: false,
+        muteUntil: null,
+        successMessage: "Đã bật thông báo",
+      });
+      return;
+    }
+
+    Alert.alert(
+      "Tắt thông báo",
+      "Chọn thời gian tắt thông báo cho cuộc trò chuyện này",
+      [
+        ...MUTE_OPTIONS.map((option) => ({
+          text: option.label,
+          onPress: () => {
+            const nextMuteUntil = option.getUntil();
+            const successMessage =
+              option.id === "forever"
+                ? "Đã tắt thông báo cho đến khi bật lại"
+                : `Đã tắt thông báo ${option.label.toLowerCase()}`;
+
+            void updateMuteSetting({
+              isMuted: true,
+              muteUntil: nextMuteUntil,
+              successMessage,
+            });
+          },
+        })),
+        {
+          text: "Hủy",
+          style: "cancel",
+        },
+      ],
+      { cancelable: true },
+    );
+  };
+
+  const handlePinPress = async () => {
+    if (!conversation || !user?.id || isUpdatingPin) return;
+
+    try {
+      setIsUpdatingPin(true);
+      await conversationService.togglePin(conversation.id, user.id, !isPinned);
+      patchCurrentParticipant({ isPinned: !isPinned });
+      GrayToast(isPinned ? "Đã bỏ ghim hội thoại" : "Đã ghim hội thoại");
+    } catch {
+      GrayToast("Không thể cập nhật trạng thái ghim");
+    } finally {
+      setIsUpdatingPin(false);
     }
   };
 
@@ -533,19 +700,13 @@ export default function ConversationInfoScreen() {
             <ActionItem
               icon="notifications-off-outline"
               label="Tắt thông báo"
-              onPress={() => {
-                setIsMuted((prev) => !prev);
-                GrayToast(isMuted ? "Đã bật thông báo" : "Đã tắt thông báo");
-              }}
+              onPress={handleMutePress}
             />
             <ActionItem
               icon="pin-outline"
               label="Ghim hội thoại"
               onPress={() => {
-                setIsPinned((prev) => !prev);
-                GrayToast(
-                  isPinned ? "Đã bỏ ghim hội thoại" : "Đã ghim hội thoại",
-                );
+                void handlePinPress();
               }}
             />
             <ActionItem
@@ -959,12 +1120,22 @@ export default function ConversationInfoScreen() {
               justifyContent: "space-between",
             }}
           >
-            <Text style={{ color: "#1E293B", fontSize: 15, fontWeight: "600" }}>
-              Tắt thông báo
-            </Text>
+            <View style={{ flex: 1, paddingRight: 12 }}>
+              <Text
+                style={{ color: "#1E293B", fontSize: 15, fontWeight: "600" }}
+              >
+                Tắt thông báo
+              </Text>
+              <Text style={{ marginTop: 2, color: "#64748B", fontSize: 12 }}>
+                {isMuted
+                  ? formatMuteUntilLabel(muteUntil)
+                  : "Đang bật thông báo"}
+              </Text>
+            </View>
             <Switch
               value={isMuted}
-              onValueChange={setIsMuted}
+              onValueChange={handleMutePress}
+              disabled={isUpdatingMute}
               trackColor={{ false: "#CBD5E1", true: "#93C5FD" }}
               thumbColor="#fff"
             />
@@ -978,12 +1149,22 @@ export default function ConversationInfoScreen() {
               justifyContent: "space-between",
             }}
           >
-            <Text style={{ color: "#1E293B", fontSize: 15, fontWeight: "600" }}>
-              Ghim hội thoại
-            </Text>
+            <View style={{ flex: 1, paddingRight: 12 }}>
+              <Text
+                style={{ color: "#1E293B", fontSize: 15, fontWeight: "600" }}
+              >
+                Ghim hội thoại
+              </Text>
+              <Text style={{ marginTop: 2, color: "#64748B", fontSize: 12 }}>
+                {isPinned ? "Đang ghim" : "Chưa ghim"}
+              </Text>
+            </View>
             <Switch
               value={isPinned}
-              onValueChange={setIsPinned}
+              onValueChange={() => {
+                void handlePinPress();
+              }}
+              disabled={isUpdatingPin}
               trackColor={{ false: "#CBD5E1", true: "#93C5FD" }}
               thumbColor="#fff"
             />

@@ -177,6 +177,89 @@ const isAskMyName = (question = "") => {
   return /tôi tên gì|toi ten gi|tên tôi là gì|ten toi la gi|tôi tên là gì|toi ten la gi/.test(normalized);
 };
 
+const MAX_TOOL_ITERATIONS = 3;
+
+const parseToolArgs = (args) => {
+  if (!args) return {};
+  if (typeof args === "object") return args;
+  if (typeof args !== "string") return {};
+
+  try {
+    const parsed = JSON.parse(args);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch (_error) {
+    return {};
+  }
+};
+
+const getToolCallsFromResponse = (response) => {
+  const directToolCalls = Array.isArray(response?.tool_calls)
+    ? response.tool_calls
+    : [];
+
+  const additionalToolCalls = Array.isArray(response?.additional_kwargs?.tool_calls)
+    ? response.additional_kwargs.tool_calls
+    : [];
+
+  const merged = [...directToolCalls, ...additionalToolCalls];
+
+  return merged
+    .map((call, index) => {
+      const name = call?.name || call?.function?.name;
+      if (!name) return null;
+
+      const callId =
+        call?.id ||
+        `${name}-${Date.now()}-${index}`;
+
+      const rawArgs =
+        call?.args ??
+        call?.arguments ??
+        call?.function?.arguments;
+
+      return {
+        id: String(callId),
+        name: String(name),
+        args: parseToolArgs(rawArgs),
+      };
+    })
+    .filter(Boolean);
+};
+
+const stringifyToolResult = (value) => {
+  try {
+    return JSON.stringify(value ?? null);
+  } catch (_error) {
+    return String(value ?? "");
+  }
+};
+
+const extractTextFromResponse = (response) => {
+  const content = response?.content;
+
+  if (typeof content === "string") {
+    return content.trim();
+  }
+
+  if (Array.isArray(content)) {
+    const parts = content
+      .map((item) => {
+        if (typeof item === "string") return item;
+        if (typeof item?.text === "string") return item.text;
+        return "";
+      })
+      .filter(Boolean);
+
+    return parts.join("\n").trim();
+  }
+
+  if (typeof response?.text === "string") {
+    return response.text.trim();
+  }
+
+  return "";
+};
+
 // 👉 hàm chính
 const runAgent = async ({ question, userId, conversationId }) => {
   let ragContext = "";
@@ -226,8 +309,53 @@ ${SYSTEM_GUIDE_CONTEXT || "(không có tài liệu hướng dẫn)"}
     new HumanMessage(question),
   ];
 
- 
-  return "Không thể xử lý yêu cầu.";
+  for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration += 1) {
+    const response = await modelWithTools.invoke(messagesForModel);
+    messagesForModel.push(response);
+
+    const toolCalls = getToolCallsFromResponse(response);
+    if (!toolCalls.length) {
+      const answer = extractTextFromResponse(response);
+      if (answer) return answer;
+      break;
+    }
+
+    for (const toolCall of toolCalls) {
+      const tool = tools.find((item) => item.name === toolCall.name);
+
+      if (!tool) {
+        messagesForModel.push(
+          new ToolMessage({
+            tool_call_id: toolCall.id,
+            content: `Tool ${toolCall.name} is not available`,
+          })
+        );
+        continue;
+      }
+
+      try {
+        const toolResult = await tool.func(toolCall.args || {});
+        messagesForModel.push(
+          new ToolMessage({
+            tool_call_id: toolCall.id,
+            content: stringifyToolResult(toolResult),
+          })
+        );
+      } catch (error) {
+        messagesForModel.push(
+          new ToolMessage({
+            tool_call_id: toolCall.id,
+            content: `Tool ${toolCall.name} failed: ${error?.message || "Unknown error"}`,
+          })
+        );
+      }
+    }
+  }
+
+  const fallbackResponse = await model.invoke(messagesForModel);
+  const fallbackAnswer = extractTextFromResponse(fallbackResponse);
+
+  return fallbackAnswer || "Mình chưa thể xử lý yêu cầu lúc này. Vui lòng thử lại sau.";
 };
 
 const askAI = async ({ question, conversationId, userId }) => {
