@@ -19,9 +19,14 @@ export interface Message {
         fileName?: string
         fileSize?: number
         duration?: number
+        transcript?: string
     }
     metadata?: {
         isAnnouncement?: boolean
+        transcript?: string
+        transcriptStatus?: string
+        transcriptUpdatedAt?: string
+        transcriptProvider?: string
     } | null
     replyTo?: string
     reactions: { userId: string; emoji: string }[]
@@ -68,6 +73,23 @@ const normalizeMessageContent = (rawContent: unknown): Message['content'] => {
         fileName: typeof content.fileName === 'string' ? content.fileName : undefined,
         fileSize: typeof content.fileSize === 'number' ? content.fileSize : undefined,
         duration: typeof content.duration === 'number' ? content.duration : undefined,
+        transcript: typeof content.transcript === 'string' ? content.transcript : undefined,
+    }
+}
+
+const normalizeMessageMetadata = (rawMetadata: unknown): Message['metadata'] => {
+    if (!rawMetadata || typeof rawMetadata !== 'object') {
+        return null
+    }
+
+    const metadata = rawMetadata as Record<string, unknown>
+
+    return {
+        isAnnouncement: Boolean(metadata.isAnnouncement),
+        transcript: typeof metadata.transcript === 'string' ? metadata.transcript : undefined,
+        transcriptStatus: typeof metadata.transcriptStatus === 'string' ? metadata.transcriptStatus : undefined,
+        transcriptUpdatedAt: typeof metadata.transcriptUpdatedAt === 'string' ? metadata.transcriptUpdatedAt : undefined,
+        transcriptProvider: typeof metadata.transcriptProvider === 'string' ? metadata.transcriptProvider : undefined,
     }
 }
 
@@ -75,6 +97,7 @@ export const normalizeMessage = (msg: any): Message => ({
     ...msg,
     id: msg?.id || msg?._id || `temp-${Date.now()}-${Math.random()}`,
     content: normalizeMessageContent(msg?.content),
+    metadata: normalizeMessageMetadata(msg?.metadata),
     reactions: Array.isArray(msg?.reactions) ? msg.reactions : [],
     readBy: Array.isArray(msg?.readBy) ? msg.readBy : [],
     isDeleted: Boolean(msg?.isDeleted),

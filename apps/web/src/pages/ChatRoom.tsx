@@ -969,25 +969,45 @@ export default function ChatRoom() {
   };
 
   const handlePickImage = async (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const type = file.type.startsWith("video/") ? "video" : "image";
-    const validation = validateFile(file, type);
-    if (!validation.valid) {
-      e.target.value = "";
+    const selectedFiles = Array.from(e.target.files || []);
+    e.target.value = "";
+
+    if (!selectedFiles.length) return;
+
+    if (selectedFiles.length === 1) {
+      const file = selectedFiles[0];
+      const type = file.type.startsWith("video/") ? "video" : "image";
+      const validation = validateFile(file, type);
+      if (!validation.valid) {
+        return;
+      }
+
+      if (pendingMedia?.previewUrl) {
+        URL.revokeObjectURL(pendingMedia.previewUrl);
+      }
+
+      setPendingMedia({
+        file,
+        type,
+        previewUrl: URL.createObjectURL(file),
+      });
       return;
     }
 
     if (pendingMedia?.previewUrl) {
       URL.revokeObjectURL(pendingMedia.previewUrl);
     }
+    setPendingMedia(null);
 
-    setPendingMedia({
-      file,
-      type,
-      previewUrl: URL.createObjectURL(file),
-    });
-    e.target.value = "";
+    for (const file of selectedFiles) {
+      const type = file.type.startsWith("video/") ? "video" : "image";
+      const validation = validateFile(file, type);
+      if (!validation.valid) {
+        continue;
+      }
+
+      await sendMediaMessage(file, type);
+    }
   };
 
   const handlePickFile = async (e: ChangeEvent<HTMLInputElement>) => {
@@ -2064,6 +2084,7 @@ export default function ChatRoom() {
             ref={imageInputRef}
             type="file"
             accept="image/*,video/*"
+            multiple
             className="hidden"
             onChange={handlePickImage}
             disabled={

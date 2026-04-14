@@ -811,25 +811,43 @@ export default function ChatRoomScreen() {
     }
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["images", "videos"],
+      allowsMultipleSelection: true,
       quality: 0.85,
     });
     if (result.canceled || !result.assets?.length) return;
 
-    const asset = result.assets[0];
-    const isVideo = asset.type === "video";
-    const name =
-      asset.fileName || `media-${Date.now()}.${isVideo ? "mp4" : "jpg"}`;
-    const mimeType = asset.mimeType || (isVideo ? "video/mp4" : "image/jpeg");
-
     setIsSending(true);
+    let failedCount = 0;
+
     try {
-      const url = await uploadFile(asset.uri, name, mimeType, accessToken);
-      await chatService.sendMessage(convId, {
-        type: isVideo ? "video" : "image",
-        content: url,
-      });
-    } catch {
-      GrayToast("Không thể gửi ảnh/video");
+      for (const [index, asset] of result.assets.entries()) {
+        const isVideo = asset.type === "video";
+        const name =
+          asset.fileName ||
+          `media-${Date.now()}-${index}.${isVideo ? "mp4" : "jpg"}`;
+        const mimeType =
+          asset.mimeType || (isVideo ? "video/mp4" : "image/jpeg");
+
+        try {
+          const url = await uploadFile(asset.uri, name, mimeType, accessToken);
+          await chatService.sendMessage(convId, {
+            type: isVideo ? "video" : "image",
+            content: url,
+          });
+        } catch {
+          failedCount += 1;
+        }
+      }
+
+      if (failedCount > 0) {
+        if (failedCount === result.assets.length) {
+          GrayToast("Không thể gửi ảnh/video");
+        } else {
+          GrayToast(
+            `Đã gửi ${result.assets.length - failedCount}/${result.assets.length} ảnh/video`,
+          );
+        }
+      }
     } finally {
       setIsSending(false);
     }

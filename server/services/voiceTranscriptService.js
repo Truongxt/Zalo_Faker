@@ -32,10 +32,13 @@ const EXTENSION_TO_MIME = {
 };
 
 const PROMPT = [
-  "Ban la he thong speech-to-text.",
-  "Hay chuyen doan ghi am thanh van ban tieng Viet sat nghia nhat co the.",
+  "Ban la he thong speech-to-text da ngon ngu.",
+  "Hay tu dong nhan dien ngon ngu trong audio (tieng Viet, English, hoac tron nhieu ngon ngu).",
+  "Neu audio chu yeu la tieng Viet thi chep dung tieng Viet co dau.",
+  "Neu audio chu yeu la tieng Anh thi chep dung tieng Anh.",
+  "Neu audio tron Viet va Anh, giu nguyen tung doan theo ngon ngu goc.",
+  "Khong duoc dich.",
   "Chi tra ve noi dung transcript, khong them mo dau, nhan, markdown hay giai thich.",
-  "Neu audio nhieu nguon ngon ngu thi giu nguyen ngon ngu goc, khong dich.",
 ].join("\n");
 
 const isObject = (value) => Boolean(value && typeof value === "object" && !Array.isArray(value));
