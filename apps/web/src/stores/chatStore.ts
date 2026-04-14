@@ -23,6 +23,7 @@ export interface Message {
     }
     metadata?: {
         isAnnouncement?: boolean
+        isImportant?: boolean
         transcript?: string
         transcriptStatus?: string
         transcriptUpdatedAt?: string
@@ -86,6 +87,7 @@ const normalizeMessageMetadata = (rawMetadata: unknown): Message['metadata'] => 
 
     return {
         isAnnouncement: Boolean(metadata.isAnnouncement),
+        isImportant: Boolean(metadata.isImportant),
         transcript: typeof metadata.transcript === 'string' ? metadata.transcript : undefined,
         transcriptStatus: typeof metadata.transcriptStatus === 'string' ? metadata.transcriptStatus : undefined,
         transcriptUpdatedAt: typeof metadata.transcriptUpdatedAt === 'string' ? metadata.transcriptUpdatedAt : undefined,

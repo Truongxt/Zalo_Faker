@@ -13,6 +13,7 @@ export interface User {
   status: "online" | "offline" | "away" | "busy";
   lastSeen: string | null;
   createdAt: string;
+  hasHiddenPin?: boolean;
 }
 
 // Raw user shape returned from server
@@ -29,6 +30,7 @@ export interface ServerUser {
   presenceStatus?: "online" | "offline";
   lastActiveAt?: string | null;
   createdAt: string;
+  hiddenChatPin?: string | null;
 }
 
 // User service request/response types
@@ -108,7 +110,8 @@ export interface Message {
   senderId: string;
   senderName: string;
   senderAvatar: string | null;
-  content: string;
+  content: any;
+  metadata?: any;
   type: MessageType;
   attachments?: MessageAttachment[];
   reactions?: MessageReaction[];
@@ -129,6 +132,38 @@ export interface Message {
 // ========================
 export type ConversationType = "private" | "group";
 
+export interface Label {
+  _id: string;
+  userId: string;
+  name: string;
+  color: string;
+}
+
+export interface GroupPinnedMessage {
+  messageId: string;
+  senderId: string;
+  type: MessageType;
+  content: any; // Using any for simplicity as it matches message content
+  metadata?: any;
+  pinnedAt: string;
+  pinnedBy: string;
+}
+
+export type GroupPermissionScope = 'all' | 'admin_deputy' | 'admin';
+
+export interface GroupSettings {
+  invite: {
+    code: string;
+    approvalRequired: boolean;
+  };
+  permissions: {
+    sendMedia: GroupPermissionScope;
+    pinMessage: GroupPermissionScope;
+    sendAnnouncement: GroupPermissionScope;
+  };
+  pinnedMessage: GroupPinnedMessage | null;
+}
+
 export interface Participant {
   userId: string;
   fullName: string;
@@ -136,6 +171,10 @@ export interface Participant {
   role: "admin" | "member";
   joinedAt: string;
   nickname?: string;
+  isMuted?: boolean;
+  muteUntil?: string | null;
+  labelIds?: string[];
+  isHidden?: boolean;
 }
 
 export interface Conversation {
@@ -143,7 +182,9 @@ export interface Conversation {
   type: ConversationType;
   name: string | null; // null for private, group name for group
   avatarUrl: string | null;
+  background?: string;
   participants: Participant[];
+  groupSettings?: GroupSettings;
   lastMessage: {
     content: string;
     senderId: string;

@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { Message, Conversation } from "@/types";
+import type { Message, Conversation, Label } from "@/types";
 
 interface ChatState {
   conversations: Conversation[];
@@ -8,6 +8,9 @@ interface ChatState {
   typingUsers: Record<string, string[]>; // conversationId -> userIds
   isLoadingConversations: boolean;
   isLoadingMessages: boolean;
+  labels: Label[];
+  isLoadingLabels: boolean;
+  unlockedHiddenChats: boolean;
 
   // Actions
   setConversations: (conversations: Conversation[]) => void;
@@ -30,6 +33,12 @@ interface ChatState {
   setLoadingConversations: (loading: boolean) => void;
   setLoadingMessages: (loading: boolean) => void;
 
+  setLabels: (labels: Label[]) => void;
+  addLabel: (label: Label) => void;
+  updateLabel: (id: string, updates: Partial<Label>) => void;
+  removeLabel: (id: string) => void;
+  setUnlockedHiddenChats: (val: boolean) => void;
+
   // Helpers
   getMessagesForConversation: (id: string) => Message[];
 }
@@ -41,6 +50,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
   typingUsers: {},
   isLoadingConversations: false,
   isLoadingMessages: false,
+  labels: [],
+  isLoadingLabels: false,
+  unlockedHiddenChats: false,
 
   setConversations: (conversations) => set({ conversations }),
 
@@ -151,6 +163,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
   setLoadingConversations: (isLoadingConversations) =>
     set({ isLoadingConversations }),
   setLoadingMessages: (isLoadingMessages) => set({ isLoadingMessages }),
+
+  setLabels: (labels) => set({ labels }),
+  addLabel: (label) =>
+    set((state) => ({ labels: [...state.labels, label] })),
+  updateLabel: (id, updates) =>
+    set((state) => ({
+      labels: state.labels.map((l) => (l._id === id ? { ...l, ...updates } : l)),
+    })),
+  removeLabel: (id) =>
+    set((state) => ({
+      labels: state.labels.filter((l) => l._id !== id),
+    })),
+
+  setUnlockedHiddenChats: (unlockedHiddenChats) => set({ unlockedHiddenChats }),
 
   getMessagesForConversation: (id) => get().messages[id] || [],
 }));

@@ -214,7 +214,7 @@ const deleteLabel = async (id: string) => {
 }
 
 const deleteChatHistory = async (conversationId: string) => {
-    const response = await fetchWithAuth(`/conversations/${conversationId}`, {
+    const response = await fetchWithAuth(`/messages/room/${conversationId}`, {
         method: "DELETE",
     });
     return await response.json();

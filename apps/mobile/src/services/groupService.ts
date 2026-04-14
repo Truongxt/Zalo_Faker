@@ -48,3 +48,16 @@ export const createGroup = async (data: CreateGroupPayload) => {
     },
   });
 };
+
+export const pinGroupMessage = async (groupId: string, messageId: string) => {
+  return apiFetch(`/api/groups/${groupId}/pin-message`, {
+    method: "PUT",
+    body: { messageId },
+  });
+};
+
+export const unpinGroupMessage = async (groupId: string) => {
+  return apiFetch(`/api/groups/${groupId}/pin-message`, {
+    method: "DELETE",
+  });
+};

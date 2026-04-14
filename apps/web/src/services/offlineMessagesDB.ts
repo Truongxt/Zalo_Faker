@@ -18,6 +18,7 @@ export interface PendingMessage {
     }
     metadata?: {
         isAnnouncement?: boolean
+        isImportant?: boolean
     }
     replyTo?: string
     status: 'pending' | 'failed' | 'sent'

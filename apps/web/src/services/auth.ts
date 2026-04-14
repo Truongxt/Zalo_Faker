@@ -76,6 +76,7 @@ export const authService = {
             phone: data.user.phone || null,
             birthday: data.user.birthday || null,
             gender: data.user.gender || 'other',
+            hasHiddenPin: !!data.user.hiddenChatPin,
         }
 
         return {
@@ -277,6 +278,36 @@ export const authService = {
 
     onAuthStateChange(_callback: (event: string, session: any) => void) {
         return { data: { subscription: { unsubscribe: () => {} } } };
+    },
+
+    // ===== HIDDEN CHAT PIN =====
+    async getHiddenPinStatus(userId: string): Promise<{ isSet: boolean }> {
+        const response = await fetchWithAuth(`/users/${userId}/hidden-pin/status`)
+        return response.json()
+    },
+
+    async updateHiddenPin(userId: string, pin: string): Promise<{ message: string }> {
+        const response = await fetchWithAuth(`/users/${userId}/hidden-pin`, {
+            method: 'PUT',
+            body: JSON.stringify({ pin })
+        })
+        return response.json()
+    },
+
+    async verifyHiddenPin(userId: string, pin: string): Promise<{ success: boolean }> {
+        const response = await fetchWithAuth(`/users/${userId}/hidden-pin/verify`, {
+            method: 'POST',
+            body: JSON.stringify({ pin })
+        })
+        return response.json()
+    },
+
+    async resetHiddenPin(userId: string, password: string, newPin: string): Promise<{ success: boolean; message: string }> {
+        const response = await fetchWithAuth(`/users/${userId}/hidden-pin/reset`, {
+            method: 'POST',
+            body: JSON.stringify({ password, newPin })
+        })
+        return response.json()
     }
 }
 

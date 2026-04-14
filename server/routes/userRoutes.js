@@ -250,4 +250,9 @@ router.get("/id/:userId", auth, userController.getUserById);
  */
 router.get("/:userId/login-history", auth, userController.getLoginHistory);
 
+router.get("/:userId/hidden-pin/status", auth, userController.getHiddenPinStatus);
+router.put("/:userId/hidden-pin", auth, userController.updateHiddenPin);
+router.post("/:userId/hidden-pin/verify", auth, userController.verifyHiddenPin);
+router.post("/:userId/hidden-pin/reset", auth, userController.resetHiddenPin);
+
 module.exports = router;

@@ -291,5 +291,67 @@ getUserById: async (req, res) => {
     }
   },
 
+  // ===== HIDDEN CHAT PIN =====
+  getHiddenPinStatus: async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const user = await userService.getById(userId);
+      res.json({ isSet: !!user?.hiddenChatPin });
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
+  },
+
+  updateHiddenPin: async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const { pin } = req.body;
+      if (!pin || pin.length !== 6) {
+        return res.status(400).json({ message: "PIN phải có 6 số" });
+      }
+      await userService.updateUser(userId, { hiddenChatPin: pin });
+      res.json({ message: "Đã cập nhật mã PIN" });
+    } catch (err) {
+      res.status(400).json({ message: err.message });
+    }
+  },
+
+  verifyHiddenPin: async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const { pin } = req.body;
+      const user = await userService.getById(userId);
+      if (user?.hiddenChatPin === pin) {
+        res.json({ success: true });
+      } else {
+        res.status(401).json({ success: false, message: "Mã PIN không chính xác" });
+      }
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
+  },
+  
+  resetHiddenPin: async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const { password, newPin } = req.body;
+      
+      const isPasswordCorrect = await userService.comparePassword(userId, password);
+      if (!isPasswordCorrect) {
+        return res.status(401).json({ success: false, message: "Mật khẩu không chính xác" });
+      }
+      
+      if (!newPin || newPin.length !== 6) {
+        return res.status(400).json({ message: "Mã PIN mới phải có 6 số" });
+      }
+      
+      await userService.updateUser(userId, { hiddenChatPin: newPin });
+      res.json({ success: true, message: "Đã đặt lại mã PIN thành công" });
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
+  },
+
+
 }
 module.exports = userController;

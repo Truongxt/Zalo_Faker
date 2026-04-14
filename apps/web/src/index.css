@@ -133,7 +133,7 @@
 
   /* Sidebar */
   .sidebar {
-    @apply w-80 bg-white border-r border-gray-200 flex flex-col h-screen;
+    @apply w-full min-w-0 bg-white border-r border-gray-200 flex flex-col h-full;
   }
 
   .dark .sidebar {

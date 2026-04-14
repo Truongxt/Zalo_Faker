@@ -3,6 +3,7 @@ import { useChatStore } from "@/stores/chatStore";
 import { useAuthStore } from "@/stores/authStore";
 import { API_URL } from "@/constants/config";
 import type { Message, Conversation } from "@/types";
+import apiClient from "./apiClient";
 
 let isRealtimeInitialized = false;
 
@@ -198,19 +199,23 @@ export const chatService = {
   },
 
   async loadConversations() {
-    const { accessToken } = useAuthStore.getState();
     const { setConversations, setLoadingConversations } = useChatStore.getState();
+    const { user } = useAuthStore.getState();
 
     setLoadingConversations(true);
 
     try {
-      const response = await fetch(`${API_URL}/api/conversations`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
+      const response = await apiClient.get<Conversation[]>("/api/conversations");
+      // Derive isPinned from current user's participant (server stores per-participant)
+      const conversations = response.data.map((conv) => {
+        const myParticipant = conv.participants?.find(
+          (p) => String(p.userId) === String(user?.id)
+        ) as any;
+        return {
+          ...conv,
+          isPinned: myParticipant?.isPinned ?? conv.isPinned ?? false,
+        };
       });
-
-      if (!response.ok) throw new Error("Khong the tai cuoc tro chuyen");
-
-      const conversations: Conversation[] = await response.json();
       setConversations(conversations);
     } catch (error) {
       console.error("Failed to load conversations:", error);
@@ -220,22 +225,16 @@ export const chatService = {
   },
 
   async loadMessages(conversationId: string, before?: string) {
-    const { accessToken } = useAuthStore.getState();
     const { setMessages, setLoadingMessages } = useChatStore.getState();
 
     setLoadingMessages(true);
 
     try {
-      let url = `${API_URL}/api/messages/conversation/${conversationId}`;
+      let url = `/api/messages/conversation/${conversationId}`;
       if (before) url += `?before=${encodeURIComponent(before)}`;
 
-      const response = await fetch(url, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-
-      if (!response.ok) throw new Error("Khong the tai tin nhan");
-
-      const messages: Message[] = (await response.json()).map(normalizeMessage);
+      const response = await apiClient.get<any[]>(url);
+      const messages: Message[] = response.data.map(normalizeMessage);
       setMessages(conversationId, messages);
     } catch (error) {
       console.error("Failed to load messages:", error);
@@ -248,8 +247,9 @@ export const chatService = {
     conversationId: string,
     data: {
       type: Message["type"];
-      content: string;
+      content: any;
       replyTo?: string;
+      metadata?: any;
     },
   ) {
     const { accessToken, user } = useAuthStore.getState();
@@ -265,6 +265,7 @@ export const chatService = {
       senderAvatar: user.avatarUrl,
       type: data.type,
       content: data.content,
+      metadata: data.metadata,
       reactions: [],
       readBy: [],
       isDeleted: false,
@@ -278,8 +279,9 @@ export const chatService = {
     const payload = {
       conversationId,
       type: data.type,
-      content: toServerContent(data.type, data.content),
+      content: typeof data.content === "string" ? toServerContent(data.type, data.content) : data.content,
       replyTo: data.replyTo,
+      metadata: data.metadata,
       clientTempId: tempMessage.id,
     };
 
@@ -303,21 +305,14 @@ export const chatService = {
     }
 
     try {
-      const response = await fetch(`${API_URL}/api/messages`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({
-          conversationId,
-          type: data.type,
-          content: toServerContent(data.type, data.content),
-          replyTo: data.replyTo,
-        }),
+      const response = await apiClient.post("/api/messages", {
+        conversationId,
+        type: data.type,
+        content: typeof data.content === "string" ? toServerContent(data.type, data.content) : data.content,
+        replyTo: data.replyTo,
+        metadata: data.metadata,
       });
-      if (!response.ok) throw new Error("Khong the gui tin nhan");
-      const saved = normalizeMessage(await response.json());
+      const saved = normalizeMessage(response.data);
       updateMessage(conversationId, tempMessage.id, saved);
     } catch (error) {
       console.error("Failed to send message:", error);
@@ -354,20 +349,13 @@ export const chatService = {
     type: "private" | "group" = "private",
     name?: string,
   ): Promise<Conversation> {
-    const { accessToken } = useAuthStore.getState();
-
-    const response = await fetch(`${API_URL}/api/conversations`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify({ participantIds, type, name }),
+    const response = await apiClient.post<Conversation>("/api/conversations", {
+      participantIds,
+      type,
+      name,
     });
 
-    if (!response.ok) throw new Error("Khong the tao cuoc tro chuyen");
-
-    const conversation: Conversation = await response.json();
+    const conversation = response.data;
     const { addConversation } = useChatStore.getState();
     addConversation(conversation);
 

@@ -17,6 +17,8 @@ export default function IncomingCallModal() {
         const socket = socketService.getSocket();
         socket?.emit('video:reject-call', {
             toUserId: callData.fromUserId,
+            fromUserId: callData.toUserId,
+            conversationId: callData.conversationId,
         });
         clearCall();
     };

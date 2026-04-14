@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { useAuthStore } from '@/stores/authStore';
 import { formatDistanceToNow } from 'date-fns';
 import { vi } from 'date-fns/locale';
 import {
@@ -13,11 +14,10 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import { useAuthStore } from '@/stores/authStore';
 import { Moment } from '@/types/moment';
 import MomentComments from './MomentComments';
 import MomentReactionPicker from './MomentReactionPicker';
-import { getReactionOption, isVideoUrl } from './momentHelpers';
+import { getReactionOption, isVideoUrl, REACTION_OPTIONS } from './momentHelpers';
 
 interface MomentCardProps {
   moment: Moment;
@@ -69,7 +69,7 @@ function AutoplayVideo({
     if (isVisible) {
       const playPromise = video.play();
       if (playPromise && typeof playPromise.catch === 'function') {
-        playPromise.catch(() => {});
+        playPromise.catch(() => { });
       }
       return;
     }
@@ -143,91 +143,61 @@ export default function MomentCard({
   const currentUserId = String(user?.userId || user?.id || '');
   const isOwner = Boolean(moment.isOwner || (moment.authorId && moment.authorId === currentUserId));
   const [showComments, setShowComments] = useState(false);
-  const [showActions, setShowActions] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
+  const [showReactions, setShowReactions] = useState(false);
   const [showReactionPicker, setShowReactionPicker] = useState(false);
-  const [commentCount, setCommentCount] = useState(moment.commentCount);
   const [isReacting, setIsReacting] = useState(false);
-  const [viewerMediaUrls, setViewerMediaUrls] = useState<string[] | null>(null);
+  const [showActions, setShowActions] = useState(false);
+
+  // Viewer state
+  const [activeViewerUrl, setActiveViewerUrl] = useState<string | null>(null);
   const [viewerIndex, setViewerIndex] = useState(0);
+  const [viewerMediaCount, setViewerMediaCount] = useState(0);
 
-  useEffect(() => {
-    setCommentCount(moment.commentCount);
-  }, [moment.commentCount]);
+  const activeReaction = REACTION_OPTIONS.find(
+    (reaction) => reaction.key === moment.currentUserReaction,
+  );
 
-  useEffect(() => {
-    if (!viewerMediaUrls) {
-      return;
+  const handleCommentCountDelta = (delta: number) => {
+    if (onCommentCountChange) {
+      onCommentCountChange(moment.momentId, delta);
     }
+  };
 
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setViewerMediaUrls(null);
-        setViewerIndex(0);
-      }
-
-      if (event.key === 'ArrowLeft' && viewerMediaUrls.length > 1) {
-        setViewerIndex(
-          (prev) => (prev - 1 + viewerMediaUrls.length) % viewerMediaUrls.length,
-        );
-      }
-
-      if (event.key === 'ArrowRight' && viewerMediaUrls.length > 1) {
-        setViewerIndex((prev) => (prev + 1) % viewerMediaUrls.length);
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [viewerMediaUrls]);
-
-  const activeReaction = getReactionOption(moment.currentUserReaction);
-
-  const openViewer = (mediaUrls: string[], index: number) => {
-    if (!mediaUrls.length) {
-      return;
-    }
-
-    setViewerMediaUrls(mediaUrls);
+  const openViewer = (urls: string[], index: number) => {
+    setActiveViewerUrl(urls[index]);
     setViewerIndex(index);
+    setViewerMediaCount(urls.length);
   };
 
   const closeViewer = () => {
-    setViewerMediaUrls(null);
-    setViewerIndex(0);
-  };
-
-  const showPrevMedia = () => {
-    setViewerIndex((prev) =>
-      viewerMediaUrls ? (prev - 1 + viewerMediaUrls.length) % viewerMediaUrls.length : prev,
-    );
+    setActiveViewerUrl(null);
   };
 
   const showNextMedia = () => {
-    setViewerIndex((prev) =>
-      viewerMediaUrls ? (prev + 1) % viewerMediaUrls.length : prev,
-    );
+    const nextIndex = (viewerIndex + 1) % moment.mediaUrls.length;
+    setViewerIndex(nextIndex);
+    setActiveViewerUrl(moment.mediaUrls[nextIndex]);
   };
 
-  const handleCommentCountDelta = (delta: number) => {
-    setCommentCount((prev) => Math.max(0, prev + delta));
-    onCommentCountChange?.(moment.momentId, delta);
+  const showPrevMedia = () => {
+    const prevIndex = (viewerIndex - 1 + moment.mediaUrls.length) % moment.mediaUrls.length;
+    setViewerIndex(prevIndex);
+    setActiveViewerUrl(moment.mediaUrls[prevIndex]);
   };
 
-  const handleReactionSelect = async (reactionKey: string) => {
+  const handleReactionSelect = async (reactionKey: string | null) => {
+    if (isReacting || !reactionKey) return;
+    setIsReacting(true);
     try {
-      setIsReacting(true);
-      setShowReactionPicker(false);
       await onReact(moment.momentId, reactionKey);
+      setShowReactionPicker(false);
+    } catch (error) {
+      console.error('Failed to react:', error);
     } finally {
       setIsReacting(false);
     }
   };
-
-  const activeViewerUrl =
-    viewerMediaUrls && viewerMediaUrls.length > 0
-      ? viewerMediaUrls[viewerIndex]
-      : null;
-  const viewerMediaCount = viewerMediaUrls?.length || 0;
 
   return (
     <>
@@ -267,17 +237,36 @@ export default function MomentCard({
             </div>
           </div>
 
-          {isOwner ? (
+          {moment.isOwner && (
             <div className="relative">
               <button
-                type="button"
-                onClick={() => setShowActions(true)}
+                onClick={() => setShowMenu(!showMenu)}
                 className="rounded-full p-1 text-gray-500 transition-colors hover:bg-gray-100 dark:hover:bg-dark-300"
               >
                 <MoreHorizontal className="h-5 w-5" />
               </button>
+              {showMenu && (
+                <>
+                  <div
+                    className="fixed inset-0 z-10"
+                    onClick={() => setShowMenu(false)}
+                  />
+                  <div className="absolute right-0 z-20 mt-1 w-36 rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-gray-700 dark:bg-dark-300">
+                    <button
+                      onClick={() => {
+                        setShowMenu(false);
+                        onDelete(moment.momentId);
+                      }}
+                      className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm text-red-600 hover:bg-gray-100 dark:hover:bg-dark-400"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Xóa bài viết
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
-          ) : null}
+          )}
         </div>
 
         <div className="px-4 pb-2">
@@ -290,18 +279,16 @@ export default function MomentCard({
 
         {moment.mediaUrls.length > 0 ? (
           <div
-            className={`mt-2 ${
-              moment.mediaUrls.length > 1 ? 'grid grid-cols-2 gap-1' : ''
-            }`}
+            className={`mt-2 ${moment.mediaUrls.length > 1 ? 'grid grid-cols-2 gap-1' : ''
+              }`}
           >
             {moment.mediaUrls.map((url, index) => (
               <MomentMedia
                 key={`${url}-${index}`}
                 url={url}
                 alt="Moment media"
-                className={`w-full bg-gray-100 object-cover dark:bg-dark-300 ${
-                  moment.mediaUrls.length === 1 ? 'max-h-[1000px]' : 'h-96'
-                }`}
+                className={`w-full bg-gray-100 object-cover dark:bg-dark-300 ${moment.mediaUrls.length === 1 ? 'max-h-[1000px]' : 'h-96'
+                  }`}
                 onOpen={() => openViewer(moment.mediaUrls, index)}
               />
             ))}
@@ -335,176 +322,207 @@ export default function MomentCard({
         ) : null}
 
         <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3 text-xs text-gray-500 dark:border-gray-800 dark:text-gray-400">
-          <span>{moment.reactionCount} cảm xúc</span>
-          <span>{commentCount} bình luận</span>
-          <span>{moment.shareCount} chia sẻ</span>
+          <div className="flex items-center gap-1">
+            {moment.reactionCount > 0 && (
+              <>
+                <span className="flex h-4 w-4 items-center justify-center rounded-full bg-primary-100 text-[10px] text-primary-600 dark:bg-primary-900/30 dark:text-primary-400">
+                  ❤️
+                </span>
+                <span>{moment.reactionCount}</span>
+              </>
+            )}
+          </div>
+          <div className="flex gap-3">
+            {moment.commentCount > 0 && <span>{moment.commentCount} bình luận</span>}
+            {moment.shareCount > 0 && <span>{moment.shareCount} lượt chia sẻ</span>}
+          </div>
         </div>
 
-        <div className="flex justify-between gap-2 px-2 py-2">
-          <button
-            type="button"
-            disabled={isReacting}
-            onClick={() => setShowReactionPicker(true)}
-            className={`flex flex-1 items-center justify-center gap-2 rounded-2xl py-2.5 text-sm font-medium transition-colors ${
-              activeReaction
+        <div className="relative flex justify-between px-2 py-1">
+          <div
+            className="relative flex-1"
+            onMouseEnter={() => setShowReactions(true)}
+            onMouseLeave={() => setShowReactions(false)}
+          >
+            {showReactions && (
+              <div className="absolute bottom-full left-0 z-10 mb-2 flex gap-1 rounded-full border border-gray-100 bg-white p-1 shadow-lg animate-fade-in dark:border-gray-700 dark:bg-dark-300">
+                {REACTION_OPTIONS.map((reaction) => (
+                  <button
+                    key={reaction.key}
+                    onClick={() => {
+                      setShowReactions(false);
+                      onReact(moment.momentId, reaction.key);
+                    }}
+                    className="text-2xl transition-transform hover:scale-125"
+                    title={reaction.key}
+                  >
+                    {reaction.icon}
+                  </button>
+                ))}
+              </div>
+            )}
+            <button
+              onClick={() =>
+                onReact(moment.momentId, activeReaction ? 'like' : 'like')
+              }
+              className={`flex w-full items-center justify-center gap-2 rounded-lg py-2 text-sm font-medium transition-colors hover:bg-gray-50 dark:hover:bg-dark-300 ${activeReaction
                 ? 'bg-primary-50 text-primary-600 dark:bg-primary-900/20 dark:text-primary-300'
                 : 'bg-gray-50 text-gray-600 hover:bg-gray-100 dark:bg-dark-300 dark:text-gray-400 dark:hover:bg-dark-400'
-            } disabled:opacity-60`}
-          >
-            {activeReaction ? (
-              <span className="text-base">{activeReaction.icon}</span>
-            ) : (
-              <Heart className="h-5 w-5" />
-            )}
-            {activeReaction?.label || 'Cảm xúc'}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setShowComments((prev) => !prev)}
-            className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-gray-50 py-2.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 dark:bg-dark-300 dark:text-gray-400 dark:hover:bg-dark-400"
-          >
-            <MessageCircle className="h-5 w-5" />
-            Bình luận
-          </button>
-
-          <button
-            type="button"
-            onClick={() => void onShare(moment.momentId)}
-            className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-gray-50 py-2.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 dark:bg-dark-300 dark:text-gray-400 dark:hover:bg-dark-400"
-          >
-            <Share2 className="h-5 w-5" />
-            Chia sẻ
-          </button>
-        </div>
-
-        {showComments ? (
-          <div className="border-t border-gray-100 bg-gray-50 dark:border-gray-800 dark:bg-dark-100/30">
-            <MomentComments
-              momentId={moment.momentId}
-              onCountChange={handleCommentCountDelta}
-              canManageComments={isOwner}
-            />
-          </div>
-        ) : null}
-
-        {activeViewerUrl ? (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4">
-            <button
-              type="button"
-              onClick={closeViewer}
-              className="absolute right-4 top-4 rounded-full bg-white/10 p-3 text-white transition hover:bg-white/20"
+                } disabled:opacity-60`}
             >
-              <X className="h-5 w-5" />
-            </button>
-
-            {viewerMediaCount > 1 ? (
-              <>
-                <button
-                  type="button"
-                  onClick={showPrevMedia}
-                  className="absolute left-4 rounded-full bg-white/10 p-3 text-white transition hover:bg-white/20"
-                >
-                  <ChevronLeft className="h-6 w-6" />
-                </button>
-                <button
-                  type="button"
-                  onClick={showNextMedia}
-                  className="absolute right-4 rounded-full bg-white/10 p-3 text-white transition hover:bg-white/20"
-                >
-                  <ChevronRight className="h-6 w-6" />
-                </button>
-              </>
-            ) : null}
-
-            <div className="absolute top-4 text-sm font-semibold text-white">
-              {viewerIndex + 1}/{viewerMediaCount}
-            </div>
-
-            <div className="max-h-[88vh] max-w-[88vw] overflow-hidden rounded-3xl bg-black">
-              {isVideoUrl(activeViewerUrl) ? (
-                <video
-                  src={activeViewerUrl}
-                  className="max-h-[88vh] max-w-[88vw]"
-                  controls
-                  playsInline
-                  autoPlay
-                />
+              {activeReaction ? (
+                <span className="text-base">{activeReaction.icon}</span>
               ) : (
-                <img
-                  src={activeViewerUrl}
-                  alt="Moment media preview"
-                  className="max-h-[88vh] max-w-[88vw] object-contain"
-                />
+                <Heart className="h-5 w-5" />
               )}
+              {activeReaction?.label || 'Cảm xúc'}
+            </button>
+
+            <button
+              onClick={() => setShowComments(!showComments)}
+              className="flex flex-1 items-center justify-center gap-2 rounded-lg py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 dark:text-gray-400 dark:hover:bg-dark-300"
+            >
+              <MessageCircle className="h-5 w-5" />
+              Bình luận
+            </button>
+
+            <button
+              onClick={() => onShare(moment.momentId)}
+              className="flex flex-1 items-center justify-center gap-2 rounded-lg py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 dark:text-gray-400 dark:hover:bg-dark-300"
+            >
+              <Share2 className="h-5 w-5" />
+              Chia sẻ
+            </button>
+          </div>
+
+          {showComments ? (
+            <div className="border-t border-gray-100 bg-gray-50 dark:border-gray-800 dark:bg-dark-100/30">
+              <MomentComments
+                momentId={moment.momentId}
+                onCountChange={handleCommentCountDelta}
+                canManageComments={isOwner}
+              />
+            </div>
+          ) : null}
+
+          {activeViewerUrl ? (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4">
+              <button
+                type="button"
+                onClick={closeViewer}
+                className="absolute right-4 top-4 rounded-full bg-white/10 p-3 text-white transition hover:bg-white/20"
+              >
+                <X className="h-5 w-5" />
+              </button>
+
+              {viewerMediaCount > 1 ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={showPrevMedia}
+                    className="absolute left-4 rounded-full bg-white/10 p-3 text-white transition hover:bg-white/20"
+                  >
+                    <ChevronLeft className="h-6 w-6" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={showNextMedia}
+                    className="absolute right-4 rounded-full bg-white/10 p-3 text-white transition hover:bg-white/20"
+                  >
+                    <ChevronRight className="h-6 w-6" />
+                  </button>
+                </>
+              ) : null}
+
+              <div className="absolute top-4 text-sm font-semibold text-white">
+                {viewerIndex + 1}/{viewerMediaCount}
+              </div>
+
+              <div className="max-h-[88vh] max-w-[88vw] overflow-hidden rounded-3xl bg-black">
+                {isVideoUrl(activeViewerUrl) ? (
+                  <video
+                    src={activeViewerUrl}
+                    className="max-h-[88vh] max-w-[88vw]"
+                    controls
+                    playsInline
+                    autoPlay
+                  />
+                ) : (
+                  <img
+                    src={activeViewerUrl}
+                    alt="Moment media preview"
+                    className="max-h-[88vh] max-w-[88vw] object-contain"
+                  />
+                )}
+              </div>
+            </div>
+          ) : null}
+        </div>
+
+        {showActions ? (
+          <div
+            className="fixed inset-0 z-[60] flex items-end justify-center bg-black/35 p-4 sm:items-center"
+            onClick={() => setShowActions(false)}
+          >
+            <div
+              className="w-full max-w-sm rounded-[2rem] bg-white p-4 shadow-2xl dark:bg-dark-200"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="mb-4 flex justify-center sm:hidden">
+                <div className="h-1.5 w-12 rounded-full bg-gray-200 dark:bg-gray-700" />
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setShowActions(false);
+                  onEdit(moment);
+                }}
+                className="flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm font-semibold text-gray-800 transition hover:bg-gray-100 dark:text-gray-100 dark:hover:bg-dark-300"
+              >
+                <Pencil className="h-4 w-4" />
+                Chỉnh sửa
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setShowActions(false);
+                  void onDelete(moment.momentId);
+                }}
+                className="mt-2 flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm font-semibold text-red-600 transition hover:bg-rose-50 dark:hover:bg-rose-950/20"
+              >
+                <Trash2 className="h-4 w-4" />
+                Xóa bài viết
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowActions(false)}
+                className="mt-3 w-full rounded-full bg-gray-100 px-4 py-3 text-sm font-semibold text-gray-700 transition hover:bg-gray-200 dark:bg-dark-300 dark:text-gray-200 dark:hover:bg-dark-400"
+              >
+                Đóng
+              </button>
             </div>
           </div>
         ) : null}
-      </div>
 
-      {showActions ? (
-        <div
-          className="fixed inset-0 z-[60] flex items-end justify-center bg-black/35 p-4 sm:items-center"
-          onClick={() => setShowActions(false)}
-        >
-          <div
-            className="w-full max-w-sm rounded-[2rem] bg-white p-4 shadow-2xl dark:bg-dark-200"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="mb-4 flex justify-center sm:hidden">
-              <div className="h-1.5 w-12 rounded-full bg-gray-200 dark:bg-gray-700" />
-            </div>
-
-            <button
-              type="button"
-              onClick={() => {
-                setShowActions(false);
-                onEdit(moment);
-              }}
-              className="flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm font-semibold text-gray-800 transition hover:bg-gray-100 dark:text-gray-100 dark:hover:bg-dark-300"
-            >
-              <Pencil className="h-4 w-4" />
-              Chỉnh sửa
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                setShowActions(false);
-                void onDelete(moment.momentId);
-              }}
-              className="mt-2 flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm font-semibold text-red-600 transition hover:bg-rose-50 dark:hover:bg-rose-950/20"
-            >
-              <Trash2 className="h-4 w-4" />
-              Xóa bài viết
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setShowActions(false)}
-              className="mt-3 w-full rounded-full bg-gray-100 px-4 py-3 text-sm font-semibold text-gray-700 transition hover:bg-gray-200 dark:bg-dark-300 dark:text-gray-200 dark:hover:bg-dark-400"
-            >
-              Đóng
-            </button>
-          </div>
-        </div>
-      ) : null}
-
-      <MomentReactionPicker
-        open={showReactionPicker}
-        title="Thả cảm xúc"
-        description="Chọn 1 biểu tượng để react nhanh cho khoảnh khắc này."
-        activeReactionKey={moment.currentUserReaction}
-        isSubmitting={isReacting}
-        onClose={() => setShowReactionPicker(false)}
-        onSelect={(reactionKey) => void handleReactionSelect(reactionKey)}
-        onRemove={
-          moment.currentUserReaction
-            ? () =>
+        <MomentReactionPicker
+          open={showReactionPicker}
+          title="Thả cảm xúc"
+          description="Chọn 1 biểu tượng để react nhanh cho khoảnh khắc này."
+          activeReactionKey={moment.currentUserReaction}
+          isSubmitting={isReacting}
+          onClose={() => setShowReactionPicker(false)}
+          onSelect={(reactionKey) => void handleReactionSelect(reactionKey)}
+          onRemove={
+            moment.currentUserReaction
+              ? () =>
                 void handleReactionSelect(moment.currentUserReaction as string)
-            : undefined
-        }
-      />
+              : undefined
+          }
+        />
+      </div>
     </>
   );
 }

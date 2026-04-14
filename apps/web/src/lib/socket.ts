@@ -102,7 +102,7 @@ class SocketService {
         senderId?: string
         type: string
         content: { text?: string; mediaUrl?: string; fileName?: string; fileSize?: number; duration?: number }
-        metadata?: { isAnnouncement?: boolean }
+        metadata?: { isAnnouncement?: boolean; isImportant?: boolean }
         replyTo?: string
         clientTempId?: string
     }, callback?: (res: { success: boolean; message?: any; error?: string }) => void) {

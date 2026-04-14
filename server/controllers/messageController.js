@@ -3,6 +3,32 @@ const conversationService = require("../services/conversationService")
 const GroupService = require("../services/groupService")
 const conversationModel = require("../models/conversation")
 
+const getLastMessageContent = ({ type, content, metadata }) => {
+    const contentText =
+        typeof content === "string"
+            ? content
+            : typeof content?.text === "string"
+                ? content.text
+                : ""
+
+    const baseText = contentText
+        || (type === "image"
+            ? "[Hình ảnh]"
+            : type === "video"
+                ? "[Video]"
+                : type === "voice"
+                    ? "[Tin nhắn thoại]"
+                    : type === "sticker"
+                        ? "[Nhãn dán]"
+                        : "[File]")
+
+    const prefixes = []
+    if (metadata?.isImportant) prefixes.push("[Quan trọng]")
+    if (metadata?.isAnnouncement) prefixes.push("[Thông báo]")
+
+    return [...prefixes, baseText].join(" ").trim()
+}
+
 const createMessage = async (req, res) => {
     try {
         const senderId = req.user?.userId
@@ -51,7 +77,11 @@ const createMessage = async (req, res) => {
 
         await conversationModel.updateConversation(payload.conversationId, {
             lastMessage: {
-                content: lastMessageContent,
+                content: getLastMessageContent({
+                    type: payload.type,
+                    content: payload.content,
+                    metadata: payload.metadata,
+                }),
                 type: payload.type || "text",
                 senderId,
                 timestamp: message.createdAt,
@@ -106,6 +136,7 @@ const deleteMessage = async (req, res) => {
         res.status(500).json({ message: error.message })
     }
 }
+
 const getMessagesByConversationId = async (req, res) => {
     try {
         const messages = await messageService.getMessagesByConversationId(req.params.conversationId)
@@ -117,7 +148,11 @@ const getMessagesByConversationId = async (req, res) => {
 
 const deleteMessagesByRoom = async (req, res) => {
     try {
-        const result = await messageService.deleteMessagesByConversationId(req.params.roomId)
+        const roomId = req.params.roomId;
+        const result = await messageService.deleteMessagesByConversationId(roomId)
+        await conversationModel.updateConversation(roomId, {
+            lastMessage: null
+        })
         res.json(result)
     } catch (error) {
         res.status(500).json({ message: error.message })
