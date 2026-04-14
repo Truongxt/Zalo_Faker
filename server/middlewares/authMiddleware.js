@@ -2,7 +2,7 @@ const { verifyAccessToken } = require("../utils/jwt.js");
 const userRepository = require("../repository/userRepository");
 const { safeGet } = require("../utils/redisClient");
 
-const buildSessionKey = (userId) => `auth:session:${String(userId)}`;
+const buildSessionKey = (userId, platform = "unknown") => `auth:session:${String(userId)}:${String(platform).toLowerCase()}`;
 
 const normalizeUserPayload = (decoded = {}) => {
   const rawUserId = decoded.userId ?? decoded.id ?? decoded.sub;
@@ -68,7 +68,7 @@ const authMiddleware = async (req, res, next) => {
       return res.status(401).json({ message: "Session expired" });
     }
 
-    const activeSessionId = await safeGet(buildSessionKey(normalizedUser.userId));
+    const activeSessionId = await safeGet(buildSessionKey(normalizedUser.userId, normalizedUser.platform));
     if (!activeSessionId || activeSessionId !== sessionId) {
       return res.status(401).json({ message: "Session expired" });
     }
