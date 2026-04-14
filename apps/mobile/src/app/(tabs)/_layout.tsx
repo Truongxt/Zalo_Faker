@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Href, Tabs, useRouter } from "expo-router";
+import { Href, Tabs, useRouter, useSegments } from "expo-router";
 import { Alert, Pressable, Text, TouchableOpacity, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -108,9 +108,12 @@ export default function TabsLayout() {
     };
   }, [router, user?.id, user?.fullName, user?.avatarUrl]);
 
+  const segments = useSegments();
+  const isDetailScreen = segments.includes("[conversationId]") || segments.includes("[callId]");
+
   return (
     <View style={{ flex: 1 }}>
-      <Header onAddPress={() => setMenuOpen((prev) => !prev)} />
+      {!isDetailScreen && <Header onAddPress={() => setMenuOpen((prev) => !prev)} />}
 
       <Tabs
         screenOptions={{

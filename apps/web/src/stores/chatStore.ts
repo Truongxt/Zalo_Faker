@@ -35,6 +35,9 @@ export interface Message {
 
 const normalizeMessageContent = (rawContent: unknown): Message['content'] => {
     if (typeof rawContent === 'string') {
+        if (rawContent.startsWith('http')) {
+            return { mediaUrl: rawContent }
+        }
         return { text: rawContent }
     }
 
