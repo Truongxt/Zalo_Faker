@@ -44,11 +44,18 @@ export const authService = {
         return await this.login(data.email, data.password);
     },
 
-    async login(email: string, password: string): Promise<{ user: User; accessToken: string, refreshToken: string }> {
+    async login(identifier: string, password: string): Promise<{ user: User; accessToken: string, refreshToken: string }> {
+        const normalizedIdentifier = identifier.trim();
+
         const response = await fetch(`${baseAPI}/users/login`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email, password })
+            body: JSON.stringify({
+                identifier: normalizedIdentifier,
+                // Backward-compatible payload for older backend versions.
+                email: normalizedIdentifier,
+                password,
+            })
         });
 
         if (!response.ok) {

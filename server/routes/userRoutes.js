@@ -50,8 +50,12 @@ router.post("/register", userController.register);
  *           schema:
  *             type: object
  *             properties:
+ *               identifier:
+ *                 type: string
+ *                 example: user1@zalo-faker.com hoặc 0901234567
  *               email:
  *                 type: string
+ *                 description: Backward-compatible field. Có thể gửi identifier thay cho email.
  *                 example: user1@zalo-faker.com
  *               password:
  *                 type: string

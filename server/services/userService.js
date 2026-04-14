@@ -22,6 +22,7 @@ const PERMANENT_LOCK_OTP_TTL_SECONDS = 300;
 const PERMANENT_LOCK_RESEND_LIMIT_SECONDS = 60;
 
 const normalizeEmail = (email) => String(email || "").trim().toLowerCase();
+const normalizePhone = (phone) => String(phone || "").trim().replace(/[\s().-]/g, "");
 const buildSessionKey = (userId) => `auth:session:${String(userId)}`;
 const generateSessionId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 
@@ -165,10 +166,23 @@ const UserService = {
 
 
 
-  login: async (email, password, loginMeta = {}) => {
+  login: async (identifier, password, loginMeta = {}) => {
+    const normalizedIdentifier = String(identifier || "").trim();
+    const normalizedPassword = String(password || "");
+
+    if (!normalizedIdentifier || !normalizedPassword) {
+      throw new Error("Email/phone and password are required");
+    }
+
+    const normalizedIdentifierEmail = normalizeEmail(normalizedIdentifier);
+    const normalizedIdentifierPhone = normalizePhone(normalizedIdentifier);
 
     const users = await userRepository.getAll();
-    const user = users.find(u => u.email === email);
+    const user = users.find((u) => {
+      const emailMatched = normalizeEmail(u.email) === normalizedIdentifierEmail;
+      const phoneMatched = normalizePhone(u.phone) === normalizedIdentifierPhone;
+      return emailMatched || phoneMatched;
+    });
     if (!user) throw new Error("User not found");
 
     const accountStatus = user.accountStatus || user.status || "active";
@@ -179,7 +193,7 @@ const UserService = {
       throw new Error("Account is deleted");
     }
 
-    const isMatch = await bcrypt.compare(password + "nhan123@@", user.password);
+    const isMatch = await bcrypt.compare(normalizedPassword + "nhan123@@", user.password);
     if (!isMatch) throw new Error("Invalid password");
 
     const sessionId = generateSessionId();

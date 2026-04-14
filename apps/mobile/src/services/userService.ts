@@ -77,17 +77,23 @@ class UserService {
   }
 
   // POST /api/users/login - đăng nhập
-  async login(email: string, password: string): Promise<LoginResponse> {
-    console.log(email, password);
+  async login(identifier: string, password: string): Promise<LoginResponse> {
+    const normalizedIdentifier = identifier.trim();
 
     const deviceInfo = `${Platform.OS} ${Platform.Version}`;
 
     const response = await apiClient.post<{ user: ServerUser; accessToken: string; refreshToken: string }>(
       "/api/users/login",
-      { email, password, platform: "mobile", deviceInfo },
+      {
+        identifier: normalizedIdentifier,
+        // Backward-compatible payload for older backend versions.
+        email: normalizedIdentifier,
+        password,
+        platform: "mobile",
+        deviceInfo,
+      },
     );
     const { user, accessToken, refreshToken } = response.data;
-    console.log(email, password);
     return { user: mapServerUser(user), accessToken, refreshToken };
   }
 

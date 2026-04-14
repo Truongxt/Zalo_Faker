@@ -20,14 +20,14 @@ export default function LoginScreen() {
   const insets = useSafeAreaInsets();
   const { login } = useAuthStore();
 
-  const [email, setEmail] = useState("");
+  const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
   const handleLogin = async () => {
-    if (!email.trim()) {
-      Alert.alert("Lỗi", "Vui lòng nhập email");
+    if (!identifier.trim()) {
+      Alert.alert("Lỗi", "Vui lòng nhập email hoặc số điện thoại");
       return;
     }
     if (!password.trim()) {
@@ -38,7 +38,7 @@ export default function LoginScreen() {
     setIsLoading(true);
     try {
       const { user, accessToken, refreshToken } = await userService.login(
-        email.trim().toLowerCase(),
+        identifier.trim(),
         password,
       );
       login(user, accessToken, refreshToken);
@@ -98,16 +98,16 @@ export default function LoginScreen() {
 
           {/* Form */}
           <View className="gap-4">
-            {/* Email */}
+            {/* Email or phone */}
             <View>
               <Text className="text-sm font-medium text-gray-700 mb-1.5">
-                Email
+                Email hoặc số điện thoại
               </Text>
               <TextInput
-                value={email}
-                onChangeText={setEmail}
-                placeholder="example@email.com"
-                keyboardType="email-address"
+                value={identifier}
+                onChangeText={setIdentifier}
+                placeholder="example@email.com hoặc 09xxxxxxxx"
+                keyboardType="default"
                 autoCapitalize="none"
                 autoCorrect={false}
                 returnKeyType="next"

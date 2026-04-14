@@ -226,51 +226,7 @@ ${SYSTEM_GUIDE_CONTEXT || "(không có tài liệu hướng dẫn)"}
     new HumanMessage(question),
   ];
 
-  for (let i = 0; i < 3; i += 1) {
-    const res = await modelWithTools.invoke(messagesForModel);
-
-    messagesForModel.push(res);
-
-    if (res.tool_calls && res.tool_calls.length > 0) {
-      for (const call of res.tool_calls) {
-        const tool = tools.find((item) => item.name === call.name);
-
-        if (!tool) {
-          continue;
-        }
-
-        let args = {};
-        try {
-          args = typeof call.args === "string" ? JSON.parse(call.args || "{}") : (call.args || {});
-        } catch (error) {
-          args = {};
-        }
-
-        if (!args.userId) args.userId = userId;
-
-        const result = await tool.func(args);
-
-        messagesForModel.push(
-          new ToolMessage({
-            content: JSON.stringify(result),
-            tool_call_id: call.id || call.name,
-            name: call.name,
-          })
-        );
-      }
-
-      continue;
-    }
-
-    return typeof res.content === "string"
-      ? res.content
-      : Array.isArray(res.content)
-        ? res.content
-            .map((block) => (typeof block === "string" ? block : block?.text || ""))
-            .join("\n")
-        : String(res.content || "");
-  }
-
+ 
   return "Không thể xử lý yêu cầu.";
 };
 
