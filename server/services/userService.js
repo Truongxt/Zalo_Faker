@@ -11,6 +11,7 @@ const refreshTokenRepository = require("../repository/RefreshTokenRepository");
 const loginHistoryRepository = require("../repository/loginHistoryRepository");
 const { safeGet, safeSet, safeDel } = require("../utils/redisClient");
 const { sendOTPEmail } = require("../utils/sendEmail");
+const { validateRegistrationEmail } = require("../utils/emailValidation");
 const { uploadFile } = require("./file.service");
 const tableName = "User";
 
@@ -612,10 +613,11 @@ const UserService = {
 
   // ===== REGISTRATION WITH OTP =====
   registerRequestOtp: async (email) => {
-    const normalizedEmail = normalizeEmail(email);
-    if (!normalizedEmail) {
-      throw new Error("Email is required");
+    const validation = await validateRegistrationEmail(email);
+    if (!validation.isAllowed) {
+      throw new Error(validation.message || "Email is invalid");
     }
+    const normalizedEmail = validation.normalizedEmail;
 
     const existingUserEmail = await userRepository.getByEmail(normalizedEmail);
     if (existingUserEmail) {

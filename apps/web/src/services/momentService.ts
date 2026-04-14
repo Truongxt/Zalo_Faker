@@ -91,6 +91,11 @@ class MomentService {
     return response.json();
   }
 
+  async getUserProfile(userId: string): Promise<MomentProfile> {
+    const response = await fetchWithAuth(`/moments/user/${userId}`);
+    return response.json();
+  }
+
   async getReactedMoments(): Promise<Moment[]> {
     const response = await fetchWithAuth('/moments/reacted');
     return response.json();

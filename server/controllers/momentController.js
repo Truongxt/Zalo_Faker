@@ -133,6 +133,18 @@ const MomentController = {
     }
   },
 
+  getUserProfile: async (req, res) => {
+    try {
+      const profile = await momentService.getUserProfile(
+        req.params.userId,
+        getRequesterId(req)
+      );
+      return res.json(profile);
+    } catch (error) {
+      return handleError(res, error);
+    }
+  },
+
   deleteMoment: async (req, res) => {
     try {
       const result = await momentService.deleteMoment(req.params.momentId, getRequesterId(req));

@@ -3,6 +3,32 @@ const conversationService = require("../services/conversationService")
 const GroupService = require("../services/groupService")
 const conversationModel = require("../models/conversation")
 
+const getLastMessageContent = ({ type, content, metadata }) => {
+    const contentText =
+        typeof content === "string"
+            ? content
+            : typeof content?.text === "string"
+                ? content.text
+                : ""
+
+    const baseText = contentText
+        || (type === "image"
+            ? "[Hình ảnh]"
+            : type === "video"
+                ? "[Video]"
+                : type === "voice"
+                    ? "[Tin nhắn thoại]"
+                    : type === "sticker"
+                        ? "[Nhãn dán]"
+                        : "[File]")
+
+    const prefixes = []
+    if (metadata?.isImportant) prefixes.push("[Quan trọng]")
+    if (metadata?.isAnnouncement) prefixes.push("[Thông báo]")
+
+    return [...prefixes, baseText].join(" ").trim()
+}
+
 const createMessage = async (req, res) => {
     try {
         const senderId = req.user?.userId
@@ -51,7 +77,11 @@ const createMessage = async (req, res) => {
 
         await conversationModel.updateConversation(payload.conversationId, {
             lastMessage: {
-                content: lastMessageContent,
+                content: getLastMessageContent({
+                    type: payload.type,
+                    content: payload.content,
+                    metadata: payload.metadata,
+                }),
                 type: payload.type || "text",
                 senderId,
                 timestamp: message.createdAt,

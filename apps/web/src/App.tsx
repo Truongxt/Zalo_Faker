@@ -15,6 +15,7 @@ import {
     Moments,
     Contacts,
     Profile,
+    UserProfile,
     Settings,
     ChangePassword,
     LoginHistory,
@@ -171,6 +172,11 @@ export default function App() {
                     <Route path="/profile" element={
                         <PrivateRoute>
                             <Profile />
+                        </PrivateRoute>
+                    } />
+                    <Route path="/profile/:userId" element={
+                        <PrivateRoute>
+                            <UserProfile />
                         </PrivateRoute>
                     } />
 

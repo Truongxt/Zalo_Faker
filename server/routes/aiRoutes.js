@@ -1,6 +1,10 @@
 const express = require("express");
 const auth = require("../middlewares/authMiddleware");
-const { askAssistant } = require("../controllers/aiController");
+const {
+	askAssistant,
+	getAssistantHistory,
+	deleteAssistantConversationHistory,
+} = require("../controllers/aiController");
 
 const router = express.Router();
 /**
@@ -50,6 +54,8 @@ const router = express.Router();
  */
 
 router.post("/chat",  auth , askAssistant);
+router.get("/history", auth, getAssistantHistory);
+router.delete("/history/:conversationId", auth, deleteAssistantConversationHistory);
 
 
 module.exports = router;

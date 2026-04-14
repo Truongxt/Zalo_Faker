@@ -21,8 +21,10 @@ import {
 import CreateGroupModal from '@/components/chat/CreateGroupModal'
 import LabelManagerModal from '@/components/chat/LabelManagerModal'
 import LabelPickerModal from '@/components/chat/LabelPickerModal'
+import MuteConversationModal from '@/components/chat/MuteConversationModal'
 import { updateParticipantSetting, getLabels, joinGroupByInviteCode } from '@/services/api'
 import AddFriendModal from '@/components/friends/AddFriendModal'
+import { formatMuteUntilLabel, getParticipantMuteState } from '@/lib/muteUtils'
 
 export default function Sidebar() {
     const navigate = useNavigate()
@@ -37,7 +39,9 @@ export default function Sidebar() {
     const [showAddFriend, setShowAddFriend] = useState(false)
     const [showLabelManager, setShowLabelManager] = useState(false)
     const [labelPickerConv, setLabelPickerConv] = useState<Conversation | null>(null)
+    const [mutePickerConv, setMutePickerConv] = useState<Conversation | null>(null)
     const [activeLabelId, setActiveLabelId] = useState<string | null>(null)
+    const [, setMinuteTick] = useState(() => Date.now())
     const { labels, setLabels } = useChatStore()
 
     useEffect(() => {
@@ -45,6 +49,11 @@ export default function Sidebar() {
             getLabels().then(setLabels).catch(console.error)
         }
     }, [user, setLabels])
+
+    useEffect(() => {
+        const timer = window.setInterval(() => setMinuteTick(Date.now()), 60000)
+        return () => window.clearInterval(timer)
+    }, [])
 
     const filteredConversations = conversations.filter(conv => {
         const participants = conv.participants || []
@@ -146,22 +155,40 @@ export default function Sidebar() {
         }
     }
 
-    const handleToggleMute = async (e: React.MouseEvent, conv: Conversation) => {
-        e.stopPropagation()
+    const applyMuteSettings = async (conv: Conversation, settings: { isMuted: boolean; muteUntil: string | null }) => {
         if (!user) return
         const participants = conv.participants || []
-        const p = participants.find(p => p.userId === user.id)
-        const isMuted = !(p?.isMuted)
+        const nextParticipantState = {
+            isMuted: settings.isMuted,
+            muteUntil: settings.isMuted ? settings.muteUntil : null
+        }
+
         try {
-            await updateParticipantSetting(conv.id, user.id, { isMuted })
+            await updateParticipantSetting(conv.id, user.id, nextParticipantState)
             useChatStore.getState().updateConversation(conv.id, {
                 participants: participants.map(part =>
-                    String(part.userId) === String(user.id) ? { ...part, isMuted } : part
+                    String(part.userId) === String(user.id) ? { ...part, ...nextParticipantState } : part
                 )
             })
         } catch (err) {
-            console.error('Error toggling mute:', err)
+            console.error('Error updating mute settings:', err)
         }
+    }
+
+    const handleToggleMute = async (e: React.MouseEvent, conv: Conversation) => {
+        e.stopPropagation()
+        if (!user) return
+
+        const participants = conv.participants || []
+        const currentP = participants.find(p => String(p.userId) === String(user.id))
+        const muteState = getParticipantMuteState(currentP)
+
+        if (muteState.isMuted) {
+            await applyMuteSettings(conv, { isMuted: false, muteUntil: null })
+            return
+        }
+
+        setMutePickerConv(conv)
     }
 
     const sortedConversations = [...filteredConversations].sort((a, b) => {
@@ -332,7 +359,11 @@ export default function Sidebar() {
                                 const participants = conv.participants || []
                                 const currentP = participants.find(p => String(p.userId) === String(user?.id))
                                 const isPinned = currentP?.isPinned
-                                const isMuted = currentP?.isMuted
+                                const muteState = getParticipantMuteState(currentP)
+                                const isMuted = muteState.isMuted
+                                const muteTitle = isMuted
+                                    ? `Đã tắt thông báo ${formatMuteUntilLabel(muteState.muteUntil)}`
+                                    : 'Tắt thông báo'
 
                                 return (
                                     <div
@@ -370,7 +401,11 @@ export default function Sidebar() {
                                             <div className="flex items-center justify-between">
                                                 <h3 className="font-medium text-gray-900 dark:text-white truncate flex items-center gap-1">
                                                     {getConversationName(conv)}
-                                                    {isMuted && <BellOff className="w-3 h-3 text-gray-400" />}
+                                                    {isMuted && (
+                                                        <span title={muteTitle}>
+                                                            <BellOff className="w-3 h-3 text-gray-400" />
+                                                        </span>
+                                                    )}
                                                     {currentP?.labelIds?.slice(0, 2).map((lid: string) => {
                                                         const label = labels.find((l: any) => l._id === lid)
                                                         if (!label) return null
@@ -476,6 +511,19 @@ export default function Sidebar() {
                     conversation={labelPickerConv}
                     isOpen={!!labelPickerConv}
                     onClose={() => setLabelPickerConv(null)}
+                />
+            )}
+            {mutePickerConv && (
+                <MuteConversationModal
+                    conversationName={getConversationName(mutePickerConv)}
+                    isMuted={getParticipantMuteState(
+                        mutePickerConv.participants.find(p => String(p.userId) === String(user?.id))
+                    ).isMuted}
+                    muteUntil={getParticipantMuteState(
+                        mutePickerConv.participants.find(p => String(p.userId) === String(user?.id))
+                    ).muteUntil}
+                    onApply={(settings) => applyMuteSettings(mutePickerConv, settings)}
+                    onClose={() => setMutePickerConv(null)}
                 />
             )}
             <AddFriendModal

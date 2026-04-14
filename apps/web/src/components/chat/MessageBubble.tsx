@@ -2,13 +2,14 @@ import { useState, useRef, useEffect } from 'react'
 import { Message } from '@/stores/chatStore'
 import { formatDistanceToNow } from 'date-fns'
 import { vi } from 'date-fns/locale'
-import { Check, CheckCheck, Reply, SmilePlus, Trash2, Share, Pin } from 'lucide-react'
+import { Check, CheckCheck, Reply, SmilePlus, Trash2, Share, Pin, Star } from 'lucide-react'
 import VoicePlayer from './VoicePlayer'
 
 interface MessageBubbleProps {
     message: Message
     isSent: boolean
     showAvatar?: boolean
+    senderUserId?: string
     senderName?: string
     senderAvatar?: string
     replyMessage?: Message | null
@@ -21,6 +22,8 @@ interface MessageBubbleProps {
     canPin?: boolean
     participants?: Array<{ userId: string; fullName?: string }>
     isGroupChat?: boolean
+    onAvatarClick?: () => void
+    searchQuery?: string
 }
 
 const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '😡']
@@ -59,6 +62,7 @@ export default function MessageBubble({
     message,
     isSent,
     showAvatar = false,
+    senderUserId,
     senderName,
     senderAvatar,
     replyMessage,
@@ -71,15 +75,52 @@ export default function MessageBubble({
     canPin = false,
     participants = [],
     isGroupChat = false,
+    onAvatarClick,
+    searchQuery = '',
 }: MessageBubbleProps) {
     const [showReactionPicker, setShowReactionPicker] = useState(false)
     const [showConfirmRecall, setShowConfirmRecall] = useState(false)
     const reactionRef = useRef<HTMLDivElement>(null)
     const confirmRef = useRef<HTMLDivElement>(null)
     const isAnnouncement = Boolean(message.metadata?.isAnnouncement)
+    const isImportant = Boolean(message.metadata?.isImportant)
     const reactions = Array.isArray(message.reactions) ? message.reactions : []
     const readBy = Array.isArray(message.readBy) ? message.readBy : []
     const content = normalizeContent(message.content)
+    const highlightedBubbleClass = isImportant
+        ? 'border border-amber-300 bg-gradient-to-br from-amber-50 via-white to-orange-50 text-gray-900 ring-2 ring-amber-200/80 shadow-lg shadow-amber-100/80 dark:border-amber-700 dark:bg-gradient-to-br dark:from-amber-950/40 dark:via-dark-200 dark:to-orange-950/30 dark:text-white dark:ring-amber-800/70 dark:shadow-none'
+        : isAnnouncement
+            ? 'border border-amber-300 dark:border-amber-700 bg-amber-50/90 dark:bg-amber-900/20 text-gray-900 dark:text-amber-50'
+            : ''
+    const normalizedSearchQuery = searchQuery.trim()
+
+    const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+    const renderHighlightedText = (text?: string, className?: string) => {
+        const value = text || ''
+        if (!normalizedSearchQuery) {
+            return <p className={className}>{value}</p>
+        }
+
+        const parts = value.split(new RegExp(`(${escapeRegExp(normalizedSearchQuery)})`, 'gi'))
+
+        return (
+            <p className={className}>
+                {parts.map((part, index) => (
+                    part.toLowerCase() === normalizedSearchQuery.toLowerCase()
+                        ? (
+                            <mark
+                                key={`${part}-${index}`}
+                                className="rounded bg-amber-200/90 px-0.5 text-inherit dark:bg-amber-500/30"
+                            >
+                                {part}
+                            </mark>
+                        )
+                        : <span key={`${part}-${index}`}>{part}</span>
+                ))}
+            </p>
+        )
+    }
 
     // Format read receipt info for tooltip
     const getReadReceiptInfo = () => {
@@ -159,7 +200,7 @@ export default function MessageBubble({
                             className="max-w-[300px] rounded-lg cursor-pointer hover:opacity-95 transition-opacity"
                         />
                         {content.text && (
-                            <p className="mt-2 whitespace-pre-wrap [overflow-wrap:anywhere] [word-break:break-word]">{content.text}</p>
+                            renderHighlightedText(content.text, 'mt-2 whitespace-pre-wrap [overflow-wrap:anywhere] [word-break:break-word]')
                         )}
                     </div>
                 )
@@ -174,7 +215,7 @@ export default function MessageBubble({
                             className="max-w-[300px] rounded-lg"
                         />
                         {content.text && (
-                            <p className="mt-2 whitespace-pre-wrap [overflow-wrap:anywhere] [word-break:break-word]">{content.text}</p>
+                            renderHighlightedText(content.text, 'mt-2 whitespace-pre-wrap [overflow-wrap:anywhere] [word-break:break-word]')
                         )}
                     </div>
                 )
@@ -183,9 +224,7 @@ export default function MessageBubble({
                 return (
                     <div className="flex flex-col gap-2">
                         {content.text && (
-                            <p className="whitespace-pre-wrap [overflow-wrap:anywhere] [word-break:break-word]">
-                                {content.text}
-                            </p>
+                            renderHighlightedText(content.text, 'whitespace-pre-wrap [overflow-wrap:anywhere] [word-break:break-word]')
                         )}
                         <a
                             href={content.mediaUrl}
@@ -197,7 +236,7 @@ export default function MessageBubble({
                                 {content.fileName?.split('.').pop()?.toUpperCase() || 'FILE'}
                             </div>
                             <div className="flex-1 min-w-0">
-                                <p className="font-medium truncate">{content.fileName}</p>
+                                {renderHighlightedText(content.fileName, 'font-medium truncate')}
                                 <p className="text-sm opacity-70">
                                     {content.fileSize ? `${(content.fileSize / 1024).toFixed(1)} KB` : ''}
                                 </p>
@@ -226,7 +265,7 @@ export default function MessageBubble({
                 )
 
             default:
-                return <p className="whitespace-pre-wrap [overflow-wrap:anywhere] [word-break:break-word]">{content.text}</p>
+                return renderHighlightedText(content.text, 'whitespace-pre-wrap [overflow-wrap:anywhere] [word-break:break-word]')
         }
     }
 
@@ -245,19 +284,27 @@ export default function MessageBubble({
             <div className={`flex items-end gap-2 max-w-[75%] ${isSent ? 'flex-row-reverse' : ''}`}>
                 {/* Avatar for received messages */}
                 {!isSent && showAvatar && (
-                    senderAvatar ? (
-                        <img
-                            src={senderAvatar}
-                            alt={senderName || ''}
-                            className="w-8 h-8 rounded-full object-cover flex-shrink-0"
-                        />
-                    ) : (
-                        <div className="w-8 h-8 rounded-full bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center flex-shrink-0">
-                            <span className="text-xs font-medium text-primary-600 dark:text-primary-400">
-                                {(senderName || '?').charAt(0).toUpperCase()}
-                            </span>
-                        </div>
-                    )
+                    <button
+                        type="button"
+                        onClick={onAvatarClick}
+                        disabled={!onAvatarClick}
+                        className={`${onAvatarClick ? 'cursor-pointer' : 'cursor-default'} flex-shrink-0`}
+                        title={onAvatarClick ? `Xem trang cá nhân của ${senderName || 'người dùng'}` : undefined}
+                    >
+                        {senderAvatar ? (
+                            <img
+                                src={senderAvatar}
+                                alt={senderName || senderUserId || ''}
+                                className="w-8 h-8 rounded-full object-cover"
+                            />
+                        ) : (
+                            <div className="w-8 h-8 rounded-full bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center">
+                                <span className="text-xs font-medium text-primary-600 dark:text-primary-400">
+                                    {(senderName || '?').charAt(0).toUpperCase()}
+                                </span>
+                            </div>
+                        )}
+                    </button>
                 )}
                 {!isSent && !showAvatar && <div className="w-8" />}
 
@@ -276,11 +323,17 @@ export default function MessageBubble({
 
                     {/* Message bubble */}
                     <div
-                        className={`message-bubble ${isSent ? 'message-sent' : 'message-received'} ${isAnnouncement ? 'border border-amber-300 dark:border-amber-700 bg-amber-50/90 dark:bg-amber-900/20' : ''}`}
+                        className={`message-bubble ${isSent ? 'message-sent' : 'message-received'} ${highlightedBubbleClass}`}
                     >
                         {isAnnouncement && (
                             <div className="mb-1.5 inline-flex items-center rounded-full bg-amber-100 dark:bg-amber-900/40 px-2 py-0.5 text-[11px] font-semibold text-amber-700 dark:text-amber-300">
                                 Thông báo
+                            </div>
+                        )}
+                        {isImportant && (
+                            <div className="mb-1.5 inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+                                <Star className="h-3 w-3 fill-current" />
+                                Quan trọng
                             </div>
                         )}
                         {renderContent()}
