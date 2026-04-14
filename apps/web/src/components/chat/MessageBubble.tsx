@@ -30,6 +30,9 @@ const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '😡']
 
 const normalizeContent = (rawContent: any) => {
     if (typeof rawContent === 'string') {
+        if (rawContent.startsWith('http')) {
+            return { mediaUrl: rawContent }
+        }
         return { text: rawContent }
     }
 
@@ -84,6 +87,7 @@ export default function MessageBubble({
     const confirmRef = useRef<HTMLDivElement>(null)
     const isAnnouncement = Boolean(message.metadata?.isAnnouncement)
     const isImportant = Boolean(message.metadata?.isImportant)
+    const isForwarded = Boolean(message.metadata?.isForwarded)
     const reactions = Array.isArray(message.reactions) ? message.reactions : []
     const readBy = Array.isArray(message.readBy) ? message.readBy : []
     const content = normalizeContent(message.content)
@@ -227,7 +231,9 @@ export default function MessageBubble({
                             renderHighlightedText(content.text, 'whitespace-pre-wrap [overflow-wrap:anywhere] [word-break:break-word]')
                         )}
                         <a
-                            href={content.mediaUrl}
+                            href={/\.(docx|doc|xls|xlsx|ppt|pptx|pdf)$/i.test(content.mediaUrl || '') 
+                                ? `https://docs.google.com/viewer?url=${encodeURIComponent(content.mediaUrl || '')}` 
+                                : content.mediaUrl}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="flex items-center gap-3 p-3 bg-black/10 dark:bg-white/10 rounded-lg hover:bg-black/20 dark:hover:bg-white/20 transition-colors"
@@ -334,6 +340,12 @@ export default function MessageBubble({
                             <div className="mb-1.5 inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
                                 <Star className="h-3 w-3 fill-current" />
                                 Quan trọng
+                            </div>
+                        )}
+                        {isForwarded && (
+                            <div className={`mb-1 flex items-center gap-1.5 text-[10px] italic ${isSent ? 'text-white/90' : 'text-gray-600 dark:text-gray-300'}`}>
+                                <Share className="w-3 h-3" />
+                                <span>Tin nhắn này đã được chuyển tiếp</span>
                             </div>
                         )}
                         {renderContent()}

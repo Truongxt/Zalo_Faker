@@ -11,7 +11,9 @@ import {
   Alert,
   ActivityIndicator,
   ImageBackground,
+  Modal,
 } from "react-native";
+import * as Linking from "expo-linking";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as ImagePicker from "expo-image-picker";
@@ -25,7 +27,9 @@ import { userService, groupService } from "@/services";
 import { socketService } from "@/lib/socket";
 import { Avatar } from "@/components/ui/Avatar";
 import { ChatOptionsModal } from "@/components/chat/ChatOptionsModal";
+import { ForwardMessageModal } from "@/components/chat/ForwardMessageModal";
 import { GrayToast } from "@/components/ui";
+import { Swipeable, GestureHandlerRootView } from "react-native-gesture-handler";
 import type { Message } from "@/types";
 import { API_URL } from "@/constants/config";
 
@@ -47,7 +51,11 @@ async function uploadFile(
     body: formData,
   });
 
-  if (!res.ok) throw new Error("Upload thất bại");
+  if (!res.ok) {
+     const errorData = await res.json().catch(() => ({}));
+     const msg = errorData.error ? `${errorData.message}: ${errorData.error}` : (errorData.message || "Upload thất bại");
+     throw new Error(msg);
+  }
   const data = await res.json();
   return data.url as string;
 }
@@ -63,6 +71,53 @@ function formatAudioTime(millis: number) {
   const seconds = totalSeconds % 60;
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
+
+const normalizeContent = (rawContent: any) => {
+  if (typeof rawContent === "string") {
+    if (rawContent.startsWith("http")) {
+      return { mediaUrl: rawContent, text: "" };
+    }
+    return { text: rawContent };
+  }
+  if (!rawContent || typeof rawContent !== "object") {
+    return {};
+  }
+  return {
+    text: rawContent.text || rawContent.message || rawContent.content,
+    mediaUrl: rawContent.mediaUrl || rawContent.url || rawContent.fileUrl,
+    fileName: rawContent.fileName,
+    fileSize: rawContent.fileSize,
+    duration: rawContent.duration,
+  };
+};
+
+const handleOpenFile = async (url: string) => {
+  if (!url) return;
+  try {
+    let finalUrl = url;
+    const isDoc = /\.(docx|doc|xls|xlsx|ppt|pptx|pdf)$/i.test(url);
+    
+    // For documents, use Google Docs Viewer for a better preview experience
+    if (isDoc) {
+      finalUrl = `https://docs.google.com/viewer?url=${encodeURIComponent(url)}`;
+    }
+
+    const supported = await Linking.canOpenURL(finalUrl);
+    if (supported) {
+      await Linking.openURL(finalUrl);
+    } else {
+      await Linking.openURL(finalUrl);
+    }
+  } catch (err) {
+    console.error("Linking error:", err);
+    // If Google Docs Viewer fails, try original URL
+    try {
+       await Linking.openURL(url);
+    } catch {
+       Alert.alert("Lỗi", "Không thể mở file. Hãy đảm bảo bạn có ứng dụng hỗ trợ định dạng này.");
+    }
+  }
+};
 
 function getPresenceLabel(
   isOnline: boolean,
@@ -257,22 +312,20 @@ function VoiceMessagePlayer({
 
 type MessageItemProps = {
   msg: Message;
+  allMessages: Message[];
   isMe: boolean;
   onLongPress: (msg: Message) => void;
+  onSwipeReply: (msg: Message) => void;
+  onReactClick: (msg: Message) => void;
 };
 
-function MessageItem({ msg, isMe, onLongPress }: MessageItemProps) {
-  const bg = isMe ? "#0068FF" : "#F3F4F6";
-  const textColor = isMe ? "#fff" : "#111827";
-  const voiceAttachment = (msg.attachments || []).find(
-    (attachment) => attachment.type === "voice",
-  );
-  const fallbackVoiceUrl =
-    typeof msg.content === "string" && /^https?:\/\//i.test(msg.content)
-      ? msg.content
-      : undefined;
-  const voiceUrl = voiceAttachment?.url || fallbackVoiceUrl;
-  const voiceDuration = voiceAttachment?.duration;
+function MessageItem({ msg, allMessages, isMe, onLongPress, onSwipeReply, onReactClick }: MessageItemProps) {
+  const bg = isMe ? "#0068FF" : "#fff"; // White for received like Zalo
+  const isImportant = !!msg.metadata?.isImportant;
+  const isForwarded = !!msg.metadata?.isForwarded;
+  const textColor = isImportant ? "#111827" : (isMe ? "#fff" : "#111827");
+  
+  const repliedMsg = msg.replyTo ? allMessages.find(m => m.id === msg.replyTo) : null;
 
   const renderContent = () => {
     if (msg.isDeleted) {
@@ -285,12 +338,19 @@ function MessageItem({ msg, isMe, onLongPress }: MessageItemProps) {
       );
     }
 
+    const content = normalizeContent(msg.content);
+    const voiceAttachment = (msg.attachments || []).find(
+      (a) => a.type === "voice",
+    );
+    const voiceUrl = content.mediaUrl || voiceAttachment?.url;
+    const voiceDuration = content.duration || voiceAttachment?.duration;
+
     switch (msg.type) {
       case "image":
         return (
           <Image
-            source={{ uri: (msg as any).attachments?.[0]?.url || msg.content }}
-            style={{ width: 200, height: 150, borderRadius: 12 }}
+            source={{ uri: content.mediaUrl || (msg as any).attachments?.[0]?.url }}
+            style={{ width: 220, height: 160, borderRadius: 12 }}
             resizeMode="cover"
           />
         );
@@ -308,23 +368,51 @@ function MessageItem({ msg, isMe, onLongPress }: MessageItemProps) {
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
             <Ionicons name="mic-off" size={18} color={textColor} />
             <Text style={{ color: textColor }}>
-              Tin nhan thoai (khong co duong dan)
+              Tin nhắn thoại không khả dụng
             </Text>
           </View>
         );
       case "file":
+        const fileName = content.fileName || (msg as any).attachments?.[0]?.name || "File đính kèm";
+        const fileSize = content.fileSize || (msg as any).attachments?.[0]?.size;
+        
         return (
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-            <Ionicons name="document-outline" size={18} color={textColor} />
-            <Text style={{ color: textColor, flex: 1 }} numberOfLines={1}>
-              {(msg as any).attachments?.[0]?.name || "File dinh kem"}
-            </Text>
-          </View>
+          <TouchableOpacity 
+            onPress={() => handleOpenFile(content.mediaUrl)}
+            style={{ 
+              backgroundColor: "rgba(255,255,255,0.15)",
+              padding: 10,
+              borderRadius: 12,
+              flexDirection: "row", 
+              alignItems: "center", 
+              gap: 12,
+              minWidth: 200,
+            }}
+          >
+            <View style={{ width: 40, height: 40, backgroundColor: "#0068FF", borderRadius: 8, alignItems: "center", justifyContent: "center" }}>
+               <Text style={{ color: "#fff", fontWeight: "700", fontSize: 10 }}>
+                 {fileName.split(".").pop()?.toUpperCase() || "FILE"}
+               </Text>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text 
+                style={{ color: textColor, fontWeight: "600", fontSize: 13 }} 
+                numberOfLines={1}
+              >
+                {fileName}
+              </Text>
+              {fileSize && (
+                <Text style={{ color: textColor, opacity: 0.7, fontSize: 11 }}>
+                  {(fileSize / 1024).toFixed(1)} KB
+                </Text>
+              )}
+            </View>
+          </TouchableOpacity>
         );
       case "sticker":
         return (
           <Image
-            source={{ uri: msg.content }}
+            source={{ uri: content.mediaUrl || (typeof msg.content === 'string' ? msg.content : '') }}
             style={{ width: 100, height: 100 }}
             resizeMode="contain"
           />
@@ -332,7 +420,7 @@ function MessageItem({ msg, isMe, onLongPress }: MessageItemProps) {
       default:
         return (
           <Text style={{ color: textColor, lineHeight: 20 }}>
-            {msg.content}
+            {content.text || ""}
           </Text>
         );
     }
@@ -347,73 +435,158 @@ function MessageItem({ msg, isMe, onLongPress }: MessageItemProps) {
   );
 
   return (
-    <TouchableOpacity
-      onLongPress={() => onLongPress(msg)}
-      activeOpacity={0.8}
-      style={{
-        flexDirection: "row",
-        justifyContent: isMe ? "flex-end" : "flex-start",
-        marginHorizontal: 12,
-        marginVertical: 3,
-      }}
+    <Swipeable
+      renderRightActions={isMe ? undefined : () => null}
+      renderLeftActions={isMe ? () => null : undefined}
+      onSwipeableWillOpen={() => onSwipeReply(msg)}
     >
-      {!isMe && (
-        <Avatar
-          name={msg.senderName || "?"}
-          uri={(msg as any).senderAvatar}
-          size={32}
-        />
-      )}
-
-      <View style={{ maxWidth: "72%", marginLeft: isMe ? 0 : 8 }}>
+      <View
+        style={{
+          flexDirection: "row",
+          justifyContent: isMe ? "flex-end" : "flex-start",
+          marginHorizontal: 12,
+          marginVertical: 3,
+          alignItems: "flex-end", // Align icons to bottom of bubble
+          gap: 6
+        }}
+      >
         {!isMe && (
-          <Text
-            style={{
-              fontSize: 11,
-              color: "#6B7280",
-              marginBottom: 2,
-              marginLeft: 4,
-            }}
-          >
-            {msg.senderName}
-          </Text>
+          <Avatar
+            name={msg.senderName || "?"}
+            uri={(msg as any).senderAvatar}
+            size={32}
+          />
         )}
 
-        <View
-          style={{
-            backgroundColor: bg,
-            borderRadius: 18,
-            paddingHorizontal: 12,
-            paddingVertical: 8,
-          }}
-        >
-          {renderContent()}
-        </View>
+        {isMe && !msg.isDeleted && (
+          <TouchableOpacity 
+            onPress={() => onReactClick(msg)}
+            style={{ 
+              padding: 6,
+              backgroundColor: "#fff",
+              borderRadius: 20,
+              borderWidth: 1,
+              borderColor: "#F3F4F6",
+              marginBottom: 10,
+            }}
+          >
+            <Ionicons name="happy-outline" size={16} color="#9CA3AF" />
+          </TouchableOpacity>
+        )}
 
-        <View
-          style={{
-            flexDirection: "row",
-            justifyContent: isMe ? "flex-end" : "flex-start",
-            gap: 6,
-            marginTop: 2,
-          }}
+        <TouchableOpacity
+          onLongPress={() => onLongPress(msg)}
+          activeOpacity={0.8}
+          style={{ maxWidth: "72%", marginLeft: isMe ? 0 : 4 }}
         >
-          <Text style={{ fontSize: 10, color: "#9CA3AF" }}>
-            {formatTime(msg.createdAt)}
-          </Text>
-          {Object.keys(topReactions).length > 0 && (
-            <View style={{ flexDirection: "row" }}>
-              {Object.entries(topReactions).map(([emoji, count]) => (
-                <Text key={emoji} style={{ fontSize: 11 }}>
-                  {emoji}
-                  {count > 1 ? count : ""}
-                </Text>
-              ))}
-            </View>
+          {!isMe && (
+            <Text
+              style={{
+                fontSize: 11,
+                color: "#6B7280",
+                marginBottom: 2,
+                marginLeft: 4,
+              }}
+            >
+              {msg.senderName}
+            </Text>
           )}
-        </View>
+
+          <View
+            style={{
+              backgroundColor: isImportant ? "#FFF9C4" : bg,
+              borderRadius: 18,
+              paddingHorizontal: 12,
+              paddingVertical: 8,
+              borderWidth: isImportant ? 2 : (isMe ? 0 : 1),
+              borderColor: isImportant ? "#FFD54F" : "#E5E7EB",
+              shadowColor: "#000",
+              shadowOffset: { width: 0, height: isImportant ? 4 : 0 },
+              shadowOpacity: isImportant ? 0.1 : 0,
+              elevation: isImportant ? 2 : 0,
+            }}
+          >
+            {repliedMsg && !msg.isDeleted && (
+               <View style={{ 
+                 backgroundColor: isMe ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.05)",
+                 padding: 8,
+                 borderRadius: 10,
+                 borderLeftWidth: 3,
+                 borderLeftColor: isMe ? "#fff" : "#0068FF",
+                 marginBottom: 6,
+                 minWidth: 120
+               }}>
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: isMe ? "#fff" : "#0068FF" }}>
+                    {repliedMsg.senderName}
+                  </Text>
+                  <Text style={{ fontSize: 13, color: isMe ? "#fff" : "#4B5563" }} numberOfLines={1}>
+                    {repliedMsg.isDeleted ? "Tin nhắn đã bị thu hồi" : (repliedMsg.content?.text || (repliedMsg.type === 'image' ? '[Hình ảnh]' : '[File]'))}
+                  </Text>
+               </View>
+            )}
+            {isForwarded && (
+               <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4, opacity: 0.8 }}>
+                  <Ionicons 
+                    name="share-social-outline" 
+                    size={12} 
+                    color={isImportant ? "#F59E0B" : (isMe ? "#fff" : "#6B7280")} 
+                  />
+                  <Text 
+                    style={{ 
+                      fontSize: 10, 
+                      color: isImportant ? "#F59E0B" : (isMe ? "#fff" : "#6B7280"), 
+                      fontStyle: 'italic', 
+                      marginLeft: 4 
+                    }}
+                  >
+                    Tin nhắn này đã được chuyển tiếp
+                  </Text>
+               </View>
+            )}
+            {renderContent()}
+          </View>
+
+          <View
+            style={{
+              flexDirection: "row",
+              justifyContent: isMe ? "flex-end" : "flex-start",
+              gap: 6,
+              marginTop: 2,
+            }}
+          >
+            <Text style={{ fontSize: 10, color: "#9CA3AF" }}>
+              {formatTime(msg.createdAt)}
+            </Text>
+            {Object.keys(topReactions).length > 0 && (
+              <View style={{ flexDirection: "row" }}>
+                {Object.entries(topReactions).map(([emoji, count]) => (
+                  <Text key={emoji} style={{ fontSize: 11 }}>
+                    {emoji}
+                    {count > 1 ? count : ""}
+                  </Text>
+                ))}
+              </View>
+            )}
+          </View>
+        </TouchableOpacity>
+
+        {!isMe && !msg.isDeleted && (
+          <TouchableOpacity 
+            onPress={() => onReactClick(msg)}
+            style={{ 
+              padding: 6,
+              backgroundColor: "#fff",
+              borderRadius: 20,
+              borderWidth: 1,
+              borderColor: "#F3F4F6",
+              marginBottom: 10,
+            }}
+          >
+            <Ionicons name="happy-outline" size={16} color="#9CA3AF" />
+          </TouchableOpacity>
+        )}
       </View>
-    </TouchableOpacity>
+    </Swipeable>
   );
 }
 
@@ -432,9 +605,17 @@ export default function ChatRoomScreen() {
   const [text, setText] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
+  const [importantMode, setImportantMode] = useState(false);
+  const [emojiPickerVisible, setEmojiPickerVisible] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recording, setRecording] = useState<Audio.Recording | null>(null);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const recordingTimer = useRef<NodeJS.Timeout | null>(null);
   const [showReactions, setShowReactions] = useState(false);
+  const [showForward, setShowForward] = useState(false);
   const [optionsVisible, setOptionsVisible] = useState(false);
   const [selectedMsg, setSelectedMsg] = useState<Message | null>(null);
+  const [replyTo, setReplyTo] = useState<string | null>(null);
   const [typingUsers, setTypingUsers] = useState<string[]>([]);
   const [isPartnerOnline, setIsPartnerOnline] = useState(false);
   const [partnerLastSeenAt, setPartnerLastSeenAt] = useState<string | null>(
@@ -465,6 +646,8 @@ export default function ChatRoomScreen() {
       : "";
 
   // Re-render presence label every minute so "X phút trước" updates naturally.
+  const repliedMessage = replyTo ? convMessages.find(m => m.id === replyTo) : null;
+
   useEffect(() => {
     const interval = setInterval(() => {
       setPresenceTick((prev) => prev + 1);
@@ -627,6 +810,110 @@ export default function ChatRoomScreen() {
     if (convId && user) {
       socketService.emit("chat:typing", { conversationId: convId });
     }
+    if (val.trim() && isRecording) {
+      handleCancelRecording();
+    }
+  };
+
+  const handleStartRecording = async () => {
+    try {
+      const permission = await Audio.requestPermissionsAsync();
+      if (permission.status !== "granted") {
+        Alert.alert("Lỗi", "Cần quyền truy cập micro để ghi âm");
+        return;
+      }
+
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+      });
+
+      const { recording } = await Audio.Recording.createAsync(
+        Audio.RecordingOptionsPresets.HIGH_QUALITY
+      );
+      setRecording(recording);
+      setIsRecording(true);
+      setRecordingTime(0);
+
+      recordingTimer.current = setInterval(() => {
+        setRecordingTime((prev) => prev + 1);
+      }, 1000);
+    } catch (err) {
+      console.error("Failed to start recording", err);
+    }
+  };
+
+  const handleStopAndSendRecording = async () => {
+    if (!recording) return;
+
+    try {
+      if (recordingTimer.current) clearInterval(recordingTimer.current);
+      setIsRecording(false);
+      await recording.stopAndUnloadAsync();
+      const uri = recording.getURI();
+      if (!uri) return;
+
+      const duration = recordingTime;
+      setRecording(null);
+      setRecordingTime(0);
+
+      setIsSending(true);
+      const audioUrl = await uploadFile(
+        uri,
+        `voice_${Date.now()}.m4a`,
+        "audio/m4a",
+        accessToken
+      );
+
+      const metadata = { isImportant: importantMode };
+      const voiceMsg: Message = {
+        id: `temp-voice-${Date.now()}`,
+        conversationId: convId,
+        senderId: user?.id || "",
+        type: "voice",
+        content: { mediaUrl: audioUrl, duration },
+        metadata,
+        reactions: [],
+        readBy: [],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      addMessage(convId, voiceMsg);
+      await chatService.sendMessage(convId, {
+        type: "voice",
+        content: { mediaUrl: audioUrl, duration },
+        metadata,
+      });
+      setImportantMode(false);
+    } catch (err) {
+      console.error("Failed to stop recording", err);
+      Alert.alert("Lỗi", "Không thể gửi tin nhắn thoại");
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  const handleCancelRecording = async () => {
+    if (!recording) return;
+    try {
+      if (recordingTimer.current) clearInterval(recordingTimer.current);
+      setIsRecording(false);
+      await recording.stopAndUnloadAsync();
+      setRecording(null);
+      setRecordingTime(0);
+    } catch (err) {
+      console.error("Failed to cancel recording", err);
+    }
+  };
+
+  const handleReact = async (msgId: string, emoji: string) => {
+    try {
+      await chatService.addReaction(convId, msgId, emoji);
+      setShowReactions(false);
+    } catch {
+      GrayToast("Không thể thả cảm xúc");
+    }
   };
 
   const handleSend = async () => {
@@ -638,7 +925,14 @@ export default function ChatRoomScreen() {
       socketService.emit("chat:stop_typing", { conversationId: convId });
     }
     try {
-      await chatService.sendMessage(convId, { type: "text", content: trimmed });
+      await chatService.sendMessage(convId, { 
+        type: "text", 
+        content: trimmed,
+        replyTo: replyTo || undefined,
+        metadata: { isImportant: importantMode } 
+      });
+      setImportantMode(false);
+      setReplyTo(null);
     } catch {
       GrayToast("Không thể gửi tin nhắn");
     } finally {
@@ -669,8 +963,10 @@ export default function ChatRoomScreen() {
       const url = await uploadFile(asset.uri, name, mimeType, accessToken);
       await chatService.sendMessage(convId, {
         type: isVideo ? "video" : "image",
-        content: url,
+        content: { mediaUrl: url, text: "" },
+        metadata: { isImportant: importantMode }
       });
+      setImportantMode(false);
     } catch {
       GrayToast("Không thể gửi ảnh/video");
     } finally {
@@ -692,7 +988,12 @@ export default function ChatRoomScreen() {
         asset.mimeType || "application/octet-stream",
         accessToken,
       );
-      await chatService.sendMessage(convId, { type: "file", content: url });
+      await chatService.sendMessage(convId, { 
+        type: "file", 
+        content: { mediaUrl: url, fileName: asset.name, fileSize: asset.size },
+        metadata: { isImportant: importantMode }
+      });
+      setImportantMode(false);
     } catch {
       GrayToast("Không thể gửi file");
     } finally {
@@ -750,6 +1051,19 @@ export default function ChatRoomScreen() {
       });
     }
 
+    if (!msg.isDeleted) {
+      options.push({
+        text: "Trả lời",
+        onPress: () => {
+           setReplyTo(msg.id);
+        },
+      });
+      options.push({
+        text: "Chuyển tiếp",
+        onPress: () => setShowForward(true),
+      });
+    }
+
     options.push({ text: "Hủy", style: "cancel" });
     Alert.alert("Tùy chọn", undefined, options);
   };
@@ -793,21 +1107,23 @@ export default function ChatRoomScreen() {
     }
   };
 
-  const handleReact = async (emoji: string) => {
-    setShowReactions(false);
-    if (!selectedMsg) return;
-    await chatService.addReaction(convId, selectedMsg.id, emoji);
-  };
 
   const renderMessage = ({ item }: { item: Message }) => (
     <MessageItem
       msg={item}
+      allMessages={convMessages}
       isMe={item.senderId === user?.id}
       onLongPress={handleLongPress}
+      onSwipeReply={(m) => setReplyTo(m.id)}
+      onReactClick={(m) => {
+        setSelectedMsg(m);
+        setShowReactions(true);
+      }}
     />
   );
 
   return (
+    <GestureHandlerRootView style={{ flex: 1 }}>
     <ImageBackgroundWrapper background={conversation?.background}>
       <KeyboardAvoidingView
         style={{ flex: 1, backgroundColor: "transparent" }}
@@ -950,37 +1266,113 @@ export default function ChatRoomScreen() {
         />
       )}
 
-      {/* Reaction picker */}
-      {showReactions && (
-        <View
-          style={{
-            flexDirection: "row",
-            backgroundColor: "#fff",
-            borderRadius: 24,
-            marginHorizontal: 16,
-            marginBottom: 8,
-            padding: 8,
-            gap: 8,
-            shadowColor: "#000",
-            shadowOpacity: 0.1,
-            shadowRadius: 10,
-            elevation: 4,
-          }}
-        >
-          {REACTIONS.map((emoji) => (
-            <TouchableOpacity
-              key={emoji}
-              onPress={() => handleReact(emoji)}
-              style={{ padding: 4 }}
-            >
-              <Text style={{ fontSize: 24 }}>{emoji}</Text>
-            </TouchableOpacity>
-          ))}
-          <TouchableOpacity
-            onPress={() => setShowReactions(false)}
-            style={{ padding: 4 }}
+      {/* Reaction picker overlay */}
+      {showReactions && selectedMsg && (
+        <View style={{ 
+          position: 'absolute', 
+          bottom: 100, // Float above input
+          left: 20, 
+          right: 20, 
+          alignItems: 'center',
+          zIndex: 9999
+        }}>
+           <View
+            style={{
+              flexDirection: "row",
+              backgroundColor: "#fff",
+              borderRadius: 40,
+              paddingHorizontal: 16,
+              paddingVertical: 10,
+              gap: 16,
+              shadowColor: "#000",
+              shadowOffset: { width: 0, height: 8 },
+              shadowOpacity: 0.15,
+              shadowRadius: 15,
+              elevation: 8,
+              alignItems: 'center'
+            }}
           >
-            <Ionicons name="close-circle-outline" size={24} color="#6B7280" />
+            {["👍", "❤️", "😂", "😮", "😢", "😡"].map((emoji) => (
+              <TouchableOpacity
+                key={emoji}
+                onPress={() => handleReact(selectedMsg.id, emoji)}
+                style={{ padding: 4 }}
+              >
+                <Text style={{ fontSize: 28 }}>{emoji}</Text>
+              </TouchableOpacity>
+            ))}
+            <View style={{ width: 1, height: 24, backgroundColor: '#F3F4F6' }} />
+            <TouchableOpacity onPress={() => setShowReactions(false)}>
+              <Ionicons name="close-circle-outline" size={24} color="#9CA3AF" />
+            </TouchableOpacity>
+          </View>
+
+          {/* Action Icons Row */}
+          <View
+            style={{
+              flexDirection: "row",
+              backgroundColor: "#fff",
+              borderRadius: 20,
+              marginTop: 12,
+              paddingHorizontal: 24,
+              paddingVertical: 12,
+              gap: 32,
+              shadowColor: "#000",
+              shadowOffset: { width: 0, height: 4 },
+              shadowOpacity: 0.1,
+              shadowRadius: 10,
+              elevation: 4,
+              borderWidth: 1,
+              borderColor: 'rgba(0,0,0,0.05)',
+            }}
+          >
+             <TouchableOpacity onPress={() => {
+                setShowReactions(false);
+                if (selectedMsg) {
+                   socketService.emit("chat:recall", {
+                      conversationId: convId,
+                      messageId: selectedMsg.id,
+                      senderId: user?.id,
+                    });
+                    chatService.deleteMessage(convId, selectedMsg.id);
+                }
+             }}>
+                <Ionicons name="trash-outline" size={22} color="#EF4444" />
+             </TouchableOpacity>
+
+             <TouchableOpacity onPress={() => setShowReactions(false)}>
+                <Ionicons name="happy-outline" size={22} color="#4B5563" />
+             </TouchableOpacity>
+
+             <TouchableOpacity onPress={() => {
+                setShowReactions(false);
+                setShowForward(true);
+             }}>
+                <Ionicons name="share-outline" size={22} color="#4B5563" />
+             </TouchableOpacity>
+
+             <TouchableOpacity onPress={() => {
+                setShowReactions(false);
+                if (selectedMsg) setReplyTo(selectedMsg.id);
+             }}>
+                <Ionicons name="return-up-back-outline" size={22} color="#4B5563" />
+             </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {/* Reply Preview */}
+      {replyTo && (
+        <View style={{ backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#F3F4F6', padding: 8, flexDirection: 'row', alignItems: 'center' }}>
+          <View style={{ width: 4, height: 30, backgroundColor: '#0068FF', borderRadius: 2, marginRight: 8 }} />
+          <View style={{ flex: 1 }}>
+             <Text style={{ fontSize: 11, fontWeight: '700', color: '#0068FF' }}>Trả lời {repliedMessage?.senderName || "tin nhắn"}</Text>
+             <Text style={{ fontSize: 13, color: '#4B5563' }} numberOfLines={1}>
+                {repliedMessage?.content?.text || (repliedMessage?.type === 'image' ? '[Hình ảnh]' : (repliedMessage?.type === 'video' ? '[Video]' : '[File]'))}
+             </Text>
+          </View>
+          <TouchableOpacity onPress={() => setReplyTo(null)} style={{ padding: 4 }}>
+             <Ionicons name="close-circle" size={20} color="#9CA3AF" />
           </TouchableOpacity>
         </View>
       )}
@@ -989,59 +1381,118 @@ export default function ChatRoomScreen() {
       <View
         style={{
           flexDirection: "row",
-          alignItems: "flex-end",
+          alignItems: "center",
           backgroundColor: "#fff",
           paddingHorizontal: 8,
           paddingVertical: 8,
           paddingBottom: Math.max(insets.bottom, 8),
           borderTopWidth: 1,
           borderTopColor: "#F3F4F6",
-          gap: 6,
+          gap: 4,
         }}
       >
-        <TouchableOpacity onPress={handlePickImage} style={{ padding: 8 }}>
-          <Ionicons name="image-outline" size={24} color="#6B7280" />
-        </TouchableOpacity>
-        <TouchableOpacity onPress={handlePickFile} style={{ padding: 8 }}>
-          <Ionicons name="attach-outline" size={24} color="#6B7280" />
-        </TouchableOpacity>
+        {!isRecording && (
+          <>
+            <TouchableOpacity onPress={handlePickImage} style={{ padding: 6 }}>
+              <Ionicons name="image-outline" size={24} color="#6B7280" />
+            </TouchableOpacity>
+            <TouchableOpacity onPress={handlePickFile} style={{ padding: 6 }}>
+              <Ionicons name="attach-outline" size={24} color="#6B7280" />
+            </TouchableOpacity>
+          </>
+        )}
 
-        <TextInput
-          value={text}
-          onChangeText={handleTextChange}
-          placeholder="Nhập tin nhắn..."
-          placeholderTextColor="#9CA3AF"
-          multiline
+        <View
           style={{
             flex: 1,
+            flexDirection: "row",
+            alignItems: "center",
             backgroundColor: "#F3F4F6",
             borderRadius: 20,
-            paddingHorizontal: 14,
-            paddingVertical: 8,
-            fontSize: 15,
-            color: "#111827",
-            maxHeight: 120,
-          }}
-        />
-
-        <TouchableOpacity
-          onPress={handleSend}
-          disabled={!text.trim() || isSending}
-          style={{
-            backgroundColor: text.trim() && !isSending ? "#0068FF" : "#D1D5DB",
-            width: 40,
-            height: 40,
-            borderRadius: 20,
-            alignItems: "center",
-            justifyContent: "center",
+            paddingHorizontal: 12,
+            minHeight: 40,
+            borderWidth: importantMode ? 1.5 : 0,
+            borderColor: importantMode ? "#F59E0B" : "transparent",
           }}
         >
-          {isSending ? (
-            <ActivityIndicator size="small" color="#fff" />
+          {isRecording ? (
+            <View style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+              <View style={{ flexDirection: "row", alignItems: "center" }}>
+                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: "#EF4444", marginRight: 8 }} />
+                <Text style={{ fontSize: 15, color: "#111827" }}>
+                  {Math.floor(recordingTime / 60)}:{String(recordingTime % 60).padStart(2, "0")}
+                </Text>
+              </View>
+              <TouchableOpacity onPress={handleCancelRecording}>
+                <Text style={{ color: "#EF4444", fontWeight: "500" }}>Hủy</Text>
+              </TouchableOpacity>
+            </View>
           ) : (
-            <Ionicons name="send" size={18} color="#fff" />
+            <>
+              <TextInput
+                value={text}
+                onChangeText={handleTextChange}
+                placeholder="Nhập tin nhắn..."
+                placeholderTextColor="#9CA3AF"
+                multiline
+                style={{
+                  flex: 1,
+                  paddingVertical: 8,
+                  fontSize: 15,
+                  color: "#111827",
+                  maxHeight: 120,
+                }}
+              />
+              <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
+                <TouchableOpacity onPress={() => setImportantMode(!importantMode)}>
+                  <Ionicons 
+                    name={importantMode ? "star" : "star-outline"} 
+                    size={20} 
+                    color={importantMode ? "#F59E0B" : "#6B7280"} 
+                  />
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => setEmojiPickerVisible(true)}>
+                  <Ionicons name="happy-outline" size={22} color="#6B7280" />
+                </TouchableOpacity>
+              </View>
+            </>
           )}
-        </TouchableOpacity>
+        </View>
+
+        {(!text.trim() && !isRecording) ? (
+          <TouchableOpacity
+            onPress={handleStartRecording}
+            style={{
+              backgroundColor: "#0068FF",
+              width: 40,
+              height: 40,
+              borderRadius: 20,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Ionicons name="mic-outline" size={22} color="#fff" />
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            onPress={isRecording ? handleStopAndSendRecording : handleSend}
+            disabled={isSending}
+            style={{
+              backgroundColor: !isSending ? "#0068FF" : "#D1D5DB",
+              width: 40,
+              height: 40,
+              borderRadius: 20,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            {isSending ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <Ionicons name={isRecording ? "checkmark" : "send"} size={isRecording ? 24 : 18} color="#fff" />
+            )}
+          </TouchableOpacity>
+        ) }
       </View>
         {conversation && (
            <ChatOptionsModal
@@ -1050,8 +1501,24 @@ export default function ChatRoomScreen() {
              conversation={conversation}
            />
         )}
+
+        < EmojiPickerModal 
+           visible={emojiPickerVisible}
+           onClose={() => setEmojiPickerVisible(false)}
+           onSelect={(emoji) => {
+             setText((prev) => prev + emoji);
+             setEmojiPickerVisible(false);
+           }}
+        />
+
+        <ForwardMessageModal
+           visible={showForward}
+           onClose={() => setShowForward(false)}
+           message={selectedMsg}
+        />
       </KeyboardAvoidingView>
     </ImageBackgroundWrapper>
+    </GestureHandlerRootView>
   );
 }
 
@@ -1060,4 +1527,39 @@ function ImageBackgroundWrapper({ background, children }: { background?: string,
     return <ImageBackground source={{ uri: background }} style={{ flex: 1 }} resizeMode="cover">{children}</ImageBackground>;
   }
   return <View style={{ flex: 1, backgroundColor: background || "#F9FAFB" }}>{children}</View>;
+}
+
+function EmojiPickerModal({ visible, onClose, onSelect, title }: { visible: boolean, onClose: () => void, onSelect: (emoji: string) => void, title?: string }) {
+  const emojis = ["👍", "❤️", "😂", "😮", "😢", "😡", "🙏", "🔥", "✨", "🎉", "💯", "✅", "❌", "❓", "❗", "🤝", "💪", "🚀", "🌈", "🎈", "🎂", "☕", "🍕", "🍔"];
+  const insets = useSafeAreaInsets();
+  
+  if (!visible) return null;
+  
+  return (
+    <Modal visible={visible} transparent animationType="slide">
+      <TouchableOpacity 
+        style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.3)" }} 
+        activeOpacity={1} 
+        onPress={onClose} 
+      >
+        <View style={{ marginTop: "auto", backgroundColor: "#fff", borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingBottom: insets.bottom + 16 }}>
+          <View style={{ width: 40, height: 4, backgroundColor: "#E5E7EB", borderRadius: 2, alignSelf: "center", marginVertical: 12 }} />
+          <View style={{ paddingHorizontal: 16 }}>
+             <Text style={{ fontSize: 16, fontWeight: "700", color: "#111827", marginBottom: 16 }}>{title || "Chọn biểu tượng"}</Text>
+             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12, justifyContent: "space-between" }}>
+                {emojis.map((emoji) => (
+                  <TouchableOpacity 
+                    key={emoji} 
+                    onPress={() => onSelect(emoji)} 
+                    style={{ width: 50, height: 50, alignItems: "center", justifyContent: "center", backgroundColor: "#F3F4F6", borderRadius: 12 }}
+                  >
+                    <Text style={{ fontSize: 24 }}>{emoji}</Text>
+                  </TouchableOpacity>
+                ))}
+             </View>
+          </View>
+        </View>
+      </TouchableOpacity>
+    </Modal>
+  );
 }

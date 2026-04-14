@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useChatStore } from "@/stores/chatStore";
 import { useAuthStore } from "@/stores/authStore";
 import { API_URL } from "@/constants/config";
@@ -39,6 +40,7 @@ export function ChatOptionsModal({
   onClose,
   conversation,
 }: ChatOptionsModalProps) {
+  const insets = useSafeAreaInsets();
   const { user, accessToken } = useAuthStore();
   const {
     labels,
@@ -194,7 +196,7 @@ export function ChatOptionsModal({
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
-      <View style={{ flex: 1, backgroundColor: "#fff" }}>
+      <View style={{ flex: 1, backgroundColor: "#fff", paddingTop: insets.top }}>
         <View
           style={{
             flexDirection: "row",

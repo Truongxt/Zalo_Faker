@@ -89,7 +89,7 @@ export default function ChatRoom() {
         updateConversation,
     } = useChatStore()
 
-    // ✅ Dùng selector để tự re-render khi có tin mới
+    // âœ… DĂ¹ng selector Ä‘á»ƒ tá»± re-render khi cĂ³ tin má»›i
     const messages = useChatStore(
         state => state.messages[conversationId || ''] || []
     )
@@ -162,7 +162,7 @@ export default function ChatRoom() {
         }
     }, [conversationId, user?.id, updateMessage])
 
-    // Click outside emoji picker & menu & sticker picker → đóng
+    // Click outside emoji picker & menu & sticker picker â†’ Ä‘Ă³ng
     useEffect(() => {
         const handleClickOutside = (e: MouseEvent) => {
             if (emojiPickerRef.current && !emojiPickerRef.current.contains(e.target as Node)) {
@@ -181,7 +181,7 @@ export default function ChatRoom() {
         return () => document.removeEventListener('mousedown', handleClickOutside)
     }, [showEmojiPicker, showStickerPicker, showMenu])
 
-    // Xử lý chọn emoji
+    // Xá»­ lĂ½ chá»n emoji
     const onEmojiClick = useCallback((emojiData: EmojiClickData) => {
         setMessage(prev => prev + emojiData.emoji)
         setTimeout(() => {
@@ -189,12 +189,12 @@ export default function ChatRoom() {
         }, 0)
     }, [])
 
-    // Scroll to bottom khi có tin nhắn mới
+    // Scroll to bottom khi cĂ³ tin nhắn má»›i
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
     }, [messages])
 
-    // Load messages từ API lần đầu
+    // Load messages tá»« API láº§n Ä‘áº§u
     useEffect(() => {
         if (!conversationId) return
         const msgs = useChatStore.getState().messages[conversationId] || []
@@ -205,7 +205,7 @@ export default function ChatRoom() {
         }
     }, [conversationId])
 
-    // Set active conversation — subscribe to conversations so it re-runs
+    // Set active conversation â€” subscribe to conversations so it re-runs
     // when the conversation list finishes loading from the API
     const conversations = useChatStore(state => state.conversations)
     const { setConversations } = useChatStore()
@@ -222,15 +222,15 @@ export default function ChatRoom() {
             return false
         }
 
-        // Nếu đã có conversations trong store → set active ngay
+        // Náº¿u Ä‘Ă£ cĂ³ conversations trong store â†’ set active ngay
         if (trySetActive()) return
 
-        // Nếu chưa có (vd: user truy cập URL trực tiếp) → tự load từ API
+        // Náº¿u chÆ°a cĂ³ (vd: user truy cáº­p URL trá»±c tiáº¿p) â†’ tá»± load tá»« API
         if (conversations.length === 0) {
             getConversation()
                 .then(convs => {
                     setConversations(convs)
-                    // Sau khi load xong, tìm lại conversation
+                    // Sau khi load xong, tĂ¬m láº¡i conversation
                     const conv = convs.find((c: any) => c.id === conversationId)
                     if (conv) {
                         useChatStore.getState().setActiveConversation(conv)
@@ -304,7 +304,7 @@ export default function ChatRoom() {
             })
     }, [conversationId, activeConversation?.id, activeConversation?.type])
 
-    // ✅ Vào phòng socket + lắng nghe tin nhắn realtime
+    // âœ… VĂ o phĂ²ng socket + láº¯ng nghe tin nhắn realtime
     useEffect(() => {
         if (!conversationId) return
         if (user?.id && !socketService.isConnected()) {
@@ -334,7 +334,7 @@ export default function ChatRoom() {
         }
     }, [conversationId, user?.id, updateConversation])
 
-    // Sau khi messages được load vào phòng hiện tại, auto read message mới nhất chưa đọc
+    // Sau khi messages Ä‘Æ°á»£c load vĂ o phĂ²ng hiá»‡n táº¡i, auto read message má»›i nháº¥t chÆ°a Ä‘á»c
     useEffect(() => {
         if (!conversationId || !user?.id || messages.length === 0) return
 
@@ -519,7 +519,7 @@ export default function ChatRoom() {
                 senderId: user.id,
                 type: forwardMessage.type,
                 content: forwardMessage.content,
-                metadata: forwardMessage.metadata || null,
+                metadata: { ...forwardMessage.metadata, isForwarded: true },
                 reactions: [],
                 readBy: [],
                 isDeleted: false,
@@ -532,7 +532,7 @@ export default function ChatRoom() {
                 senderId: user.id,
                 type: forwardMessage.type,
                 content: forwardMessage.content,
-                metadata: forwardMessage.metadata || undefined,
+                metadata: { ...forwardMessage.metadata, isForwarded: true },
             }, (res) => {
                 const store = useChatStore.getState()
                 if (res.success) {
@@ -956,7 +956,7 @@ export default function ChatRoom() {
             isDeleted: false,
             createdAt: new Date().toISOString(),
         }
-        addMessage(conversationId, stickerMsg)
+        addMessage(conversationId, stickerMsg); setShowStickerPicker(false)
 
         socketService.sendMessage({
             conversationId,
@@ -1292,7 +1292,7 @@ export default function ChatRoom() {
                     >
                         <h3 className="font-semibold text-gray-900 dark:text-white flex items-center gap-2">
                             {conversationName}
-                            {isMuted && <span className="text-gray-400" title={`Đã tắt thông báo ${formatMuteUntilLabel(muteState.muteUntil)}`}>🔕</span>}
+                            {isMuted && <span className="text-gray-400" title={`Đã tắt thông báo ${formatMuteUntilLabel(muteState.muteUntil)}`}>🔇</span>}
                             {!isOnline && (
                                 <span className="text-xs bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-2 py-0.5 rounded-full flex items-center gap-1 font-normal">
                                     <WifiOff className="w-3 h-3" />
@@ -1364,7 +1364,7 @@ export default function ChatRoom() {
                         </button>
 
                         {showMenu && (
-                            <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-dark-300 rounded-xl shadow-lg border border-gray-100 dark:border-gray-800 py-1 z-50 animate-scale-in">
+                            <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-dark-300 rounded-xl shadow-lg border border-gray-100 dark:border-gray-800 py-1 z-[100] animate-scale-in">
                                 {activeConversation?.type === 'group' ? (
                                     <button
                                         onClick={() => {
@@ -1511,7 +1511,7 @@ export default function ChatRoom() {
                                 <div className="flex flex-col items-center justify-center py-10 opacity-60">
                                     <Search className="w-10 h-10 mb-3 text-gray-400" />
                                     <p className="text-gray-500 dark:text-gray-400 text-sm text-center">
-                                        Kh�ng t?m th?y tin nh?n n�o ch?a <span className="font-medium">"{debouncedSearchQuery}"</span>
+                                        Không tìm thấy tin nhắn nào chứa <span className="font-medium">"{debouncedSearchQuery}"</span>
                                     </p>
                                 </div>
                             )
@@ -1600,7 +1600,7 @@ export default function ChatRoom() {
             })()}
 
             {/* Input */}
-            <div className="p-4 border-t border-gray-200 dark:border-gray-800">
+            <div className="p-4 border-t border-gray-200 dark:border-gray-800 relative z-20">
                 {pendingMedia && (
                     <div className="mb-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-dark-300 p-2.5">
                         <div className="flex items-start gap-3">
@@ -1769,7 +1769,7 @@ export default function ChatRoom() {
 
                                         {/* Sticker Picker Popup */}
                                         {showStickerPicker && (
-                                            <div className="absolute bottom-full right-0 mb-2 z-50">
+                                            <div className="absolute bottom-full right-0 mb-2 z-[100]">
                                                 <StickerPicker onSelect={handleSendSticker} />
                                             </div>
                                         )}
@@ -1787,7 +1787,7 @@ export default function ChatRoom() {
 
                                 {/* Emoji Picker Popup */}
                                 {showEmojiPicker && (
-                                    <div className="absolute bottom-full right-0 mb-2 z-50">
+                                    <div className="absolute bottom-full right-0 mb-2 z-[100]">
                                         <EmojiPicker
                                             onEmojiClick={onEmojiClick}
                                             theme={document.documentElement.classList.contains('dark') ? Theme.DARK : Theme.LIGHT}

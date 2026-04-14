@@ -232,8 +232,9 @@ export const chatService = {
     conversationId: string,
     data: {
       type: Message["type"];
-      content: string;
+      content: any;
       replyTo?: string;
+      metadata?: any;
     },
   ) {
     const { accessToken, user } = useAuthStore.getState();
@@ -249,6 +250,7 @@ export const chatService = {
       senderAvatar: user.avatarUrl,
       type: data.type,
       content: data.content,
+      metadata: data.metadata,
       reactions: [],
       readBy: [],
       isDeleted: false,
@@ -262,8 +264,9 @@ export const chatService = {
     const payload = {
       conversationId,
       type: data.type,
-      content: toServerContent(data.type, data.content),
+      content: typeof data.content === "string" ? toServerContent(data.type, data.content) : data.content,
       replyTo: data.replyTo,
+      metadata: data.metadata,
       clientTempId: tempMessage.id,
     };
 
@@ -290,8 +293,9 @@ export const chatService = {
       const response = await apiClient.post("/api/messages", {
         conversationId,
         type: data.type,
-        content: toServerContent(data.type, data.content),
+        content: typeof data.content === "string" ? toServerContent(data.type, data.content) : data.content,
         replyTo: data.replyTo,
+        metadata: data.metadata,
       });
       const saved = normalizeMessage(response.data);
       updateMessage(conversationId, tempMessage.id, saved);

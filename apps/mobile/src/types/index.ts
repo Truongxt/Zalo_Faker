@@ -109,7 +109,8 @@ export interface Message {
   senderId: string;
   senderName: string;
   senderAvatar: string | null;
-  content: string;
+  content: any;
+  metadata?: any;
   type: MessageType;
   attachments?: MessageAttachment[];
   reactions?: MessageReaction[];
