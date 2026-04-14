@@ -7,3 +7,5 @@ export {aiService} from "./aiService";
 export { momentService } from "./momentService";
 
 export { conversationService } from "./conversationService";
+export * as groupService from "./groupService";
+export * as labelService from "./labelService";

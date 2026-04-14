@@ -16,8 +16,14 @@ import {
     Tag,
     Link2,
     Clock,
-    UserPlus
+    UserPlus,
+    EyeOff,
+    Eye,
+    Key,
+    Lock,
+    X
 } from 'lucide-react'
+import authService from '@/services/auth'
 import CreateGroupModal from '@/components/chat/CreateGroupModal'
 import LabelManagerModal from '@/components/chat/LabelManagerModal'
 import LabelPickerModal from '@/components/chat/LabelPickerModal'
@@ -29,8 +35,16 @@ import { formatMuteUntilLabel, getParticipantMuteState } from '@/lib/muteUtils'
 export default function Sidebar() {
     const navigate = useNavigate()
     const location = useLocation()
-    const { user } = useAuthStore()
-    const { conversations, activeConversation, setActiveConversation, addConversation } = useChatStore()
+    const { user, updateProfile } = useAuthStore()
+    const { 
+        conversations, 
+        activeConversation, 
+        setActiveConversation, 
+        addConversation, 
+        unlockedHiddenChats, 
+        setUnlockedHiddenChats,
+        updateConversation
+    } = useChatStore()
 
     const isContactsView = location.pathname.startsWith('/chat/contacts')
     const [searchQuery, setSearchQuery] = useState('')
@@ -41,6 +55,17 @@ export default function Sidebar() {
     const [labelPickerConv, setLabelPickerConv] = useState<Conversation | null>(null)
     const [mutePickerConv, setMutePickerConv] = useState<Conversation | null>(null)
     const [activeLabelId, setActiveLabelId] = useState<string | null>(null)
+    const [showPinSetup, setShowPinSetup] = useState(false)
+    const [setupPinCode, setSetupPinCode] = useState('')
+    const [isSettingPin, setIsSettingPin] = useState(false)
+    const [hidingConv, setHidingConv] = useState<Conversation | null>(null)
+    const [showPinChange, setShowPinChange] = useState(false)
+    const [oldPin, setOldPin] = useState('')
+    const [newPin, setNewPin] = useState('')
+    const [isChangingPin, setIsChangingPin] = useState(false)
+    const [isResetMode, setIsResetMode] = useState(false)
+    const [loginPassword, setLoginPassword] = useState('')
+
     const [, setMinuteTick] = useState(() => Date.now())
     const { labels, setLabels } = useChatStore()
 
@@ -57,6 +82,17 @@ export default function Sidebar() {
 
     const filteredConversations = conversations.filter(conv => {
         const participants = conv.participants || []
+        const currentP = participants.find(p => String(p.userId) === String(user?.id))
+
+        // Hidden filter behavior
+        if (unlockedHiddenChats) {
+            // IF UNLOCKED: SHOW ONLY HIDDEN
+            if (!currentP?.isHidden) return false
+        } else {
+            // IF LOCKED: HIDE ALL HIDDEN
+            if (currentP?.isHidden) return false
+        }
+
         // Search filter
         if (searchQuery) {
             const other = participants.find(p => String(p.userId) !== String(user?.id))
@@ -150,10 +186,160 @@ export default function Sidebar() {
                     String(part.userId) === String(user.id) ? { ...part, isPinned } : part
                 )
             })
-        } catch (err) {
-            console.error('Error toggling pin:', err)
+        } catch (error) {
+            console.error(error)
         }
     }
+
+    const handleSearchChange = async (value: string) => {
+        setSearchQuery(value)
+
+        // Web PIN verification (detect 6-digit number)
+        if (value.length === 6 && /^\d+$/.test(value) && user?.id) {
+            try {
+                const res = await authService.verifyHiddenPin(user.id, value)
+                if (res.success) {
+                    setUnlockedHiddenChats(true)
+                    setSearchQuery('')
+                    alert('Đã hiện các cuộc trò chuyện bị ẩn')
+                }
+            } catch (err) {
+                // Ignore, maybe just searching for "123456"
+            }
+        }
+    }
+
+    const handleToggleHide = async (e: React.MouseEvent, conv: Conversation) => {
+        e.stopPropagation()
+        if (!user) return
+
+        if (!user.hasHiddenPin) {
+            setHidingConv(conv)
+            setShowPinSetup(true)
+            return
+        }
+
+        const currentP = conv.participants?.find(p => p.userId === user.id)
+        const isCurrentlyHidden = currentP?.isHidden === true
+
+        if (isCurrentlyHidden) {
+            // Unhide
+            try {
+                await updateParticipantSetting(conv.id, user.id, { isHidden: false })
+                updateConversation(conv.id, {
+                    participants: (conv.participants || []).map(p =>
+                        p.userId === user.id ? { ...p, isHidden: false } : p
+                    )
+                })
+                alert('Đã bỏ ẩn cuộc trò chuyện')
+            } catch (err) {
+                alert('Không thể bỏ ẩn cuộc trò chuyện')
+            }
+        } else {
+            // Hide
+            if (confirm('Bạn có muốn ẩn cuộc trò chuyện này? Để tìm lại, hãy nhập mã PIN vào ô tìm kiếm.')) {
+                try {
+                    await updateParticipantSetting(conv.id, user.id, { isHidden: true })
+                    updateConversation(conv.id, {
+                        participants: (conv.participants || []).map(p =>
+                            p.userId === user.id ? { ...p, isHidden: true } : p
+                        )
+                    })
+                } catch (err) {
+                    alert('Không thể ẩn cuộc trò chuyện')
+                }
+            }
+        }
+    }
+
+    const handleUpdatePin = async () => {
+        if (!user?.id) return;
+        
+        if (isResetMode) {
+            if (!loginPassword || newPin.length !== 6) {
+                alert('Vui lòng nhập mật khẩu đăng nhập và mã PIN mới (6 số)')
+                return
+            }
+        } else {
+            if (oldPin.length !== 6 || newPin.length !== 6) {
+                alert('Vui lòng nhập đủ 6 số cho cả mã cũ và mới')
+                return
+            }
+        }
+
+        try {
+            setIsChangingPin(true)
+            if (isResetMode) {
+                // Reset using login password
+                const res = await authService.resetHiddenPin(user.id, loginPassword, newPin)
+                if (res.success) {
+                    alert('Đã đặt lại mã PIN mới bằng mật khẩu đăng nhập thành công')
+                    setShowPinChange(false)
+                    setIsResetMode(false)
+                    setLoginPassword('')
+                    setNewPin('')
+                } else {
+                    alert(res.message || 'Xác thực mật khẩu đăng nhập thất bại')
+                }
+            } else {
+                // Normal change
+                const verify = await authService.verifyHiddenPin(user.id, oldPin)
+                if (!verify.success) {
+                    alert('Mã PIN cũ không chính xác')
+                    return
+                }
+
+                await authService.updateHiddenPin(user.id, newPin)
+                alert('Đã đổi mã PIN mới thành công')
+                setShowPinChange(false)
+                setOldPin('')
+                setNewPin('')
+            }
+        } catch (err) {
+            alert('Lỗi khi cập nhật mã PIN')
+        } finally {
+            setIsChangingPin(false)
+        }
+    }
+
+    const handleSavePin = async () => {
+        if (!user?.id || setupPinCode.length !== 6) {
+            alert('Mã PIN phải có 6 chữ số')
+            return
+        }
+
+        try {
+            setIsSettingPin(true)
+            await authService.updateHiddenPin(user.id, setupPinCode)
+            updateProfile({ hasHiddenPin: true })
+            setShowPinSetup(false)
+            setSetupPinCode('')
+            
+            if (hidingConv) {
+                // If we were in the middle of hiding a conv
+                const isHidden = true
+                await updateParticipantSetting(hidingConv.id, user.id, { isHidden })
+                updateConversation(hidingConv.id, {
+                    participants: (hidingConv.participants || []).map(p =>
+                        p.userId === user.id ? { ...p, isHidden } : p
+                    )
+                })
+                setHidingConv(null)
+                alert('Đã đặt mã PIN và ẩn cuộc trò chuyện.')
+            } else {
+                alert('Đã thiết lập mã PIN thành công.')
+            }
+        } catch (err) {
+            alert('Lỗi khi thiết lập mã PIN')
+        } finally {
+            setIsSettingPin(false)
+        }
+    }
+
+    const hasLockedHidden = conversations.some(conv => {
+        const p = conv.participants?.find(p => p.userId === user?.id)
+        return p?.isHidden && !unlockedHiddenChats
+    })
 
     const applyMuteSettings = async (conv: Conversation, settings: { isMuted: boolean; muteUntil: string | null }) => {
         if (!user) return
@@ -234,6 +420,15 @@ export default function Sidebar() {
                             >
                                 <Plus className="w-5 h-5" />
                             </button>
+                            {user?.hasHiddenPin && (
+                                <button
+                                    onClick={() => setShowPinChange(true)}
+                                    className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-600 dark:text-gray-400"
+                                    title="Đổi mã PIN ẩn"
+                                >
+                                    <Key className="w-5 h-5" />
+                                </button>
+                            )}
                         </div>
                     )}
                     {isContactsView && (
@@ -248,17 +443,35 @@ export default function Sidebar() {
                 </div>
 
                 {/* Search */}
-                <div className="relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <div className={`relative group/search ${hasLockedHidden ? 'theme-hidden' : ''}`}>
+                    <Search className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 transition-colors ${
+                        hasLockedHidden ? 'text-red-500' : 'text-gray-400 group-focus-within/search:text-primary-500'
+                    }`} />
                     <input
                         type="text"
                         value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
+                        onChange={(e) => handleSearchChange(e.target.value)}
                         placeholder="Tìm kiếm"
-                        className="w-full pl-10 pr-4 py-2 bg-gray-100 dark:bg-dark-300 rounded-lg
-                       text-gray-900 dark:text-white placeholder-gray-500
-                       focus:outline-none focus:ring-2 focus:ring-primary-500"
+                        className={`w-full pl-10 pr-10 py-2 rounded-lg 
+                        text-gray-900 dark:text-white placeholder-gray-500
+                        focus:outline-none focus:ring-2 transition-all duration-300 ${
+                            hasLockedHidden 
+                            ? 'bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-800/50 focus:ring-red-500' 
+                            : 'bg-gray-100 dark:bg-dark-300 border-transparent focus:ring-primary-500'
+                        }`}
                     />
+                    {unlockedHiddenChats && (
+                         <button
+                            onClick={() => {
+                                setUnlockedHiddenChats(false)
+                                setSearchQuery('')
+                            }}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition-colors text-primary-500"
+                            title="Thoát chế độ ẩn"
+                         >
+                            <X className="w-4 h-4" />
+                         </button>
+                    )}
                 </div>
 
                 {/* Tabs & Labels (Only show in Chat view) */}
@@ -409,7 +622,7 @@ export default function Sidebar() {
                                                     {currentP?.labelIds?.slice(0, 2).map((lid: string) => {
                                                         const label = labels.find((l: any) => l._id === lid)
                                                         if (!label) return null
-                                                        return <div key={lid} className="w-2 h-2 rounded-full flex-shrink-0" title={label.name} style={{ backgroundColor: label.color }} />
+                                                        return <Tag key={lid} className="w-3 h-3 flex-shrink-0" style={{ color: label.color, fill: label.color }} title={label.name} />
                                                     })}
                                                 </h3>
                                                 <div className="flex items-center gap-1">
@@ -451,6 +664,15 @@ export default function Sidebar() {
                                                 title={isPinned ? 'Bỏ ghim' : 'Ghim'}
                                             >
                                                 <Pin className={`w-4 h-4 ${isPinned ? 'fill-primary-500 text-primary-500' : ''}`} />
+                                            </button>
+                                            <button
+                                                onClick={(e) => handleToggleHide(e, conv)}
+                                                className={`p-1.5 hover:bg-gray-100 dark:hover:bg-gray-600 rounded-md transition-colors ${
+                                                    currentP?.isHidden ? 'text-primary-500' : 'text-red-500'
+                                                }`}
+                                                title={currentP?.isHidden ? 'Bỏ ẩn trò chuyện' : 'Ẩn trò chuyện'}
+                                            >
+                                                {currentP?.isHidden ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
                                             </button>
                                             <button
                                                 onClick={(e) => handleToggleMute(e, conv)}
@@ -515,21 +737,143 @@ export default function Sidebar() {
             )}
             {mutePickerConv && (
                 <MuteConversationModal
-                    conversationName={getConversationName(mutePickerConv)}
-                    isMuted={getParticipantMuteState(
-                        mutePickerConv.participants.find(p => String(p.userId) === String(user?.id))
-                    ).isMuted}
-                    muteUntil={getParticipantMuteState(
-                        mutePickerConv.participants.find(p => String(p.userId) === String(user?.id))
-                    ).muteUntil}
-                    onApply={(settings) => applyMuteSettings(mutePickerConv, settings)}
+                    isOpen={!!mutePickerConv}
                     onClose={() => setMutePickerConv(null)}
+                    conversation={mutePickerConv}
                 />
             )}
             <AddFriendModal
                 isOpen={showAddFriend}
                 onClose={() => setShowAddFriend(false)}
             />
+
+            {showPinSetup && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+                    <div className="bg-white dark:bg-dark-200 rounded-2xl w-full max-w-sm shadow-2xl p-6 border border-gray-100 dark:border-gray-800 animate-in zoom-in-95 duration-200">
+                        <div className="flex flex-col items-center text-center">
+                            <div className="w-16 h-16 bg-primary-100 dark:bg-primary-900/30 rounded-full flex items-center justify-center mb-4">
+                                <EyeOff className="w-8 h-8 text-primary-600 dark:text-primary-400" />
+                            </div>
+                            <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Cài đặt mã PIN</h3>
+                            <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
+                                Nhập 6 chữ số để bảo vệ các cuộc trò chuyện bị ẩn. 
+                                Bạn sẽ cần mã này để tìm lại chúng sau này.
+                            </p>
+                            
+                            <div className="w-full mb-6">
+                                <input
+                                    type="password"
+                                    maxLength={6}
+                                    value={setupPinCode}
+                                    onChange={(e) => setSetupPinCode(e.target.value.replace(/[^0-9]/g, ''))}
+                                    className="w-full text-center text-3xl tracking-[1em] py-3 bg-gray-100 dark:bg-dark-300 border-none rounded-xl focus:ring-2 focus:ring-primary-500 text-gray-900 dark:text-white"
+                                    placeholder="••••••"
+                                    autoFocus
+                                />
+                            </div>
+
+                            <div className="flex w-full gap-3">
+                                <button
+                                    onClick={() => { setShowPinSetup(false); setSetupPinCode(''); setHidingConv(null); }}
+                                    className="flex-1 py-2.5 rounded-xl font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-dark-300 transition-colors"
+                                >
+                                    Hủy
+                                </button>
+                                <button
+                                    onClick={handleSavePin}
+                                    disabled={setupPinCode.length !== 6 || isSettingPin}
+                                    className="flex-1 py-2.5 rounded-xl font-medium bg-primary-500 text-white hover:bg-primary-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-primary-500/25"
+                                >
+                                    {isSettingPin ? 'Đang lưu...' : 'Thiết lập'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {showPinChange && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+                    <div className="bg-white dark:bg-dark-200 rounded-2xl w-full max-w-sm shadow-2xl p-6 border border-gray-100 dark:border-gray-800 animate-in zoom-in-95 duration-200">
+                        <div className="flex flex-col items-center text-center">
+                            <div className="w-16 h-16 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center mb-4">
+                                <Key className="w-8 h-8 text-blue-600 dark:text-blue-400" />
+                            </div>
+                            <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">
+                                {isResetMode ? 'Đặt lại mã PIN' : 'Đổi mã PIN ẩn'}
+                            </h3>
+                            <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
+                                {isResetMode ? 'Vui lòng nhập mật khẩu tài khoản để đặt lại mã PIN.' : 'Vui lòng nhập mã PIN cũ và mã PIN mới để thay đổi.'}
+                            </p>
+                            
+                            <div className="w-full space-y-4 mb-4 text-left">
+                                {isResetMode ? (
+                                    <div>
+                                        <label className="text-xs font-semibold text-gray-500 uppercase ml-1">Mật khẩu đăng nhập</label>
+                                        <input
+                                            type="password"
+                                            value={loginPassword}
+                                            onChange={(e) => setLoginPassword(e.target.value)}
+                                            className="w-full px-4 py-2.5 bg-gray-100 dark:bg-dark-300 border-none rounded-xl focus:ring-2 focus:ring-primary-500 text-gray-900 dark:text-white"
+                                            placeholder="Nhập mật khẩu App"
+                                        />
+                                    </div>
+                                ) : (
+                                    <div>
+                                        <label className="text-xs font-semibold text-gray-500 uppercase ml-1">Mã PIN cũ</label>
+                                        <input
+                                            type="password"
+                                            maxLength={6}
+                                            value={oldPin}
+                                            onChange={(e) => setOldPin(e.target.value.replace(/[^0-9]/g, ''))}
+                                            className="w-full text-center text-2xl tracking-[0.5em] py-2 bg-gray-100 dark:bg-dark-300 border-none rounded-xl focus:ring-2 focus:ring-primary-500 text-gray-900 dark:text-white"
+                                            placeholder="••••••"
+                                        />
+                                    </div>
+                                )}
+                                <div>
+                                    <label className="text-xs font-semibold text-gray-500 uppercase ml-1">Mã PIN mới</label>
+                                    <input
+                                        type="password"
+                                        maxLength={6}
+                                        value={newPin}
+                                        onChange={(e) => setNewPin(e.target.value.replace(/[^0-9]/g, ''))}
+                                        className="w-full text-center text-2xl tracking-[0.5em] py-2 bg-gray-100 dark:bg-dark-300 border-none rounded-xl focus:ring-2 focus:ring-primary-500 text-gray-900 dark:text-white"
+                                        placeholder="••••••"
+                                    />
+                                </div>
+                            </div>
+
+                            {!isResetMode && (
+                                <div className="w-full text-right mb-6">
+                                    <button 
+                                        onClick={() => setIsResetMode(true)}
+                                        className="text-sm text-primary-500 hover:text-primary-600 font-medium"
+                                    >
+                                        Quên mã PIN?
+                                    </button>
+                                </div>
+                            )}
+
+                            <div className={`flex w-full gap-3 ${isResetMode ? 'mt-4' : ''}`}>
+                                <button
+                                    onClick={() => { setShowPinChange(false); setOldPin(''); setNewPin(''); setIsResetMode(false); setLoginPassword(''); }}
+                                    className="flex-1 py-2.5 rounded-xl font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-dark-300 transition-colors"
+                                >
+                                    Hủy
+                                </button>
+                                <button
+                                    onClick={handleUpdatePin}
+                                    disabled={(isResetMode ? !loginPassword : oldPin.length !== 6) || newPin.length !== 6 || isChangingPin}
+                                    className="flex-1 py-2.5 rounded-xl font-medium bg-primary-500 text-white hover:bg-primary-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-primary-500/25"
+                                >
+                                    {isChangingPin ? 'Đang xử lý...' : (isResetMode ? 'Đặt lại' : 'Cập nhật')}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     )
 }

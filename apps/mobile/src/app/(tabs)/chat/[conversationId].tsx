@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import {
   View,
+  Image,
   Text,
   TextInput,
   FlatList,
@@ -9,7 +10,7 @@ import {
   Platform,
   Alert,
   ActivityIndicator,
-  Image,
+  ImageBackground,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -20,9 +21,10 @@ import { Ionicons } from "@expo/vector-icons";
 import { useChatStore } from "@/stores/chatStore";
 import { useAuthStore } from "@/stores/authStore";
 import { chatService } from "@/services/chat";
-import { userService } from "@/services";
+import { userService, groupService } from "@/services";
 import { socketService } from "@/lib/socket";
 import { Avatar } from "@/components/ui/Avatar";
+import { ChatOptionsModal } from "@/components/chat/ChatOptionsModal";
 import { GrayToast } from "@/components/ui";
 import type { Message } from "@/types";
 import { API_URL } from "@/constants/config";
@@ -278,7 +280,7 @@ function MessageItem({ msg, isMe, onLongPress }: MessageItemProps) {
         <Text
           style={{ color: isMe ? "#cce4ff" : "#9CA3AF", fontStyle: "italic" }}
         >
-          Tin nhan da bi thu hoi
+          Tin nhắn đã bị thu hồi
         </Text>
       );
     }
@@ -431,6 +433,7 @@ export default function ChatRoomScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
   const [showReactions, setShowReactions] = useState(false);
+  const [optionsVisible, setOptionsVisible] = useState(false);
   const [selectedMsg, setSelectedMsg] = useState<Message | null>(null);
   const [typingUsers, setTypingUsers] = useState<string[]>([]);
   const [isPartnerOnline, setIsPartnerOnline] = useState(false);
@@ -740,8 +743,54 @@ export default function ChatRoomScreen() {
       });
     }
 
+    if (conversation?.type === "group") {
+      options.push({
+        text: "Ghim tin nhắn",
+        onPress: () => handlePin(msg),
+      });
+    }
+
     options.push({ text: "Hủy", style: "cancel" });
     Alert.alert("Tùy chọn", undefined, options);
+  };
+
+  const handlePin = async (msg: Message) => {
+    if (!convId) return;
+    try {
+      await groupService.pinGroupMessage(convId, msg.id);
+      updateConversation(convId, {
+        groupSettings: {
+          ...conversation?.groupSettings,
+          pinnedMessage: {
+            messageId: msg.id,
+            senderId: msg.senderId,
+            type: msg.type,
+            content: msg.content,
+            pinnedAt: new Date().toISOString(),
+            pinnedBy: user?.id || "",
+          } as any,
+        } as any,
+      });
+      GrayToast("Đã ghim tin nhắn");
+    } catch (e) {
+      GrayToast("Không thể ghim tin nhắn");
+    }
+  };
+
+  const handleUnpin = async () => {
+    if (!convId) return;
+    try {
+      await groupService.unpinGroupMessage(convId);
+      updateConversation(convId, {
+        groupSettings: {
+          ...conversation?.groupSettings,
+          pinnedMessage: null,
+        } as any,
+      });
+      GrayToast("Đã bỏ ghim");
+    } catch (e) {
+      GrayToast("Không thể bỏ ghim");
+    }
   };
 
   const handleReact = async (emoji: string) => {
@@ -759,11 +808,12 @@ export default function ChatRoomScreen() {
   );
 
   return (
-    <KeyboardAvoidingView
-      style={{ flex: 1, backgroundColor: "#F9FAFB" }}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-      keyboardVerticalOffset={insets.top}
-    >
+    <ImageBackgroundWrapper background={conversation?.background}>
+      <KeyboardAvoidingView
+        style={{ flex: 1, backgroundColor: "transparent" }}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        keyboardVerticalOffset={insets.top}
+      >
       {/* Header */}
       <View
         style={{
@@ -827,10 +877,40 @@ export default function ChatRoomScreen() {
         >
           <Ionicons name="videocam-outline" size={22} color="#6B7280" />
         </TouchableOpacity>
-        <TouchableOpacity style={{ padding: 6 }}>
+        <TouchableOpacity style={{ padding: 6 }} onPress={() => setOptionsVisible(true)}>
           <Ionicons name="ellipsis-vertical" size={20} color="#6B7280" />
         </TouchableOpacity>
       </View>
+
+      {/* Pinned Message */}
+      {conversation?.groupSettings?.pinnedMessage && (
+        <TouchableOpacity
+          onPress={() => {
+            Alert.alert("Tuỳ chọn", "Bỏ ghim tin nhắn này?", [
+              { text: "Bỏ qua" },
+              { text: "Bỏ ghim", onPress: handleUnpin, style: "destructive" },
+            ]);
+          }}
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            backgroundColor: "#EFF6FF",
+            padding: 10,
+            borderBottomWidth: 1,
+            borderBottomColor: "#DBEAFE",
+          }}
+        >
+          <Ionicons name="pin" size={16} color="#2563EB" style={{ marginRight: 8 }} />
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 13, color: "#1D4ED8", fontWeight: "600" }}>
+              Tin nhắn ghim
+            </Text>
+            <Text style={{ fontSize: 13, color: "#1E3A8A" }} numberOfLines={1}>
+              {conversation.groupSettings.pinnedMessage?.content?.text ||  conversation.groupSettings.pinnedMessage?.content || "[File/Hình ảnh]"}
+            </Text>
+          </View>
+        </TouchableOpacity>
+      )}
 
       {/* Messages */}
       {isLoading ? (
@@ -963,6 +1043,21 @@ export default function ChatRoomScreen() {
           )}
         </TouchableOpacity>
       </View>
-    </KeyboardAvoidingView>
+        {conversation && (
+           <ChatOptionsModal
+             visible={optionsVisible}
+             onClose={() => setOptionsVisible(false)}
+             conversation={conversation}
+           />
+        )}
+      </KeyboardAvoidingView>
+    </ImageBackgroundWrapper>
   );
+}
+
+function ImageBackgroundWrapper({ background, children }: { background?: string, children: any }) {
+  if (background && background.startsWith("http")) {
+    return <ImageBackground source={{ uri: background }} style={{ flex: 1 }} resizeMode="cover">{children}</ImageBackground>;
+  }
+  return <View style={{ flex: 1, backgroundColor: background || "#F9FAFB" }}>{children}</View>;
 }
