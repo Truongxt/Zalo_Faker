@@ -97,6 +97,7 @@ export interface Participant {
     isMuted?: boolean
     muteUntil?: string | null
     labelIds?: string[]
+    isHidden?: boolean
 }
 
 export type GroupPermissionScope = 'all' | 'admin_deputy' | 'admin'
@@ -233,12 +234,14 @@ interface ChatState {
     isLoadingMessages: boolean
     labels: Label[]
     isLoadingLabels: boolean
+    unlockedHiddenChats: boolean
 
     // Actions
     setLabels: (labels: Label[]) => void
     addLabel: (label: Label) => void
     updateLabel: (id: string, updates: Partial<Label>) => void
     removeLabel: (id: string) => void
+    setUnlockedHiddenChats: (unlocked: boolean) => void
 
     setConversations: (conversations: Conversation[]) => void
     addConversation: (conversation: Conversation) => void
@@ -272,6 +275,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     isLoadingMessages: false,
     labels: [],
     isLoadingLabels: false,
+    unlockedHiddenChats: false,
 
     setLabels: (labels) => set({ labels }),
     addLabel: (label) => set((state) => ({ labels: [...state.labels, label] })),
@@ -281,6 +285,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
     removeLabel: (id) => set((state) => ({
         labels: state.labels.filter(l => l._id !== id)
     })),
+
+    setUnlockedHiddenChats: (unlockedHiddenChats) => set({ unlockedHiddenChats }),
 
     setConversations: (conversations) => set({
         conversations: dedupeConversations(conversations)

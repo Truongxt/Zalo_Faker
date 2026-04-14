@@ -51,6 +51,7 @@ const mapServerUser = (u: ServerUser): User => ({
     : (u.status === "active" ? "online" : "offline"),
   lastSeen: u.lastActiveAt ?? null,
   createdAt: u.createdAt,
+  hasHiddenPin: !!u.hiddenChatPin,
 });
 
 class UserService {
@@ -285,12 +286,27 @@ class UserService {
     return { message: response.data.message, user: mapServerUser(response.data.user) };
   }
 
-  // GET /api/users/:userId/login-history - lấy lịch sử đăng nhập
-  async getLoginHistory(userId: string, limit: number = 20): Promise<LoginHistoryItem[]> {
-    const response = await apiClient.get<LoginHistoryItem[]>(
-      `/api/users/${userId}/login-history`,
-      { params: { limit } },
-    );
+  // GET /api/users/:userId/hidden-pin/status - kiểm tra xem đã cài PIN chưa
+  async getHiddenPinStatus(userId: string): Promise<{ isSet: boolean }> {
+    const response = await apiClient.get<{ isSet: boolean }>(`/api/users/${userId}/hidden-pin/status`);
+    return response.data;
+  }
+
+  // PUT /api/users/:userId/hidden-pin - cài mới/đổi PIN ẩn cuộc trò chuyện
+  async updateHiddenPin(userId: string, pin: string): Promise<{ message: string }> {
+    const response = await apiClient.put<{ message: string }>(`/api/users/${userId}/hidden-pin`, { pin });
+    return response.data;
+  }
+
+  // POST /api/users/:userId/hidden-pin/verify - xác thực PIN để mở cuộc trò chuyện ẩn
+  async verifyHiddenPin(userId: string, pin: string): Promise<{ success: boolean }> {
+    const response = await apiClient.post<{ success: boolean }>(`/api/users/${userId}/hidden-pin/verify`, { pin });
+    return response.data;
+  }
+
+  // POST /api/users/:userId/hidden-pin/reset - đặt lại PIN bằng mật khẩu đăng nhập
+  async resetHiddenPin(userId: string, password: string, newPin: string): Promise<{ success: boolean; message: string }> {
+    const response = await apiClient.post<{ success: boolean; message: string }>(`/api/users/${userId}/hidden-pin/reset`, { password, newPin });
     return response.data;
   }
 

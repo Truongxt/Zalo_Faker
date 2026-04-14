@@ -187,7 +187,7 @@ const deleteConversation = async (req, res) => {
 const updateParticipantSetting = async (req, res) => {
     try {
         const { id } = req.params;
-        const { userId, isPinned, isMuted, muteUntil, nickname, labelIds } = req.body;
+        const { userId, isPinned, isMuted, muteUntil, nickname, labelIds, isHidden } = req.body;
 
         const conversation = await conversationService.getConversation(id);
         if (!conversation) return res.status(404).json({ message: "Conversation not found" });
@@ -202,6 +202,7 @@ const updateParticipantSetting = async (req, res) => {
         if (isPinned !== undefined) participants[participantIndex].isPinned = isPinned;
         if (nickname !== undefined) participants[participantIndex].nickname = nickname;
         if (labelIds !== undefined) participants[participantIndex].labelIds = labelIds;
+        if (isHidden !== undefined) participants[participantIndex].isHidden = isHidden;
 
         if (isMuted !== undefined || muteUntil !== undefined) {
             const nextIsMuted = Boolean(isMuted);

@@ -9,6 +9,7 @@ import {
   SafeAreaProvider,
   initialWindowMetrics,
 } from "react-native-safe-area-context";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { socketService } from "@/lib/socket";
 import { useAuthStore } from "@/stores/authStore";
 import FlashMessage from "react-native-flash-message";
@@ -74,7 +75,8 @@ export default function RootLayout() {
     return null;
   }
   return (
-    <SafeAreaProvider initialMetrics={initialWindowMetrics}>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider initialMetrics={initialWindowMetrics}>
       <StatusBar style="light" backgroundColor="#0068FF" translucent={false} />
 
       <Stack screenOptions={{ headerShown: false }}>
@@ -108,5 +110,6 @@ export default function RootLayout() {
       </Stack>
       <FlashMessage />
     </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }
