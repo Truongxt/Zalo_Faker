@@ -4,6 +4,7 @@ import type { Message as ChatMessage } from "@/types";
 import { formatDistanceToNow } from "date-fns";
 import { vi } from "date-fns/locale";
 import { Text, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 
 interface MessageProps {
   message: ChatMessage;
@@ -104,18 +105,81 @@ export function Message({
             className="rounded-[22px] px-4 py-3"
             style={{ backgroundColor: bubbleBackground }}
           >
-            {message.type !== "text" && !message.isDeleted ? (
-              <Text className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">
-                {message.type}
-              </Text>
-            ) : null}
+            {message.type === "call" ? (
+              (() => {
+                let callData: any = {};
+                try {
+                  callData = typeof content === 'string' ? JSON.parse(content) : content;
+                } catch (e) {
+                  callData = { status: 'unknown' };
+                }
 
-            <Text
-              className={`text-[15px] leading-5 ${message.isDeleted ? "italic text-gray-500" : ""}`}
-              style={{ color: bubbleTextColor }}
-            >
-              {content || "Khong co noi dung"}
-            </Text>
+                const isVideo = callData.callType === 'video';
+                const status = callData.status;
+                const duration = callData.duration || 0;
+
+                const formatDuration = (s: number) => {
+                  const mins = Math.floor(s / 60);
+                  const secs = s % 60;
+                  return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+                };
+
+                const getStatusText = () => {
+                  if (status === 'finished') return isSent ? 'Cuộc gọi đi' : 'Cuộc gọi đến';
+                  if (status === 'missed') return isSent ? 'Thue bao khong nhac may' : 'Cuộc gọi nhỡ';
+                  if (status === 'rejected') return 'Cuộc gọi bị từ chối';
+                  if (status === 'cancelled') return 'Cuộc gọi đã hủy';
+                  return 'Cuộc gọi';
+                };
+
+                const isMissed = status === 'missed' || status === 'rejected';
+
+                return (
+                  <View className="flex-row items-center gap-3 py-1">
+                    <View 
+                      className="w-10 h-10 rounded-full items-center justify-center"
+                      style={{ backgroundColor: isMissed ? '#fee2e2' : '#dbeafe' }}
+                    >
+                      <Ionicons 
+                        name={isVideo ? "videocam" : "call"} 
+                        size={20} 
+                        color={isMissed ? "#ef4444" : "#3b82f6"} 
+                      />
+                    </View>
+                    <View>
+                      <Text className="text-[15px] font-semibold" style={{ color: bubbleTextColor }}>
+                        {getStatusText()}
+                      </Text>
+                      {status === 'finished' && (
+                        <Text className="text-xs opacity-70" style={{ color: bubbleTextColor }}>
+                          {formatDuration(duration)}
+                        </Text>
+                      )}
+                      {isMissed && !isSent && (
+                        <Text className="text-xs font-medium text-red-500">
+                          Nhấn để gọi lại
+                        </Text>
+                      )}
+                    </View>
+                  </View>
+                );
+              })()
+            ) : (
+              <>
+                {message.type !== "text" && !message.isDeleted ? (
+                  <Text className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    {message.type}
+                  </Text>
+                ) : null}
+
+                <Text
+                  className={`text-[15px] leading-5 ${message.isDeleted ? "italic text-gray-500" : ""}`}
+                  style={{ color: bubbleTextColor }}
+                >
+                  {content || "Khong co noi dung"}
+                </Text>
+              </>
+            )}
 
             {attachments.length ? (
               <View className="mt-3 gap-2">

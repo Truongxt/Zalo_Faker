@@ -92,6 +92,7 @@ export default function TabsLayout() {
                   callerName: callerName,
                   callerAvatar: data?.callerAvatar || "",
                   isCaller: "false",
+                  autoAccept: "true",
                 },
               });
               incomingHandledRef.current = null;
