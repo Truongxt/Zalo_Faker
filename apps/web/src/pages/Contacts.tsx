@@ -45,7 +45,10 @@ export default function Contacts() {
         friendsService.getPendingRequests(user.id),
         friendsService.getBlockedUsers(user.id),
       ]);
-      setFriends(friendsData);
+      const uniqueFriends = Array.from(
+        new Map(friendsData.map((f: any) => [String(f.userId || f._id || f), f])).values()
+      );
+      setFriends(uniqueFriends);
       setRequests(requestsData);
       setBlockedUsers(blockedData);
     } catch (error) {
