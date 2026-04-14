@@ -101,6 +101,7 @@ export interface MessageAttachment {
   size?: number;
   duration?: number; // voice/video duration
   thumbnailUrl?: string;
+  transcript?: string;
 }
 
 export interface Message {

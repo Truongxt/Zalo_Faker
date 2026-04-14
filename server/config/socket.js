@@ -9,7 +9,23 @@ const { redisClient, getIsRedisReady, safeGet } = require("../utils/redisClient"
 
 const presenceKey = (userId, platform) => `presence:${userId}:${platform}`;
 const allPresencePattern = (userId) => `presence:${userId}:*`;
-const sessionKey = (userId, platform = "unknown") => `auth:session:${String(userId)}:${String(platform).toLowerCase()}`;
+const normalizePlatform = (platform) => {
+  const normalized = String(platform || "").trim().toLowerCase();
+
+  if (normalized === "mobile" || normalized === "android" || normalized === "ios") {
+    return "mobile";
+  }
+
+  if (normalized === "web" || normalized === "browser") {
+    return "web";
+  }
+
+  return "unknown";
+};
+
+const sessionKey = (userId, platform = "unknown") =>
+  `auth:session:${String(userId)}:${normalizePlatform(platform)}`;
+const legacySessionKey = (userId) => `auth:session:${String(userId)}`;
 
 const MEDIA_FALLBACK_BY_TYPE = {
   image: "[Hinh anh]",
@@ -17,7 +33,6 @@ const MEDIA_FALLBACK_BY_TYPE = {
   voice: "[Tin nhan thoai]",
   sticker: "[Nhan dan]",
   file: "[File]",
-  call: "[Cuộc gọi]",
 };
 
 const toRoomId = (conversationId) => `conv:${String(conversationId)}`;
@@ -38,25 +53,12 @@ const getLastMessageText = ({ type, content, metadata }) => {
       ? content.text
       : "";
 
-  const baseText = contentText || MEDIA_FALLBACK_BY_TYPE[type] || "[Tin nhan]";
-  const prefixes = [];
-
-  if (metadata?.isImportant) prefixes.push("[Quan trong]");
-  if (metadata?.isAnnouncement) prefixes.push("[Thong bao]");
-
-  if (type === "call") {
-    try {
-      const data = typeof content === "string" ? JSON.parse(content) : content;
-      if (data.status === "missed") return "[Cuộc gọi nhỡ]";
-      if (data.status === "rejected") return "[Cuộc gọi bị từ chối]";
-      if (data.status === "cancelled") return "[Cuộc gọi đã hủy]";
-      return data.callType === "video" ? "[Cuộc gọi video]" : "[Cuộc gọi thoại]";
-    } catch (e) {
-      return "[Cuộc gọi]";
-    }
+  if (metadata?.isAnnouncement) {
+    return `[Thong bao] ${contentText}`.trim();
   }
 
-  return [...prefixes, baseText].join(" ").trim();
+  if (contentText) return contentText;
+  return MEDIA_FALLBACK_BY_TYPE[type] || "[Tin nhan]";
 };
 
 module.exports = (socketConfig) => {
@@ -82,19 +84,31 @@ module.exports = (socketConfig) => {
       }
 
       const decodedSessionId = decoded.sessionId;
-      const platform = decoded.platform || "unknown";
       if (!decodedSessionId) {
         return next(new Error("Authentication error: Session expired"));
       }
 
-      const activeSessionId = await safeGet(sessionKey(decoded.userId, platform));
-      if (!activeSessionId || activeSessionId !== decodedSessionId) {
+      const tokenPlatform = normalizePlatform(
+        decoded.platform || socket.handshake.auth?.platform,
+      );
+
+      const scopedSessionId = await safeGet(sessionKey(decoded.userId, tokenPlatform));
+      let isValidSession = Boolean(scopedSessionId && scopedSessionId === decodedSessionId);
+
+      if (!isValidSession) {
+        const legacySessionIdValue = await safeGet(legacySessionKey(decoded.userId));
+        isValidSession = Boolean(
+          legacySessionIdValue && legacySessionIdValue === decodedSessionId,
+        );
+      }
+
+      if (!isValidSession) {
         return next(new Error("Authentication error: Session expired"));
       }
 
       socket.userId = String(decoded.userId);
       socket.userEmail = decoded.email;
-      socket.platform = platform;
+      socket.platform = tokenPlatform;
       socket.sessionId = String(decodedSessionId);
 
       next();
@@ -124,14 +138,7 @@ module.exports = (socketConfig) => {
   const emitToUserRoom = (targetUserId, event, payload) => {
     const roomId = `user:${String(targetUserId)}`;
     const room = io.sockets.adapter.rooms.get(roomId);
-    const membersCount = room ? room.size : 0;
-    
-    // Log for debugging frame delivery
-    if (event === "video:frame" || event === "video:call-answered") {
-      console.log(`[SERVER] Emitting ${event} to ${roomId}. Members in room: ${membersCount}`);
-    }
-
-    const hasOnlineSocket = Boolean(membersCount > 0);
+    const hasOnlineSocket = Boolean(room && room.size > 0);
     if (hasOnlineSocket) {
       io.to(roomId).emit(event, payload);
     }
@@ -180,15 +187,15 @@ module.exports = (socketConfig) => {
       const existingSocket = io.sockets.sockets.get(socketId);
       if (!existingSocket) continue;
 
-      const samePlatform = existingSocket.platform === socket.platform;
+      const samePlatform =
+        normalizePlatform(existingSocket.platform) === normalizePlatform(socket.platform);
       if (!samePlatform) continue;
 
-      // If on the same platform but same session (e.g. multiple tabs), do not disconnect
       const sameSession = existingSocket.sessionId && existingSocket.sessionId === socket.sessionId;
       if (sameSession) continue;
 
       existingSocket.emit("session:force_logout", {
-        reason: "Co tai khoan da dang nhap tren thiet bi khac.",
+        reason: "Co tai khoan da dang nhap tren thiet bi khac cung nen tang.",
         platform: socket.platform,
       });
 
@@ -199,8 +206,6 @@ module.exports = (socketConfig) => {
       }, 300);
     }
   };
-
-  const callSessions = new Map(); // Store metadata about active calls for history
 
   io.on("connection", async (socket) => {
     const { userId, platform } = socket;
@@ -479,160 +484,20 @@ module.exports = (socketConfig) => {
 
     socket.on("video:call-user", async (data) => {
       const delivered = emitToUserRoom(data.toUserId, "video:incoming-call", data);
-      
-      // Track this call in memory
-      callSessions.set(data.conversationId, {
-        callerId: socket.userId,
-        calleeId: data.toUserId,
-        startTime: null, // Zero until answered
-        callType: data.callType || 'video',
-        status: 'calling'
-      });
-
       if (!delivered) {
         socket.emit("video:user-offline", { toUserId: data.toUserId });
-        // Optional: Save missed call log immediately if user offline?
       }
     });
 
     socket.on("video:answer-call", async (data) => {
-      const session = callSessions.get(data.conversationId);
-      if (session) {
-        session.startTime = Date.now();
-        session.status = 'accepted';
-      }
       emitToUserRoom(data.toUserId, "video:call-answered", data);
     });
 
     socket.on("video:reject-call", async (data) => {
-      const session = callSessions.get(data.conversationId);
-      if (session) {
-        const conversationId = data.conversationId;
-        const callerId = session.callerId;
-        
-        // Save "Rejected" log
-        const callLog = {
-          conversationId,
-          senderId: session.calleeId, 
-          type: 'call',
-          content: JSON.stringify({
-            status: 'rejected',
-            callType: session.callType,
-            duration: 0
-          })
-        };
-        
-        try {
-          const savedMsg = await messageService.createMessage(callLog);
-          const normalized = normalizeMessage(savedMsg);
-          const roomId = toRoomId(conversationId);
-          
-          // Broadcast to room so active chat window updates
-          io.to(roomId).emit("chat:message", normalized);
-          
-          // Update last message in DB
-          const lastMsgText = getLastMessageText({ type: 'call', content: callLog.content });
-          await conversationModel.updateConversation(conversationId, {
-            lastMessage: {
-              content: lastMsgText,
-              type: 'call',
-              senderId: session.calleeId,
-              timestamp: savedMsg.createdAt,
-            },
-          });
-
-          // Notify all participants about the conversation update for the sidebar
-          const conversation = await conversationModel.getOneConversation(conversationId);
-          if (conversation && conversation.participants) {
-            conversation.participants.forEach(p => {
-              emitToUserRoom(p.userId, "chat:conversation_updated", {
-                conversationId,
-                lastMessage: {
-                  content: lastMsgText,
-                  type: 'call',
-                  senderId: session.calleeId,
-                  timestamp: savedMsg.createdAt,
-                },
-              });
-            });
-          }
-        } catch (e) {
-          console.error("Failed to save reject call log:", e);
-        }
-        
-        callSessions.delete(conversationId);
-      }
       emitToUserRoom(data.toUserId, "video:call-rejected", data);
     });
 
     socket.on("video:end-call", async (data) => {
-      const session = callSessions.get(data.conversationId);
-      if (session) {
-        const conversationId = data.conversationId;
-        const isAnswered = session.startTime !== null;
-        let duration = 0;
-        let status = 'missed';
-
-        if (isAnswered) {
-          duration = Math.floor((Date.now() - session.startTime) / 1000);
-          status = 'finished';
-        } else {
-          // If caller ends before answer, it's missed (from caller's POV) or cancelled
-          status = socket.userId === session.callerId ? 'cancelled' : 'missed';
-        }
-
-        // Save Call Log
-        const callLog = {
-          conversationId,
-          senderId: session.callerId,
-          type: 'call',
-          content: JSON.stringify({
-            status,
-            callType: session.callType,
-            duration: duration // seconds
-          })
-        };
-
-        try {
-          const savedMsg = await messageService.createMessage(callLog);
-          const normalized = normalizeMessage(savedMsg);
-          const roomId = toRoomId(conversationId);
-
-          // Broadcast to room so active chat window updates
-          io.to(roomId).emit("chat:message", normalized);
-
-          // Update last message in DB
-          const lastMsgText = getLastMessageText({ type: 'call', content: callLog.content });
-          await conversationModel.updateConversation(conversationId, {
-            lastMessage: {
-              content: lastMsgText,
-              type: 'call',
-              senderId: session.callerId,
-              timestamp: savedMsg.createdAt,
-            },
-          });
-
-          // Notify all participants about the conversation update for sidebar
-          const conversation = await conversationModel.getOneConversation(conversationId);
-          if (conversation && conversation.participants) {
-            conversation.participants.forEach(p => {
-              emitToUserRoom(p.userId, "chat:conversation_updated", {
-                conversationId,
-                lastMessage: {
-                  content: lastMsgText,
-                  type: 'call',
-                  senderId: session.callerId,
-                  timestamp: savedMsg.createdAt,
-                },
-              });
-            });
-          }
-        } catch (e) {
-          console.error("Failed to save end call log:", e);
-        }
-
-        callSessions.delete(conversationId);
-      }
       emitToUserRoom(data.toUserId, "video:call-ended", data);
     });
 
@@ -642,26 +507,6 @@ module.exports = (socketConfig) => {
         fromUserId: socket.userId,
         conversationId: data.conversationId,
         signal: data.signal,
-      });
-    });
-
-    socket.on("video:audio-frame", async (data) => {
-      // Relay Audio chunk (base64)
-      emitToUserRoom(data.toUserId, "video:audio-frame", {
-        fromUserId: socket.userId,
-        conversationId: data.conversationId,
-        audio: data.audio, // base64 string
-        audioMimeType: data.audioMimeType,
-      });
-    });
-
-    socket.on("video:frame", async (data) => {
-      console.log(`[VIDEO FRAME] SERVER RECEIVED from ${data.fromUserId} to ${data.toUserId}`);
-      // Relay Fake Video frame (base64)
-      emitToUserRoom(data.toUserId, "video:frame", {
-        fromUserId: socket.userId,
-        conversationId: data.conversationId,
-        frame: data.frame,
       });
     });
 

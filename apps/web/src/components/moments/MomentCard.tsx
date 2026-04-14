@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef } from 'react';
-import { useAuthStore } from '@/stores/authStore';
-import { formatDistanceToNow } from 'date-fns';
-import { vi } from 'date-fns/locale';
+import { useState, useEffect, useRef } from "react";
+import { useAuthStore } from "@/stores/authStore";
+import { formatDistanceToNow } from "date-fns";
+import { vi } from "date-fns/locale";
 import {
   ChevronLeft,
   ChevronRight,
@@ -13,11 +13,11 @@ import {
   Share2,
   Trash2,
   X,
-} from 'lucide-react';
-import { Moment } from '@/types/moment';
-import MomentComments from './MomentComments';
-import MomentReactionPicker from './MomentReactionPicker';
-import { getReactionOption, isVideoUrl, REACTION_OPTIONS } from './momentHelpers';
+} from "lucide-react";
+import { Moment } from "@/types/moment";
+import MomentComments from "./MomentComments";
+import MomentReactionPicker from "./MomentReactionPicker";
+import { isVideoUrl, REACTION_OPTIONS } from "./momentHelpers";
 
 interface MomentCardProps {
   moment: Moment;
@@ -28,21 +28,15 @@ interface MomentCardProps {
   onCommentCountChange?: (momentId: string, delta: number) => void;
 }
 
-function AutoplayVideo({
-  url,
-  className,
-}: {
-  url: string;
-  className: string;
-}) {
+function AutoplayVideo({ url, className }: { url: string; className: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isVisible, setIsVisible] = useState(false);
-  const videoUrl = url.includes('#t=') ? url : `${url}#t=0.001`;
+  const videoUrl = url.includes("#t=") ? url : `${url}#t=0.001`;
 
   useEffect(() => {
     const target = containerRef.current;
-    if (!target || typeof IntersectionObserver === 'undefined') {
+    if (!target || typeof IntersectionObserver === "undefined") {
       setIsVisible(true);
       return;
     }
@@ -68,8 +62,8 @@ function AutoplayVideo({
 
     if (isVisible) {
       const playPromise = video.play();
-      if (playPromise && typeof playPromise.catch === 'function') {
-        playPromise.catch(() => { });
+      if (playPromise && typeof playPromise.catch === "function") {
+        playPromise.catch(() => {});
       }
       return;
     }
@@ -140,8 +134,10 @@ export default function MomentCard({
   onCommentCountChange,
 }: MomentCardProps) {
   const { user } = useAuthStore();
-  const currentUserId = String(user?.userId || user?.id || '');
-  const isOwner = Boolean(moment.isOwner || (moment.authorId && moment.authorId === currentUserId));
+  const currentUserId = String(user?.userId || user?.id || "");
+  const isOwner = Boolean(
+    moment.isOwner || (moment.authorId && moment.authorId === currentUserId),
+  );
   const [showComments, setShowComments] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [showReactions, setShowReactions] = useState(false);
@@ -181,7 +177,8 @@ export default function MomentCard({
   };
 
   const showPrevMedia = () => {
-    const prevIndex = (viewerIndex - 1 + moment.mediaUrls.length) % moment.mediaUrls.length;
+    const prevIndex =
+      (viewerIndex - 1 + moment.mediaUrls.length) % moment.mediaUrls.length;
     setViewerIndex(prevIndex);
     setActiveViewerUrl(moment.mediaUrls[prevIndex]);
   };
@@ -193,7 +190,7 @@ export default function MomentCard({
       await onReact(moment.momentId, reactionKey);
       setShowReactionPicker(false);
     } catch (error) {
-      console.error('Failed to react:', error);
+      console.error("Failed to react:", error);
     } finally {
       setIsReacting(false);
     }
@@ -207,16 +204,15 @@ export default function MomentCard({
             {moment.author?.avartarUrl || (isOwner && user?.avatarUrl) ? (
               <img
                 src={
-                  (isOwner ? user?.avatarUrl : moment.author?.avartarUrl) ||
-                  ''
+                  (isOwner ? user?.avatarUrl : moment.author?.avartarUrl) || ""
                 }
-                alt={moment.author?.userName || 'User'}
+                alt={moment.author?.userName || "User"}
                 className="h-10 w-10 shrink-0 rounded-full object-cover"
               />
             ) : (
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary-100 dark:bg-primary-900/30">
                 <span className="text-sm font-medium text-primary-600 dark:text-primary-400">
-                  {(moment.author?.userName || user?.fullName || 'U')
+                  {(moment.author?.userName || user?.fullName || "U")
                     .charAt(0)
                     .toUpperCase()}
                 </span>
@@ -226,7 +222,7 @@ export default function MomentCard({
             <div>
               <h4 className="text-sm font-semibold text-gray-900 dark:text-white">
                 {moment.author?.userName ||
-                  (isOwner ? user?.fullName : 'Người dùng')}
+                  (isOwner ? user?.fullName : "Người dùng")}
               </h4>
               <span className="text-xs text-gray-500 dark:text-gray-400">
                 {formatDistanceToNow(new Date(moment.createdAt), {
@@ -279,28 +275,30 @@ export default function MomentCard({
 
         {moment.mediaUrls.length > 0 ? (
           <div
-            className={`mt-2 ${moment.mediaUrls.length > 1 ? 'grid grid-cols-2 gap-1' : ''
-              }`}
+            className={`mt-2 ${
+              moment.mediaUrls.length > 1 ? "grid grid-cols-2 gap-1" : ""
+            }`}
           >
             {moment.mediaUrls.map((url, index) => (
               <MomentMedia
                 key={`${url}-${index}`}
                 url={url}
                 alt="Moment media"
-                className={`w-full bg-gray-100 object-cover dark:bg-dark-300 ${moment.mediaUrls.length === 1 ? 'max-h-[1000px]' : 'h-96'
-                  }`}
+                className={`w-full bg-gray-100 object-cover dark:bg-dark-300 ${
+                  moment.mediaUrls.length === 1 ? "max-h-[1000px]" : "h-96"
+                }`}
                 onOpen={() => openViewer(moment.mediaUrls, index)}
               />
             ))}
           </div>
         ) : null}
 
-        {moment.type === 'share' && moment.originalMomentSnapshot ? (
+        {moment.type === "share" && moment.originalMomentSnapshot ? (
           <div className="m-4 rounded-xl border border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-dark-300">
             <div className="mb-2 flex items-center gap-2">
               <span className="text-xs font-semibold text-primary-500">
-                Chia sẻ từ{' '}
-                {moment.originalMomentSnapshot.author?.userName || 'người dùng'}
+                Chia sẻ từ{" "}
+                {moment.originalMomentSnapshot.author?.userName || "người dùng"}
               </span>
             </div>
             {moment.originalMomentSnapshot.content ? (
@@ -333,8 +331,12 @@ export default function MomentCard({
             )}
           </div>
           <div className="flex gap-3">
-            {moment.commentCount > 0 && <span>{moment.commentCount} bình luận</span>}
-            {moment.shareCount > 0 && <span>{moment.shareCount} lượt chia sẻ</span>}
+            {moment.commentCount > 0 && (
+              <span>{moment.commentCount} bình luận</span>
+            )}
+            {moment.shareCount > 0 && (
+              <span>{moment.shareCount} lượt chia sẻ</span>
+            )}
           </div>
         </div>
 
@@ -363,19 +365,20 @@ export default function MomentCard({
             )}
             <button
               onClick={() =>
-                onReact(moment.momentId, activeReaction ? 'like' : 'like')
+                onReact(moment.momentId, activeReaction ? "like" : "like")
               }
-              className={`flex w-full items-center justify-center gap-2 rounded-lg py-2 text-sm font-medium transition-colors hover:bg-gray-50 dark:hover:bg-dark-300 ${activeReaction
-                ? 'bg-primary-50 text-primary-600 dark:bg-primary-900/20 dark:text-primary-300'
-                : 'bg-gray-50 text-gray-600 hover:bg-gray-100 dark:bg-dark-300 dark:text-gray-400 dark:hover:bg-dark-400'
-                } disabled:opacity-60`}
+              className={`flex w-full items-center justify-center gap-2 rounded-lg py-2 text-sm font-medium transition-colors hover:bg-gray-50 dark:hover:bg-dark-300 ${
+                activeReaction
+                  ? "bg-primary-50 text-primary-600 dark:bg-primary-900/20 dark:text-primary-300"
+                  : "bg-gray-50 text-gray-600 hover:bg-gray-100 dark:bg-dark-300 dark:text-gray-400 dark:hover:bg-dark-400"
+              } disabled:opacity-60`}
             >
               {activeReaction ? (
                 <span className="text-base">{activeReaction.icon}</span>
               ) : (
                 <Heart className="h-5 w-5" />
               )}
-              {activeReaction?.label || 'Cảm xúc'}
+              {activeReaction?.label || "Cảm xúc"}
             </button>
 
             <button
@@ -518,7 +521,9 @@ export default function MomentCard({
           onRemove={
             moment.currentUserReaction
               ? () =>
-                void handleReactionSelect(moment.currentUserReaction as string)
+                  void handleReactionSelect(
+                    moment.currentUserReaction as string,
+                  )
               : undefined
           }
         />

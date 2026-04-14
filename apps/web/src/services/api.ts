@@ -331,6 +331,52 @@ const getFriends = async (userId: string): Promise<User[]> => {
     return (result.data || []).map(mapUser);
 }
 
+export interface AIAskResponse {
+    reply: string;
+}
+
+export interface AIHistoryItem {
+    userId: string;
+    chatId: string;
+    conversationId?: string | null;
+    question: string;
+    answer: string;
+    askedAt: string;
+}
+
+const askAssistant = async (question: string, conversationId?: string): Promise<AIAskResponse> => {
+    const response = await fetchWithAuth(`/ai/chat`, {
+        method: 'POST',
+        body: JSON.stringify({ question, conversationId })
+    });
+    const data = await response.json();
+
+    return {
+        reply: String(data?.data?.reply || '')
+    };
+}
+
+const getAssistantHistory = async (limit = 50, conversationId?: string): Promise<AIHistoryItem[]> => {
+    const params = new URLSearchParams();
+    params.set('limit', String(limit));
+    if (conversationId) {
+        params.set('conversationId', conversationId);
+    }
+
+    const response = await fetchWithAuth(`/ai/history?${params.toString()}`);
+    const data = await response.json();
+
+    return Array.isArray(data?.data) ? data.data : [];
+}
+
+const deleteAssistantConversationHistory = async (conversationId: string): Promise<number> => {
+    const response = await fetchWithAuth(`/ai/history/${conversationId}`, {
+        method: 'DELETE'
+    });
+    const data = await response.json();
+    return Number(data?.data?.deletedCount || 0);
+}
+
 export {
     getConversation,
     getMessages,
@@ -359,5 +405,8 @@ export {
     updateLabel,
     deleteLabel,
     getUserByPhone,
-    getFriends
+    getFriends,
+    askAssistant,
+    getAssistantHistory,
+    deleteAssistantConversationHistory
 }

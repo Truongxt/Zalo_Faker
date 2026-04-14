@@ -19,10 +19,15 @@ export interface Message {
         fileName?: string
         fileSize?: number
         duration?: number
+        transcript?: string
     }
     metadata?: {
         isAnnouncement?: boolean
         isImportant?: boolean
+        transcript?: string
+        transcriptStatus?: string
+        transcriptUpdatedAt?: string
+        transcriptProvider?: string
     } | null
     replyTo?: string
     reactions: { userId: string; emoji: string }[]
@@ -35,9 +40,6 @@ export interface Message {
 
 const normalizeMessageContent = (rawContent: unknown): Message['content'] => {
     if (typeof rawContent === 'string') {
-        if (rawContent.startsWith('http')) {
-            return { mediaUrl: rawContent }
-        }
         return { text: rawContent }
     }
 
@@ -72,6 +74,24 @@ const normalizeMessageContent = (rawContent: unknown): Message['content'] => {
         fileName: typeof content.fileName === 'string' ? content.fileName : undefined,
         fileSize: typeof content.fileSize === 'number' ? content.fileSize : undefined,
         duration: typeof content.duration === 'number' ? content.duration : undefined,
+        transcript: typeof content.transcript === 'string' ? content.transcript : undefined,
+    }
+}
+
+const normalizeMessageMetadata = (rawMetadata: unknown): Message['metadata'] => {
+    if (!rawMetadata || typeof rawMetadata !== 'object') {
+        return null
+    }
+
+    const metadata = rawMetadata as Record<string, unknown>
+
+    return {
+        isAnnouncement: Boolean(metadata.isAnnouncement),
+        isImportant: Boolean(metadata.isImportant),
+        transcript: typeof metadata.transcript === 'string' ? metadata.transcript : undefined,
+        transcriptStatus: typeof metadata.transcriptStatus === 'string' ? metadata.transcriptStatus : undefined,
+        transcriptUpdatedAt: typeof metadata.transcriptUpdatedAt === 'string' ? metadata.transcriptUpdatedAt : undefined,
+        transcriptProvider: typeof metadata.transcriptProvider === 'string' ? metadata.transcriptProvider : undefined,
     }
 }
 
@@ -79,6 +99,7 @@ export const normalizeMessage = (msg: any): Message => ({
     ...msg,
     id: msg?.id || msg?._id || `temp-${Date.now()}-${Math.random()}`,
     content: normalizeMessageContent(msg?.content),
+    metadata: normalizeMessageMetadata(msg?.metadata),
     reactions: Array.isArray(msg?.reactions) ? msg.reactions : [],
     readBy: Array.isArray(msg?.readBy) ? msg.readBy : [],
     isDeleted: Boolean(msg?.isDeleted),
@@ -99,8 +120,8 @@ export interface Participant {
     isPinned?: boolean
     isMuted?: boolean
     muteUntil?: string | null
-    labelIds?: string[]
     isHidden?: boolean
+    labelIds?: string[]
 }
 
 export type GroupPermissionScope = 'all' | 'admin_deputy' | 'admin'
@@ -237,14 +258,12 @@ interface ChatState {
     isLoadingMessages: boolean
     labels: Label[]
     isLoadingLabels: boolean
-    unlockedHiddenChats: boolean
 
     // Actions
     setLabels: (labels: Label[]) => void
     addLabel: (label: Label) => void
     updateLabel: (id: string, updates: Partial<Label>) => void
     removeLabel: (id: string) => void
-    setUnlockedHiddenChats: (unlocked: boolean) => void
 
     setConversations: (conversations: Conversation[]) => void
     addConversation: (conversation: Conversation) => void
@@ -278,7 +297,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
     isLoadingMessages: false,
     labels: [],
     isLoadingLabels: false,
-    unlockedHiddenChats: false,
 
     setLabels: (labels) => set({ labels }),
     addLabel: (label) => set((state) => ({ labels: [...state.labels, label] })),
@@ -288,8 +306,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
     removeLabel: (id) => set((state) => ({
         labels: state.labels.filter(l => l._id !== id)
     })),
-
-    setUnlockedHiddenChats: (unlockedHiddenChats) => set({ unlockedHiddenChats }),
 
     setConversations: (conversations) => set({
         conversations: dedupeConversations(conversations)

@@ -16,16 +16,17 @@ const userController = {
   // ===== LOGIN =====
   login: async (req, res) => {
     try {
-      const { email, password, platform, deviceInfo } = req.body;
+      const { email, phone, identifier, password, platform, deviceInfo } = req.body;
+      const loginIdentifier = String(identifier || email || phone || "").trim();
 
       // Extract device info from request
       const loginMeta = {
-        platform: platform || req.headers["x-platform"] || "unknown",
+        platform: platform || req.headers["x-platform"] || "web",
         deviceInfo: deviceInfo || req.headers["x-device-info"] || req.headers["user-agent"] || "Unknown",
         ipAddress: req.headers["x-forwarded-for"] || req.connection?.remoteAddress || req.ip || "Unknown",
       };
 
-      const result = await userService.login(email, password, loginMeta);
+      const result = await userService.login(loginIdentifier, password, loginMeta);
       res.json(result);
     } catch (err) {
       res.status(401).json({ message: err.message });

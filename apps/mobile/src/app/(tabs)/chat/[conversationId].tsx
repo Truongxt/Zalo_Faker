@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import {
   View,
-  Image,
   Text,
   TextInput,
   FlatList,
@@ -10,26 +9,21 @@ import {
   Platform,
   Alert,
   ActivityIndicator,
-  ImageBackground,
-  Modal,
+  Image,
 } from "react-native";
-import * as Linking from "expo-linking";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
-import { Audio, type AVPlaybackStatus } from "expo-av";
+import { Audio, Video, ResizeMode, type AVPlaybackStatus } from "expo-av";
 import { Ionicons } from "@expo/vector-icons";
 import { useChatStore } from "@/stores/chatStore";
 import { useAuthStore } from "@/stores/authStore";
 import { chatService } from "@/services/chat";
-import { userService, groupService } from "@/services";
+import { userService } from "@/services";
 import { socketService } from "@/lib/socket";
 import { Avatar } from "@/components/ui/Avatar";
-import { ChatOptionsModal } from "@/components/chat/ChatOptionsModal";
-import { ForwardMessageModal } from "@/components/chat/ForwardMessageModal";
 import { GrayToast } from "@/components/ui";
-import { Swipeable, GestureHandlerRootView } from "react-native-gesture-handler";
 import type { Message } from "@/types";
 import { API_URL } from "@/constants/config";
 
@@ -51,11 +45,7 @@ async function uploadFile(
     body: formData,
   });
 
-  if (!res.ok) {
-     const errorData = await res.json().catch(() => ({}));
-     const msg = errorData.error ? `${errorData.message}: ${errorData.error}` : (errorData.message || "Upload thất bại");
-     throw new Error(msg);
-  }
+  if (!res.ok) throw new Error("Upload thất bại");
   const data = await res.json();
   return data.url as string;
 }
@@ -71,53 +61,6 @@ function formatAudioTime(millis: number) {
   const seconds = totalSeconds % 60;
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
-
-const normalizeContent = (rawContent: any) => {
-  if (typeof rawContent === "string") {
-    if (rawContent.startsWith("http")) {
-      return { mediaUrl: rawContent, text: "" };
-    }
-    return { text: rawContent };
-  }
-  if (!rawContent || typeof rawContent !== "object") {
-    return {};
-  }
-  return {
-    text: rawContent.text || rawContent.message || rawContent.content,
-    mediaUrl: rawContent.mediaUrl || rawContent.url || rawContent.fileUrl,
-    fileName: rawContent.fileName,
-    fileSize: rawContent.fileSize,
-    duration: rawContent.duration,
-  };
-};
-
-const handleOpenFile = async (url: string) => {
-  if (!url) return;
-  try {
-    let finalUrl = url;
-    const isDoc = /\.(docx|doc|xls|xlsx|ppt|pptx|pdf)$/i.test(url);
-    
-    // For documents, use Google Docs Viewer for a better preview experience
-    if (isDoc) {
-      finalUrl = `https://docs.google.com/viewer?url=${encodeURIComponent(url)}`;
-    }
-
-    const supported = await Linking.canOpenURL(finalUrl);
-    if (supported) {
-      await Linking.openURL(finalUrl);
-    } else {
-      await Linking.openURL(finalUrl);
-    }
-  } catch (err) {
-    console.error("Linking error:", err);
-    // If Google Docs Viewer fails, try original URL
-    try {
-       await Linking.openURL(url);
-    } catch {
-       Alert.alert("Lỗi", "Không thể mở file. Hãy đảm bảo bạn có ứng dụng hỗ trợ định dạng này.");
-    }
-  }
-};
 
 function getPresenceLabel(
   isOnline: boolean,
@@ -144,12 +87,14 @@ type VoiceMessagePlayerProps = {
   audioUrl: string;
   durationSeconds?: number;
   textColor: string;
+  onPressMessage?: () => void;
 };
 
 function VoiceMessagePlayer({
   audioUrl,
   durationSeconds,
   textColor,
+  onPressMessage,
 }: VoiceMessagePlayerProps) {
   const soundRef = useRef<Audio.Sound | null>(null);
   const mountedRef = useRef(true);
@@ -251,11 +196,15 @@ function VoiceMessagePlayer({
   return (
     <TouchableOpacity
       activeOpacity={0.8}
-      onPress={togglePlayPause}
+      onPress={() => {
+        onPressMessage?.();
+        void togglePlayPause();
+      }}
       style={{
         flexDirection: "row",
         alignItems: "center",
-        minWidth: 180,
+        width: "100%",
+        minWidth: 0,
         gap: 8,
       }}
     >
@@ -299,7 +248,13 @@ function VoiceMessagePlayer({
         </View>
       </View>
 
-      <Text style={{ color: textColor, fontSize: 12 }}>
+      <Text
+        style={{
+          color: textColor,
+          fontSize: 12,
+          flexShrink: 0,
+        }}
+      >
         {formatAudioTime(positionMillis)} / {formatAudioTime(durationMillis)}
       </Text>
 
@@ -312,20 +267,64 @@ function VoiceMessagePlayer({
 
 type MessageItemProps = {
   msg: Message;
-  allMessages: Message[];
   isMe: boolean;
+  isGroupedWithPrevious?: boolean;
   onLongPress: (msg: Message) => void;
-  onSwipeReply: (msg: Message) => void;
-  onReactClick: (msg: Message) => void;
 };
 
-function MessageItem({ msg, allMessages, isMe, onLongPress, onSwipeReply, onReactClick }: MessageItemProps) {
-  const bg = isMe ? "#0068FF" : "#fff"; // White for received like Zalo
-  const isImportant = !!msg.metadata?.isImportant;
-  const isForwarded = !!msg.metadata?.isForwarded;
-  const textColor = isImportant ? "#111827" : (isMe ? "#fff" : "#111827");
-  
-  const repliedMsg = msg.replyTo ? allMessages.find(m => m.id === msg.replyTo) : null;
+function MessageItem({
+  msg,
+  isMe,
+  isGroupedWithPrevious = false,
+  onLongPress,
+}: MessageItemProps) {
+  const [showVoiceTranscript, setShowVoiceTranscript] = useState(false);
+  const bg = isMe ? "#0068FF" : "#F3F4F6";
+  const textColor = isMe ? "#fff" : "#111827";
+  const showSenderMeta = !isMe && !isGroupedWithPrevious;
+  const voiceAttachment = (msg.attachments || []).find(
+    (attachment) => attachment.type === "voice",
+  );
+  const videoAttachment = (msg.attachments || []).find(
+    (attachment) => attachment.type === "video",
+  );
+  const fallbackVoiceUrl =
+    typeof msg.content === "string" && /^https?:\/\//i.test(msg.content)
+      ? msg.content
+      : undefined;
+  const fallbackVideoUrl =
+    typeof msg.content === "string" && /^https?:\/\//i.test(msg.content)
+      ? msg.content
+      : undefined;
+  const voiceUrl = voiceAttachment?.url || fallbackVoiceUrl;
+  const videoUrl = videoAttachment?.url || fallbackVideoUrl;
+  const voiceDuration = voiceAttachment?.duration;
+  const transcriptFromContent =
+    typeof msg.content === "string" &&
+    msg.content.trim() &&
+    !/^https?:\/\//i.test(msg.content) &&
+    msg.content !== "Tin nhan thoai"
+      ? msg.content.trim()
+      : "";
+  const voiceTranscript =
+    voiceAttachment?.transcript ||
+    ((msg as any)?.metadata?.transcript as string | undefined) ||
+    transcriptFromContent;
+  const transcriptStatus = String(
+    ((msg as any)?.metadata?.transcriptStatus as string | undefined) || "",
+  ).toLowerCase();
+  const resolvedTranscript = voiceTranscript?.trim() || "";
+  const transcriptLabel = resolvedTranscript
+    ? resolvedTranscript
+    : transcriptStatus === "failed"
+      ? "He thong chua tach duoc text. Dang thu lai o lan tai tiep theo."
+      : transcriptStatus === "disabled"
+        ? "Tinh nang tach text dang tat tren server."
+        : transcriptStatus === "missing_audio_url"
+          ? "Khong tim thay file ghi am de tach text."
+          : transcriptStatus === "empty"
+            ? "Khong nhan dien duoc noi dung tu file ghi am nay."
+            : "Dang xu ly tach text cho doan ghi am...";
 
   const renderContent = () => {
     if (msg.isDeleted) {
@@ -333,86 +332,152 @@ function MessageItem({ msg, allMessages, isMe, onLongPress, onSwipeReply, onReac
         <Text
           style={{ color: isMe ? "#cce4ff" : "#9CA3AF", fontStyle: "italic" }}
         >
-          Tin nhắn đã bị thu hồi
+          Tin nhan da bi thu hoi
         </Text>
       );
     }
-
-    const content = normalizeContent(msg.content);
-    const voiceAttachment = (msg.attachments || []).find(
-      (a) => a.type === "voice",
-    );
-    const voiceUrl = content.mediaUrl || voiceAttachment?.url;
-    const voiceDuration = content.duration || voiceAttachment?.duration;
 
     switch (msg.type) {
       case "image":
         return (
           <Image
-            source={{ uri: content.mediaUrl || (msg as any).attachments?.[0]?.url }}
-            style={{ width: 220, height: 160, borderRadius: 12 }}
+            source={{ uri: (msg as any).attachments?.[0]?.url || msg.content }}
+            style={{ width: 200, height: 150, borderRadius: 12 }}
             resizeMode="cover"
+          />
+        );
+      case "video":
+        if (!videoUrl) {
+          return (
+            <View
+              style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
+            >
+              <Ionicons
+                name="videocam-off-outline"
+                size={18}
+                color={textColor}
+              />
+              <Text style={{ color: textColor }}>
+                Video (khong co duong dan)
+              </Text>
+            </View>
+          );
+        }
+
+        return (
+          <Video
+            source={{ uri: videoUrl }}
+            style={{
+              width: 230,
+              height: 300,
+              borderRadius: 12,
+              backgroundColor: "#000",
+            }}
+            useNativeControls
+            shouldPlay
+            isLooping
+            resizeMode={ResizeMode.CONTAIN}
+            onError={(error) => {
+              console.error("Khong the phat video:", error);
+            }}
           />
         );
       case "voice":
         if (voiceUrl) {
           return (
-            <VoiceMessagePlayer
-              audioUrl={voiceUrl}
-              durationSeconds={voiceDuration}
-              textColor={textColor}
-            />
+            <View style={{ minWidth: 210 }}>
+              <VoiceMessagePlayer
+                audioUrl={voiceUrl}
+                durationSeconds={voiceDuration}
+                textColor={textColor}
+                onPressMessage={() => setShowVoiceTranscript(true)}
+              />
+
+              <View
+                style={{
+                  marginTop: 6,
+                  alignItems: "flex-end",
+                }}
+              >
+                <TouchableOpacity
+                  onPress={() => setShowVoiceTranscript((prev) => !prev)}
+                  activeOpacity={0.8}
+                  style={{
+                    paddingHorizontal: 8,
+                    height: 28,
+                    borderRadius: 14,
+                    backgroundColor: isMe
+                      ? "rgba(255,255,255,0.2)"
+                      : "rgba(17,24,39,0.08)",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    flexDirection: "row",
+                    gap: 3,
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: textColor,
+                      fontSize: 11,
+                      fontWeight: "700",
+                    }}
+                  >
+                    Text
+                  </Text>
+                  <Ionicons
+                    name={showVoiceTranscript ? "chevron-up" : "chevron-down"}
+                    size={14}
+                    color={textColor}
+                  />
+                </TouchableOpacity>
+              </View>
+
+              {showVoiceTranscript && (
+                <View
+                  style={{
+                    marginTop: 8,
+                    paddingTop: 6,
+                    borderTopWidth: 1,
+                    borderTopColor: isMe
+                      ? "rgba(255,255,255,0.26)"
+                      : "rgba(17,24,39,0.14)",
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: textColor,
+                      fontSize: 13,
+                      lineHeight: 18,
+                    }}
+                  >
+                    {transcriptLabel}
+                  </Text>
+                </View>
+              )}
+            </View>
           );
         }
         return (
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
             <Ionicons name="mic-off" size={18} color={textColor} />
             <Text style={{ color: textColor }}>
-              Tin nhắn thoại không khả dụng
+              Tin nhan thoai (khong co duong dan)
             </Text>
           </View>
         );
       case "file":
-        const fileName = content.fileName || (msg as any).attachments?.[0]?.name || "File đính kèm";
-        const fileSize = content.fileSize || (msg as any).attachments?.[0]?.size;
-        
         return (
-          <TouchableOpacity 
-            onPress={() => handleOpenFile(content.mediaUrl)}
-            style={{ 
-              backgroundColor: "rgba(255,255,255,0.15)",
-              padding: 10,
-              borderRadius: 12,
-              flexDirection: "row", 
-              alignItems: "center", 
-              gap: 12,
-              minWidth: 200,
-            }}
-          >
-            <View style={{ width: 40, height: 40, backgroundColor: "#0068FF", borderRadius: 8, alignItems: "center", justifyContent: "center" }}>
-               <Text style={{ color: "#fff", fontWeight: "700", fontSize: 10 }}>
-                 {fileName.split(".").pop()?.toUpperCase() || "FILE"}
-               </Text>
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text 
-                style={{ color: textColor, fontWeight: "600", fontSize: 13 }} 
-                numberOfLines={1}
-              >
-                {fileName}
-              </Text>
-              {fileSize && (
-                <Text style={{ color: textColor, opacity: 0.7, fontSize: 11 }}>
-                  {(fileSize / 1024).toFixed(1)} KB
-                </Text>
-              )}
-            </View>
-          </TouchableOpacity>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <Ionicons name="document-outline" size={18} color={textColor} />
+            <Text style={{ color: textColor, flex: 1 }} numberOfLines={1}>
+              {(msg as any).attachments?.[0]?.name || "File dinh kem"}
+            </Text>
+          </View>
         );
       case "sticker":
         return (
           <Image
-            source={{ uri: content.mediaUrl || (typeof msg.content === 'string' ? msg.content : '') }}
+            source={{ uri: msg.content }}
             style={{ width: 100, height: 100 }}
             resizeMode="contain"
           />
@@ -420,7 +485,7 @@ function MessageItem({ msg, allMessages, isMe, onLongPress, onSwipeReply, onReac
       default:
         return (
           <Text style={{ color: textColor, lineHeight: 20 }}>
-            {content.text || ""}
+            {msg.content}
           </Text>
         );
     }
@@ -435,158 +500,78 @@ function MessageItem({ msg, allMessages, isMe, onLongPress, onSwipeReply, onReac
   );
 
   return (
-    <Swipeable
-      renderRightActions={isMe ? undefined : () => null}
-      renderLeftActions={isMe ? () => null : undefined}
-      onSwipeableWillOpen={() => onSwipeReply(msg)}
+    <TouchableOpacity
+      onLongPress={() => onLongPress(msg)}
+      activeOpacity={0.8}
+      style={{
+        flexDirection: "row",
+        justifyContent: isMe ? "flex-end" : "flex-start",
+        marginHorizontal: 10,
+        marginVertical: isGroupedWithPrevious ? 1 : 2,
+      }}
     >
+      {showSenderMeta && (
+        <Avatar
+          name={msg.senderName || "?"}
+          uri={(msg as any).senderAvatar}
+          size={32}
+        />
+      )}
+
       <View
         style={{
-          flexDirection: "row",
-          justifyContent: isMe ? "flex-end" : "flex-start",
-          marginHorizontal: 12,
-          marginVertical: 3,
-          alignItems: "flex-end", // Align icons to bottom of bubble
-          gap: 6
+          maxWidth: "74%",
+          marginLeft: isMe ? 0 : showSenderMeta ? 8 : 40,
         }}
       >
-        {!isMe && (
-          <Avatar
-            name={msg.senderName || "?"}
-            uri={(msg as any).senderAvatar}
-            size={32}
-          />
-        )}
-
-        {isMe && !msg.isDeleted && (
-          <TouchableOpacity 
-            onPress={() => onReactClick(msg)}
-            style={{ 
-              padding: 6,
-              backgroundColor: "#fff",
-              borderRadius: 20,
-              borderWidth: 1,
-              borderColor: "#F3F4F6",
-              marginBottom: 10,
+        {showSenderMeta && (
+          <Text
+            style={{
+              fontSize: 11,
+              color: "#6B7280",
+              marginBottom: 1,
+              marginLeft: 4,
             }}
           >
-            <Ionicons name="happy-outline" size={16} color="#9CA3AF" />
-          </TouchableOpacity>
+            {msg.senderName}
+          </Text>
         )}
 
-        <TouchableOpacity
-          onLongPress={() => onLongPress(msg)}
-          activeOpacity={0.8}
-          style={{ maxWidth: "72%", marginLeft: isMe ? 0 : 4 }}
+        <View
+          style={{
+            backgroundColor: bg,
+            borderRadius: 18,
+            paddingHorizontal: 11,
+            paddingVertical: 7,
+          }}
         >
-          {!isMe && (
-            <Text
-              style={{
-                fontSize: 11,
-                color: "#6B7280",
-                marginBottom: 2,
-                marginLeft: 4,
-              }}
-            >
-              {msg.senderName}
-            </Text>
+          {renderContent()}
+        </View>
+
+        <View
+          style={{
+            flexDirection: "row",
+            justifyContent: isMe ? "flex-end" : "flex-start",
+            gap: 6,
+            marginTop: 1,
+          }}
+        >
+          <Text style={{ fontSize: 10, color: "#9CA3AF" }}>
+            {formatTime(msg.createdAt)}
+          </Text>
+          {Object.keys(topReactions).length > 0 && (
+            <View style={{ flexDirection: "row" }}>
+              {Object.entries(topReactions).map(([emoji, count]) => (
+                <Text key={emoji} style={{ fontSize: 11 }}>
+                  {emoji}
+                  {count > 1 ? count : ""}
+                </Text>
+              ))}
+            </View>
           )}
-
-          <View
-            style={{
-              backgroundColor: isImportant ? "#FFF9C4" : bg,
-              borderRadius: 18,
-              paddingHorizontal: 12,
-              paddingVertical: 8,
-              borderWidth: isImportant ? 2 : (isMe ? 0 : 1),
-              borderColor: isImportant ? "#FFD54F" : "#E5E7EB",
-              shadowColor: "#000",
-              shadowOffset: { width: 0, height: isImportant ? 4 : 0 },
-              shadowOpacity: isImportant ? 0.1 : 0,
-              elevation: isImportant ? 2 : 0,
-            }}
-          >
-            {repliedMsg && !msg.isDeleted && (
-               <View style={{ 
-                 backgroundColor: isMe ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.05)",
-                 padding: 8,
-                 borderRadius: 10,
-                 borderLeftWidth: 3,
-                 borderLeftColor: isMe ? "#fff" : "#0068FF",
-                 marginBottom: 6,
-                 minWidth: 120
-               }}>
-                  <Text style={{ fontSize: 11, fontWeight: '700', color: isMe ? "#fff" : "#0068FF" }}>
-                    {repliedMsg.senderName}
-                  </Text>
-                  <Text style={{ fontSize: 13, color: isMe ? "#fff" : "#4B5563" }} numberOfLines={1}>
-                    {repliedMsg.isDeleted ? "Tin nhắn đã bị thu hồi" : (repliedMsg.content?.text || (repliedMsg.type === 'image' ? '[Hình ảnh]' : '[File]'))}
-                  </Text>
-               </View>
-            )}
-            {isForwarded && (
-               <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4, opacity: 0.8 }}>
-                  <Ionicons 
-                    name="share-social-outline" 
-                    size={12} 
-                    color={isImportant ? "#F59E0B" : (isMe ? "#fff" : "#6B7280")} 
-                  />
-                  <Text 
-                    style={{ 
-                      fontSize: 10, 
-                      color: isImportant ? "#F59E0B" : (isMe ? "#fff" : "#6B7280"), 
-                      fontStyle: 'italic', 
-                      marginLeft: 4 
-                    }}
-                  >
-                    Tin nhắn này đã được chuyển tiếp
-                  </Text>
-               </View>
-            )}
-            {renderContent()}
-          </View>
-
-          <View
-            style={{
-              flexDirection: "row",
-              justifyContent: isMe ? "flex-end" : "flex-start",
-              gap: 6,
-              marginTop: 2,
-            }}
-          >
-            <Text style={{ fontSize: 10, color: "#9CA3AF" }}>
-              {formatTime(msg.createdAt)}
-            </Text>
-            {Object.keys(topReactions).length > 0 && (
-              <View style={{ flexDirection: "row" }}>
-                {Object.entries(topReactions).map(([emoji, count]) => (
-                  <Text key={emoji} style={{ fontSize: 11 }}>
-                    {emoji}
-                    {count > 1 ? count : ""}
-                  </Text>
-                ))}
-              </View>
-            )}
-          </View>
-        </TouchableOpacity>
-
-        {!isMe && !msg.isDeleted && (
-          <TouchableOpacity 
-            onPress={() => onReactClick(msg)}
-            style={{ 
-              padding: 6,
-              backgroundColor: "#fff",
-              borderRadius: 20,
-              borderWidth: 1,
-              borderColor: "#F3F4F6",
-              marginBottom: 10,
-            }}
-          >
-            <Ionicons name="happy-outline" size={16} color="#9CA3AF" />
-          </TouchableOpacity>
-        )}
+        </View>
       </View>
-    </Swipeable>
+    </TouchableOpacity>
   );
 }
 
@@ -605,17 +590,8 @@ export default function ChatRoomScreen() {
   const [text, setText] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
-  const [importantMode, setImportantMode] = useState(false);
-  const [emojiPickerVisible, setEmojiPickerVisible] = useState(false);
-  const [isRecording, setIsRecording] = useState(false);
-  const [recording, setRecording] = useState<Audio.Recording | null>(null);
-  const [recordingTime, setRecordingTime] = useState(0);
-  const recordingTimer = useRef<NodeJS.Timeout | null>(null);
   const [showReactions, setShowReactions] = useState(false);
-  const [showForward, setShowForward] = useState(false);
-  const [optionsVisible, setOptionsVisible] = useState(false);
   const [selectedMsg, setSelectedMsg] = useState<Message | null>(null);
-  const [replyTo, setReplyTo] = useState<string | null>(null);
   const [typingUsers, setTypingUsers] = useState<string[]>([]);
   const [isPartnerOnline, setIsPartnerOnline] = useState(false);
   const [partnerLastSeenAt, setPartnerLastSeenAt] = useState<string | null>(
@@ -646,8 +622,6 @@ export default function ChatRoomScreen() {
       : "";
 
   // Re-render presence label every minute so "X phút trước" updates naturally.
-  const repliedMessage = replyTo ? convMessages.find(m => m.id === replyTo) : null;
-
   useEffect(() => {
     const interval = setInterval(() => {
       setPresenceTick((prev) => prev + 1);
@@ -810,110 +784,6 @@ export default function ChatRoomScreen() {
     if (convId && user) {
       socketService.emit("chat:typing", { conversationId: convId });
     }
-    if (val.trim() && isRecording) {
-      handleCancelRecording();
-    }
-  };
-
-  const handleStartRecording = async () => {
-    try {
-      const permission = await Audio.requestPermissionsAsync();
-      if (permission.status !== "granted") {
-        Alert.alert("Lỗi", "Cần quyền truy cập micro để ghi âm");
-        return;
-      }
-
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
-      });
-
-      const { recording } = await Audio.Recording.createAsync(
-        Audio.RecordingOptionsPresets.HIGH_QUALITY
-      );
-      setRecording(recording);
-      setIsRecording(true);
-      setRecordingTime(0);
-
-      recordingTimer.current = setInterval(() => {
-        setRecordingTime((prev) => prev + 1);
-      }, 1000);
-    } catch (err) {
-      console.error("Failed to start recording", err);
-    }
-  };
-
-  const handleStopAndSendRecording = async () => {
-    if (!recording) return;
-
-    try {
-      if (recordingTimer.current) clearInterval(recordingTimer.current);
-      setIsRecording(false);
-      await recording.stopAndUnloadAsync();
-      const uri = recording.getURI();
-      if (!uri) return;
-
-      const duration = recordingTime;
-      setRecording(null);
-      setRecordingTime(0);
-
-      setIsSending(true);
-      const audioUrl = await uploadFile(
-        uri,
-        `voice_${Date.now()}.m4a`,
-        "audio/m4a",
-        accessToken
-      );
-
-      const metadata = { isImportant: importantMode };
-      const voiceMsg: Message = {
-        id: `temp-voice-${Date.now()}`,
-        conversationId: convId,
-        senderId: user?.id || "",
-        type: "voice",
-        content: { mediaUrl: audioUrl, duration },
-        metadata,
-        reactions: [],
-        readBy: [],
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-
-      addMessage(convId, voiceMsg);
-      await chatService.sendMessage(convId, {
-        type: "voice",
-        content: { mediaUrl: audioUrl, duration },
-        metadata,
-      });
-      setImportantMode(false);
-    } catch (err) {
-      console.error("Failed to stop recording", err);
-      Alert.alert("Lỗi", "Không thể gửi tin nhắn thoại");
-    } finally {
-      setIsSending(false);
-    }
-  };
-
-  const handleCancelRecording = async () => {
-    if (!recording) return;
-    try {
-      if (recordingTimer.current) clearInterval(recordingTimer.current);
-      setIsRecording(false);
-      await recording.stopAndUnloadAsync();
-      setRecording(null);
-      setRecordingTime(0);
-    } catch (err) {
-      console.error("Failed to cancel recording", err);
-    }
-  };
-
-  const handleReact = async (msgId: string, emoji: string) => {
-    try {
-      await chatService.addReaction(convId, msgId, emoji);
-      setShowReactions(false);
-    } catch {
-      GrayToast("Không thể thả cảm xúc");
-    }
   };
 
   const handleSend = async () => {
@@ -925,14 +795,7 @@ export default function ChatRoomScreen() {
       socketService.emit("chat:stop_typing", { conversationId: convId });
     }
     try {
-      await chatService.sendMessage(convId, { 
-        type: "text", 
-        content: trimmed,
-        replyTo: replyTo || undefined,
-        metadata: { isImportant: importantMode } 
-      });
-      setImportantMode(false);
-      setReplyTo(null);
+      await chatService.sendMessage(convId, { type: "text", content: trimmed });
     } catch {
       GrayToast("Không thể gửi tin nhắn");
     } finally {
@@ -948,27 +811,43 @@ export default function ChatRoomScreen() {
     }
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["images", "videos"],
+      allowsMultipleSelection: true,
       quality: 0.85,
     });
     if (result.canceled || !result.assets?.length) return;
 
-    const asset = result.assets[0];
-    const isVideo = asset.type === "video";
-    const name =
-      asset.fileName || `media-${Date.now()}.${isVideo ? "mp4" : "jpg"}`;
-    const mimeType = asset.mimeType || (isVideo ? "video/mp4" : "image/jpeg");
-
     setIsSending(true);
+    let failedCount = 0;
+
     try {
-      const url = await uploadFile(asset.uri, name, mimeType, accessToken);
-      await chatService.sendMessage(convId, {
-        type: isVideo ? "video" : "image",
-        content: { mediaUrl: url, text: "" },
-        metadata: { isImportant: importantMode }
-      });
-      setImportantMode(false);
-    } catch {
-      GrayToast("Không thể gửi ảnh/video");
+      for (const [index, asset] of result.assets.entries()) {
+        const isVideo = asset.type === "video";
+        const name =
+          asset.fileName ||
+          `media-${Date.now()}-${index}.${isVideo ? "mp4" : "jpg"}`;
+        const mimeType =
+          asset.mimeType || (isVideo ? "video/mp4" : "image/jpeg");
+
+        try {
+          const url = await uploadFile(asset.uri, name, mimeType, accessToken);
+          await chatService.sendMessage(convId, {
+            type: isVideo ? "video" : "image",
+            content: url,
+          });
+        } catch {
+          failedCount += 1;
+        }
+      }
+
+      if (failedCount > 0) {
+        if (failedCount === result.assets.length) {
+          GrayToast("Không thể gửi ảnh/video");
+        } else {
+          GrayToast(
+            `Đã gửi ${result.assets.length - failedCount}/${result.assets.length} ảnh/video`,
+          );
+        }
+      }
     } finally {
       setIsSending(false);
     }
@@ -988,12 +867,7 @@ export default function ChatRoomScreen() {
         asset.mimeType || "application/octet-stream",
         accessToken,
       );
-      await chatService.sendMessage(convId, { 
-        type: "file", 
-        content: { mediaUrl: url, fileName: asset.name, fileSize: asset.size },
-        metadata: { isImportant: importantMode }
-      });
-      setImportantMode(false);
+      await chatService.sendMessage(convId, { type: "file", content: url });
     } catch {
       GrayToast("Không thể gửi file");
     } finally {
@@ -1044,101 +918,49 @@ export default function ChatRoomScreen() {
       });
     }
 
-    if (conversation?.type === "group") {
-      options.push({
-        text: "Ghim tin nhắn",
-        onPress: () => handlePin(msg),
-      });
-    }
-
-    if (!msg.isDeleted) {
-      options.push({
-        text: "Trả lời",
-        onPress: () => {
-           setReplyTo(msg.id);
-        },
-      });
-      options.push({
-        text: "Chuyển tiếp",
-        onPress: () => setShowForward(true),
-      });
-    }
-
     options.push({ text: "Hủy", style: "cancel" });
     Alert.alert("Tùy chọn", undefined, options);
   };
 
-  const handlePin = async (msg: Message) => {
-    if (!convId) return;
-    try {
-      await groupService.pinGroupMessage(convId, msg.id);
-      updateConversation(convId, {
-        groupSettings: {
-          ...conversation?.groupSettings,
-          pinnedMessage: {
-            messageId: msg.id,
-            senderId: msg.senderId,
-            type: msg.type,
-            content: msg.content,
-            pinnedAt: new Date().toISOString(),
-            pinnedBy: user?.id || "",
-          } as any,
-        } as any,
-      });
-      GrayToast("Đã ghim tin nhắn");
-    } catch (e) {
-      GrayToast("Không thể ghim tin nhắn");
-    }
+  const handleReact = async (emoji: string) => {
+    setShowReactions(false);
+    if (!selectedMsg) return;
+    await chatService.addReaction(convId, selectedMsg.id, emoji);
   };
 
-  const handleUnpin = async () => {
-    if (!convId) return;
-    try {
-      await groupService.unpinGroupMessage(convId);
-      updateConversation(convId, {
-        groupSettings: {
-          ...conversation?.groupSettings,
-          pinnedMessage: null,
-        } as any,
-      });
-      GrayToast("Đã bỏ ghim");
-    } catch (e) {
-      GrayToast("Không thể bỏ ghim");
-    }
+  const renderMessage = ({ item, index }: { item: Message; index: number }) => {
+    const previousMessage = index > 0 ? convMessages[index - 1] : null;
+    const isGroupedWithPrevious =
+      Boolean(previousMessage) &&
+      previousMessage!.senderId === item.senderId &&
+      !previousMessage!.isDeleted &&
+      !item.isDeleted;
+
+    return (
+      <MessageItem
+        msg={item}
+        isMe={item.senderId === user?.id}
+        isGroupedWithPrevious={isGroupedWithPrevious}
+        onLongPress={handleLongPress}
+      />
+    );
   };
-
-
-  const renderMessage = ({ item }: { item: Message }) => (
-    <MessageItem
-      msg={item}
-      allMessages={convMessages}
-      isMe={item.senderId === user?.id}
-      onLongPress={handleLongPress}
-      onSwipeReply={(m) => setReplyTo(m.id)}
-      onReactClick={(m) => {
-        setSelectedMsg(m);
-        setShowReactions(true);
-      }}
-    />
-  );
 
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-    <ImageBackgroundWrapper background={conversation?.background}>
-      <KeyboardAvoidingView
-        style={{ flex: 1, backgroundColor: "transparent" }}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        keyboardVerticalOffset={insets.top}
-      >
+    <KeyboardAvoidingView
+      style={{ flex: 1, backgroundColor: "#F9FAFB" }}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      keyboardVerticalOffset={Platform.OS === "ios" ? insets.top : 0}
+    >
       {/* Header */}
       <View
         style={{
           backgroundColor: "#fff",
-          paddingTop: insets.top,
+          paddingTop: 5,
           flexDirection: "row",
           alignItems: "center",
-          paddingHorizontal: 12,
-          paddingBottom: 10,
+          paddingHorizontal: 10,
+          paddingBottom: 6,
           borderBottomWidth: 1,
           borderBottomColor: "#F3F4F6",
         }}
@@ -1150,9 +972,9 @@ export default function ChatRoomScreen() {
           <Ionicons name="arrow-back" size={24} color="#111827" />
         </TouchableOpacity>
 
-        <Avatar name={convName} uri={convAvatar} size={38} />
+        <Avatar name={convName} uri={convAvatar} size={36} />
 
-        <View style={{ flex: 1, marginLeft: 10 }}>
+        <View style={{ flex: 1, marginLeft: 8 }}>
           <Text
             style={{ fontWeight: "700", fontSize: 15, color: "#111827" }}
             numberOfLines={1}
@@ -1180,53 +1002,31 @@ export default function ChatRoomScreen() {
         </View>
 
         <TouchableOpacity
-          style={{ padding: 6 }}
+          style={{ padding: 4 }}
           onPress={() => startCall("audio")}
           disabled={conversation?.type === "group"}
         >
           <Ionicons name="call-outline" size={22} color="#6B7280" />
         </TouchableOpacity>
         <TouchableOpacity
-          style={{ padding: 6 }}
+          style={{ padding: 4 }}
           onPress={() => startCall("video")}
           disabled={conversation?.type === "group"}
         >
           <Ionicons name="videocam-outline" size={22} color="#6B7280" />
         </TouchableOpacity>
-        <TouchableOpacity style={{ padding: 6 }} onPress={() => setOptionsVisible(true)}>
+        <TouchableOpacity
+          style={{ padding: 4 }}
+          onPress={() =>
+            router.push({
+              pathname: "/(tabs)/chat/conversation-info",
+              params: { conversationId: String(convId) },
+            })
+          }
+        >
           <Ionicons name="ellipsis-vertical" size={20} color="#6B7280" />
         </TouchableOpacity>
       </View>
-
-      {/* Pinned Message */}
-      {conversation?.groupSettings?.pinnedMessage && (
-        <TouchableOpacity
-          onPress={() => {
-            Alert.alert("Tuỳ chọn", "Bỏ ghim tin nhắn này?", [
-              { text: "Bỏ qua" },
-              { text: "Bỏ ghim", onPress: handleUnpin, style: "destructive" },
-            ]);
-          }}
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            backgroundColor: "#EFF6FF",
-            padding: 10,
-            borderBottomWidth: 1,
-            borderBottomColor: "#DBEAFE",
-          }}
-        >
-          <Ionicons name="pin" size={16} color="#2563EB" style={{ marginRight: 8 }} />
-          <View style={{ flex: 1 }}>
-            <Text style={{ fontSize: 13, color: "#1D4ED8", fontWeight: "600" }}>
-              Tin nhắn ghim
-            </Text>
-            <Text style={{ fontSize: 13, color: "#1E3A8A" }} numberOfLines={1}>
-              {conversation.groupSettings.pinnedMessage?.content?.text ||  conversation.groupSettings.pinnedMessage?.content || "[File/Hình ảnh]"}
-            </Text>
-          </View>
-        </TouchableOpacity>
-      )}
 
       {/* Messages */}
       {isLoading ? (
@@ -1244,7 +1044,7 @@ export default function ChatRoomScreen() {
           data={convMessages}
           keyExtractor={(item) => item.id}
           renderItem={renderMessage}
-          contentContainerStyle={{ paddingVertical: 10, paddingBottom: 4 }}
+          contentContainerStyle={{ paddingVertical: 4, paddingBottom: 2 }}
           ListEmptyComponent={
             <View
               style={{
@@ -1266,113 +1066,37 @@ export default function ChatRoomScreen() {
         />
       )}
 
-      {/* Reaction picker overlay */}
-      {showReactions && selectedMsg && (
-        <View style={{ 
-          position: 'absolute', 
-          bottom: 100, // Float above input
-          left: 20, 
-          right: 20, 
-          alignItems: 'center',
-          zIndex: 9999
-        }}>
-           <View
-            style={{
-              flexDirection: "row",
-              backgroundColor: "#fff",
-              borderRadius: 40,
-              paddingHorizontal: 16,
-              paddingVertical: 10,
-              gap: 16,
-              shadowColor: "#000",
-              shadowOffset: { width: 0, height: 8 },
-              shadowOpacity: 0.15,
-              shadowRadius: 15,
-              elevation: 8,
-              alignItems: 'center'
-            }}
-          >
-            {["👍", "❤️", "😂", "😮", "😢", "😡"].map((emoji) => (
-              <TouchableOpacity
-                key={emoji}
-                onPress={() => handleReact(selectedMsg.id, emoji)}
-                style={{ padding: 4 }}
-              >
-                <Text style={{ fontSize: 28 }}>{emoji}</Text>
-              </TouchableOpacity>
-            ))}
-            <View style={{ width: 1, height: 24, backgroundColor: '#F3F4F6' }} />
-            <TouchableOpacity onPress={() => setShowReactions(false)}>
-              <Ionicons name="close-circle-outline" size={24} color="#9CA3AF" />
+      {/* Reaction picker */}
+      {showReactions && (
+        <View
+          style={{
+            flexDirection: "row",
+            backgroundColor: "#fff",
+            borderRadius: 24,
+            marginHorizontal: 16,
+            marginBottom: 8,
+            padding: 8,
+            gap: 8,
+            shadowColor: "#000",
+            shadowOpacity: 0.1,
+            shadowRadius: 10,
+            elevation: 4,
+          }}
+        >
+          {REACTIONS.map((emoji) => (
+            <TouchableOpacity
+              key={emoji}
+              onPress={() => handleReact(emoji)}
+              style={{ padding: 4 }}
+            >
+              <Text style={{ fontSize: 24 }}>{emoji}</Text>
             </TouchableOpacity>
-          </View>
-
-          {/* Action Icons Row */}
-          <View
-            style={{
-              flexDirection: "row",
-              backgroundColor: "#fff",
-              borderRadius: 20,
-              marginTop: 12,
-              paddingHorizontal: 24,
-              paddingVertical: 12,
-              gap: 32,
-              shadowColor: "#000",
-              shadowOffset: { width: 0, height: 4 },
-              shadowOpacity: 0.1,
-              shadowRadius: 10,
-              elevation: 4,
-              borderWidth: 1,
-              borderColor: 'rgba(0,0,0,0.05)',
-            }}
+          ))}
+          <TouchableOpacity
+            onPress={() => setShowReactions(false)}
+            style={{ padding: 4 }}
           >
-             <TouchableOpacity onPress={() => {
-                setShowReactions(false);
-                if (selectedMsg) {
-                   socketService.emit("chat:recall", {
-                      conversationId: convId,
-                      messageId: selectedMsg.id,
-                      senderId: user?.id,
-                    });
-                    chatService.deleteMessage(convId, selectedMsg.id);
-                }
-             }}>
-                <Ionicons name="trash-outline" size={22} color="#EF4444" />
-             </TouchableOpacity>
-
-             <TouchableOpacity onPress={() => setShowReactions(false)}>
-                <Ionicons name="happy-outline" size={22} color="#4B5563" />
-             </TouchableOpacity>
-
-             <TouchableOpacity onPress={() => {
-                setShowReactions(false);
-                setShowForward(true);
-             }}>
-                <Ionicons name="share-outline" size={22} color="#4B5563" />
-             </TouchableOpacity>
-
-             <TouchableOpacity onPress={() => {
-                setShowReactions(false);
-                if (selectedMsg) setReplyTo(selectedMsg.id);
-             }}>
-                <Ionicons name="return-up-back-outline" size={22} color="#4B5563" />
-             </TouchableOpacity>
-          </View>
-        </View>
-      )}
-
-      {/* Reply Preview */}
-      {replyTo && (
-        <View style={{ backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#F3F4F6', padding: 8, flexDirection: 'row', alignItems: 'center' }}>
-          <View style={{ width: 4, height: 30, backgroundColor: '#0068FF', borderRadius: 2, marginRight: 8 }} />
-          <View style={{ flex: 1 }}>
-             <Text style={{ fontSize: 11, fontWeight: '700', color: '#0068FF' }}>Trả lời {repliedMessage?.senderName || "tin nhắn"}</Text>
-             <Text style={{ fontSize: 13, color: '#4B5563' }} numberOfLines={1}>
-                {repliedMessage?.content?.text || (repliedMessage?.type === 'image' ? '[Hình ảnh]' : (repliedMessage?.type === 'video' ? '[Video]' : '[File]'))}
-             </Text>
-          </View>
-          <TouchableOpacity onPress={() => setReplyTo(null)} style={{ padding: 4 }}>
-             <Ionicons name="close-circle" size={20} color="#9CA3AF" />
+            <Ionicons name="close-circle-outline" size={24} color="#6B7280" />
           </TouchableOpacity>
         </View>
       )}
@@ -1381,185 +1105,61 @@ export default function ChatRoomScreen() {
       <View
         style={{
           flexDirection: "row",
-          alignItems: "center",
+          alignItems: "flex-end",
           backgroundColor: "#fff",
-          paddingHorizontal: 8,
-          paddingVertical: 8,
-          paddingBottom: Math.max(insets.bottom, 8),
+          paddingHorizontal: 6,
+          paddingVertical: 5,
+          paddingBottom: Math.max(insets.bottom, 4),
+          marginBottom: Platform.OS === "android" ? 0 : 5,
           borderTopWidth: 1,
           borderTopColor: "#F3F4F6",
-          gap: 4,
+          gap: 3,
         }}
       >
-        {!isRecording && (
-          <>
-            <TouchableOpacity onPress={handlePickImage} style={{ padding: 6 }}>
-              <Ionicons name="image-outline" size={24} color="#6B7280" />
-            </TouchableOpacity>
-            <TouchableOpacity onPress={handlePickFile} style={{ padding: 6 }}>
-              <Ionicons name="attach-outline" size={24} color="#6B7280" />
-            </TouchableOpacity>
-          </>
-        )}
+        <TouchableOpacity onPress={handlePickImage} style={{ padding: 6 }}>
+          <Ionicons name="image-outline" size={24} color="#6B7280" />
+        </TouchableOpacity>
+        <TouchableOpacity onPress={handlePickFile} style={{ padding: 6 }}>
+          <Ionicons name="attach-outline" size={24} color="#6B7280" />
+        </TouchableOpacity>
 
-        <View
+        <TextInput
+          value={text}
+          onChangeText={handleTextChange}
+          placeholder="Nhập tin nhắn..."
+          placeholderTextColor="#9CA3AF"
+          multiline
           style={{
             flex: 1,
-            flexDirection: "row",
-            alignItems: "center",
             backgroundColor: "#F3F4F6",
             borderRadius: 20,
-            paddingHorizontal: 12,
-            minHeight: 40,
-            borderWidth: importantMode ? 1.5 : 0,
-            borderColor: importantMode ? "#F59E0B" : "transparent",
+            paddingHorizontal: 14,
+            paddingVertical: 7,
+            fontSize: 15,
+            color: "#111827",
+            maxHeight: 120,
+          }}
+        />
+
+        <TouchableOpacity
+          onPress={handleSend}
+          disabled={!text.trim() || isSending}
+          style={{
+            backgroundColor: text.trim() && !isSending ? "#0068FF" : "#D1D5DB",
+            width: 40,
+            height: 40,
+            borderRadius: 20,
+            alignItems: "center",
+            justifyContent: "center",
           }}
         >
-          {isRecording ? (
-            <View style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-              <View style={{ flexDirection: "row", alignItems: "center" }}>
-                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: "#EF4444", marginRight: 8 }} />
-                <Text style={{ fontSize: 15, color: "#111827" }}>
-                  {Math.floor(recordingTime / 60)}:{String(recordingTime % 60).padStart(2, "0")}
-                </Text>
-              </View>
-              <TouchableOpacity onPress={handleCancelRecording}>
-                <Text style={{ color: "#EF4444", fontWeight: "500" }}>Hủy</Text>
-              </TouchableOpacity>
-            </View>
+          {isSending ? (
+            <ActivityIndicator size="small" color="#fff" />
           ) : (
-            <>
-              <TextInput
-                value={text}
-                onChangeText={handleTextChange}
-                placeholder="Nhập tin nhắn..."
-                placeholderTextColor="#9CA3AF"
-                multiline
-                style={{
-                  flex: 1,
-                  paddingVertical: 8,
-                  fontSize: 15,
-                  color: "#111827",
-                  maxHeight: 120,
-                }}
-              />
-              <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
-                <TouchableOpacity onPress={() => setImportantMode(!importantMode)}>
-                  <Ionicons 
-                    name={importantMode ? "star" : "star-outline"} 
-                    size={20} 
-                    color={importantMode ? "#F59E0B" : "#6B7280"} 
-                  />
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => setEmojiPickerVisible(true)}>
-                  <Ionicons name="happy-outline" size={22} color="#6B7280" />
-                </TouchableOpacity>
-              </View>
-            </>
+            <Ionicons name="send" size={18} color="#fff" />
           )}
-        </View>
-
-        {(!text.trim() && !isRecording) ? (
-          <TouchableOpacity
-            onPress={handleStartRecording}
-            style={{
-              backgroundColor: "#0068FF",
-              width: 40,
-              height: 40,
-              borderRadius: 20,
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <Ionicons name="mic-outline" size={22} color="#fff" />
-          </TouchableOpacity>
-        ) : (
-          <TouchableOpacity
-            onPress={isRecording ? handleStopAndSendRecording : handleSend}
-            disabled={isSending}
-            style={{
-              backgroundColor: !isSending ? "#0068FF" : "#D1D5DB",
-              width: 40,
-              height: 40,
-              borderRadius: 20,
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            {isSending ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <Ionicons name={isRecording ? "checkmark" : "send"} size={isRecording ? 24 : 18} color="#fff" />
-            )}
-          </TouchableOpacity>
-        ) }
+        </TouchableOpacity>
       </View>
-        {conversation && (
-           <ChatOptionsModal
-             visible={optionsVisible}
-             onClose={() => setOptionsVisible(false)}
-             conversation={conversation}
-           />
-        )}
-
-        < EmojiPickerModal 
-           visible={emojiPickerVisible}
-           onClose={() => setEmojiPickerVisible(false)}
-           onSelect={(emoji) => {
-             setText((prev) => prev + emoji);
-             setEmojiPickerVisible(false);
-           }}
-        />
-
-        <ForwardMessageModal
-           visible={showForward}
-           onClose={() => setShowForward(false)}
-           message={selectedMsg}
-        />
-      </KeyboardAvoidingView>
-    </ImageBackgroundWrapper>
-    </GestureHandlerRootView>
-  );
-}
-
-function ImageBackgroundWrapper({ background, children }: { background?: string, children: any }) {
-  if (background && background.startsWith("http")) {
-    return <ImageBackground source={{ uri: background }} style={{ flex: 1 }} resizeMode="cover">{children}</ImageBackground>;
-  }
-  return <View style={{ flex: 1, backgroundColor: background || "#F9FAFB" }}>{children}</View>;
-}
-
-function EmojiPickerModal({ visible, onClose, onSelect, title }: { visible: boolean, onClose: () => void, onSelect: (emoji: string) => void, title?: string }) {
-  const emojis = ["👍", "❤️", "😂", "😮", "😢", "😡", "🙏", "🔥", "✨", "🎉", "💯", "✅", "❌", "❓", "❗", "🤝", "💪", "🚀", "🌈", "🎈", "🎂", "☕", "🍕", "🍔"];
-  const insets = useSafeAreaInsets();
-  
-  if (!visible) return null;
-  
-  return (
-    <Modal visible={visible} transparent animationType="slide">
-      <TouchableOpacity 
-        style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.3)" }} 
-        activeOpacity={1} 
-        onPress={onClose} 
-      >
-        <View style={{ marginTop: "auto", backgroundColor: "#fff", borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingBottom: insets.bottom + 16 }}>
-          <View style={{ width: 40, height: 4, backgroundColor: "#E5E7EB", borderRadius: 2, alignSelf: "center", marginVertical: 12 }} />
-          <View style={{ paddingHorizontal: 16 }}>
-             <Text style={{ fontSize: 16, fontWeight: "700", color: "#111827", marginBottom: 16 }}>{title || "Chọn biểu tượng"}</Text>
-             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12, justifyContent: "space-between" }}>
-                {emojis.map((emoji) => (
-                  <TouchableOpacity 
-                    key={emoji} 
-                    onPress={() => onSelect(emoji)} 
-                    style={{ width: 50, height: 50, alignItems: "center", justifyContent: "center", backgroundColor: "#F3F4F6", borderRadius: 12 }}
-                  >
-                    <Text style={{ fontSize: 24 }}>{emoji}</Text>
-                  </TouchableOpacity>
-                ))}
-             </View>
-          </View>
-        </View>
-      </TouchableOpacity>
-    </Modal>
+    </KeyboardAvoidingView>
   );
 }
