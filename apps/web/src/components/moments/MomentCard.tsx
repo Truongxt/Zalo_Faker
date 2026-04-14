@@ -17,7 +17,7 @@ import {
 import { Moment } from '@/types/moment';
 import MomentComments from './MomentComments';
 import MomentReactionPicker from './MomentReactionPicker';
-import { getReactionOption, isVideoUrl, REACTION_OPTIONS } from './momentHelpers';
+import { isVideoUrl, REACTION_OPTIONS } from './momentHelpers';
 
 interface MomentCardProps {
   moment: Moment;

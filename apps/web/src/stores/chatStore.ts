@@ -119,6 +119,8 @@ export interface Participant {
     nickname?: string
     isPinned?: boolean
     isMuted?: boolean
+    muteUntil?: string | null
+    isHidden?: boolean
     labelIds?: string[]
 }
 
