@@ -4,10 +4,6 @@ import { useAuthStore } from '@/stores/authStore';
 import { PhoneOff, Mic, MicOff, Video, VideoOff } from 'lucide-react';
 import { socketService } from '@/lib/socket';
 
-const RTC_CONFIG: RTCConfiguration = {
-  iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
-};
-
 export default function VideoCallModal() {
   const {
     isCalling,
@@ -15,41 +11,34 @@ export default function VideoCallModal() {
     clearCall,
     localStream,
     setLocalStream,
-    setRemoteStream,
-    remoteStream,
   } = useCallStore();
   const { user } = useAuthStore();
 
   const localVideoRef = useRef<HTMLVideoElement>(null);
-  const remoteVideoRef = useRef<HTMLVideoElement>(null);
-  const pcRef = useRef<RTCPeerConnection | null>(null);
-  const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
   const [isRemoteAccepted, setIsRemoteAccepted] = useState(false);
+  const isRemoteAcceptedRef = useRef(false);
+  const [remoteFrame, setRemoteFrame] = useState<string | null>(null);
+  const streamIntervalRef = useRef<any>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
 
-  const teardownPeer = () => {
-    if (pcRef.current) {
-      pcRef.current.onicecandidate = null;
-      pcRef.current.ontrack = null;
-      pcRef.current.close();
-      pcRef.current = null;
-    }
-    pendingCandidatesRef.current = [];
-  };
+  const targetUserId = callData?.isCaller ? callData?.toUserId : callData?.fromUserId;
 
   const endCall = (notifyRemote = true) => {
     const state = useCallStore.getState();
     state.localStream?.getTracks().forEach((track) => track.stop());
 
-    teardownPeer();
+    if (streamIntervalRef.current) clearInterval(streamIntervalRef.current);
+    if (mediaRecorderRef.current) mediaRecorderRef.current.stop();
+    
     setLocalStream(null);
-    setRemoteStream(null);
 
-    if (notifyRemote) {
+    if (notifyRemote && targetUserId) {
       socketService.getSocket()?.emit('video:end-call', {
-        toUserId: callData?.isCaller ? callData?.toUserId : callData?.fromUserId,
+        toUserId: targetUserId,
         fromUserId: user?.id,
         conversationId: callData?.conversationId,
       });
@@ -63,97 +52,13 @@ export default function VideoCallModal() {
 
     let mounted = true;
     setIsRemoteAccepted(false);
-
-    const targetUserId = callData.isCaller ? callData.toUserId : callData.fromUserId;
-
-    const safeAddIceCandidate = async (candidate: RTCIceCandidateInit) => {
-      const pc = pcRef.current;
-      if (!pc) return;
-
-      if (pc.remoteDescription) {
-        try {
-          await pc.addIceCandidate(new RTCIceCandidate(candidate));
-        } catch (err) {
-          console.error('Failed to add ICE candidate:', err);
-        }
-      } else {
-        pendingCandidatesRef.current.push(candidate);
-      }
-    };
-
-    const flushPendingCandidates = async () => {
-      const pc = pcRef.current;
-      if (!pc || !pc.remoteDescription) return;
-
-      const pending = [...pendingCandidatesRef.current];
-      pendingCandidatesRef.current = [];
-
-      for (const candidate of pending) {
-        try {
-          await pc.addIceCandidate(new RTCIceCandidate(candidate));
-        } catch (err) {
-          console.error('Failed to flush ICE candidate:', err);
-        }
-      }
-    };
-
-    const sendSignal = (signal: any) => {
-      if (!targetUserId) return;
-      socketService.getSocket()?.emit('video:signal', {
-        toUserId: targetUserId,
-        conversationId: callData.conversationId,
-        signal,
-      });
-    };
+    isRemoteAcceptedRef.current = false;
 
     const handleCallAnswered = async (data: any) => {
       if (!mounted || !callData.isCaller) return;
       if (String(data?.toUserId || '') !== String(user.id)) return;
       setIsRemoteAccepted(true);
-
-      const pc = pcRef.current;
-      if (!pc || pc.signalingState !== 'stable') return;
-
-      try {
-        const offer = await pc.createOffer({
-          offerToReceiveAudio: true,
-          offerToReceiveVideo: callData.callType === 'video',
-        });
-        await pc.setLocalDescription(offer);
-        sendSignal({ type: 'offer', sdp: offer.sdp });
-      } catch (err) {
-        console.error('Failed to create offer:', err);
-      }
-    };
-
-    const handleSignal = async (data: any) => {
-      if (!mounted) return;
-      if (String(data?.conversationId || '') !== String(callData.conversationId || '')) return;
-      if (String(data?.fromUserId || '') !== String(targetUserId || '')) return;
-
-      const signal = data?.signal;
-      const pc = pcRef.current;
-      if (!pc || !signal?.type) return;
-
-      try {
-        if (signal.type === 'offer') {
-          await pc.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp: signal.sdp }));
-          setIsRemoteAccepted(true);
-          await flushPendingCandidates();
-
-          const answer = await pc.createAnswer();
-          await pc.setLocalDescription(answer);
-          sendSignal({ type: 'answer', sdp: answer.sdp });
-        } else if (signal.type === 'answer') {
-          await pc.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: signal.sdp }));
-          setIsRemoteAccepted(true);
-          await flushPendingCandidates();
-        } else if (signal.type === 'ice-candidate' && signal.candidate) {
-          await safeAddIceCandidate(signal.candidate);
-        }
-      } catch (err) {
-        console.error('Failed to handle signal:', err);
-      }
+      isRemoteAcceptedRef.current = true;
     };
 
     const handleCallRejected = () => {
@@ -165,11 +70,45 @@ export default function VideoCallModal() {
       endCall(false);
     };
 
-    const initWebRtc = async () => {
+    const handleVideoFrame = (data: any) => {
+      if (!mounted) return;
+      if (String(data?.conversationId || '') !== String(callData.conversationId || '')) return;
+      if (String(data?.fromUserId || '') !== String(targetUserId || '')) return;
+      
+      if (!isRemoteAcceptedRef.current) {
+        setIsRemoteAccepted(true);
+        isRemoteAcceptedRef.current = true;
+      }
+      if (data.frame) {
+         setRemoteFrame(data.frame);
+      }
+    };
+
+    const handleAudioFrame = (data: any) => {
+      if (!mounted) return;
+      if (String(data?.conversationId || '') !== String(callData.conversationId || '')) return;
+      if (String(data?.fromUserId || '') !== String(targetUserId || '')) return;
+
+      if (data.audio) {
+        // Play audio chunk
+        const audio = new Audio(data.audio);
+        audio.play().catch(e => console.warn('[WEB] Audio play error:', e));
+      }
+    };
+
+    const socket = socketService.getSocket();
+    // Bind listeners before any emit to avoid missing fast "answered" responses.
+    socket?.on('video:call-answered', handleCallAnswered);
+    socket?.on('video:call-rejected', handleCallRejected);
+    socket?.on('video:call-ended', handleCallEnded);
+    socket?.on('video:frame', handleVideoFrame);
+    socket?.on('video:audio-frame', handleAudioFrame);
+
+    const initFakeWebRtc = async () => {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
           video: callData.callType === 'video',
-          audio: true,
+          audio: true, // we still keep audio local if needed, but it's not streamed easily
         });
 
         if (!mounted) {
@@ -183,28 +122,7 @@ export default function VideoCallModal() {
           localVideoRef.current.srcObject = stream;
         }
 
-        const pc = new RTCPeerConnection(RTC_CONFIG);
-        pcRef.current = pc;
-
-        stream.getTracks().forEach((track) => {
-          pc.addTrack(track, stream);
-        });
-
-        pc.onicecandidate = (event) => {
-          if (!event.candidate) return;
-          sendSignal({ type: 'ice-candidate', candidate: event.candidate.toJSON() });
-        };
-
-        pc.ontrack = (event) => {
-          const [remote] = event.streams;
-          if (remote) {
-            setRemoteStream(remote);
-            setIsRemoteAccepted(true);
-          }
-        };
-
-        const socket = socketService.getSocket();
-
+        // 1. Send signal
         if (callData.isCaller) {
           socket?.emit('video:call-user', {
             fromUserId: user.id,
@@ -221,12 +139,74 @@ export default function VideoCallModal() {
             conversationId: callData.conversationId,
           });
           setIsRemoteAccepted(true);
+          isRemoteAcceptedRef.current = true;
         }
 
-        socket?.on('video:call-answered', handleCallAnswered);
-        socket?.on('video:signal', handleSignal);
-        socket?.on('video:call-rejected', handleCallRejected);
-        socket?.on('video:call-ended', handleCallEnded);
+        // 2. Start fake video stream
+        if (callData.callType === 'video') {
+            streamIntervalRef.current = setInterval(() => {
+                if (!localVideoRef.current || !canvasRef.current || !socket || !targetUserId) return;
+                const canvas = canvasRef.current;
+                const video = localVideoRef.current;
+                const ctx = canvas.getContext('2d');
+                if (ctx && video.videoWidth > 0 && isRemoteAcceptedRef.current) {
+                    canvas.width = 360; 
+                    canvas.height = (video.videoHeight / video.videoWidth) * 360;
+                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                    
+                    const frame = canvas.toDataURL('image/jpeg', 0.3); // low quality 
+                    socket.emit('video:frame', {
+                       toUserId: targetUserId,
+                       fromUserId: user.id,
+                       conversationId: callData.conversationId,
+                       frame
+                    });
+                }
+            }, 400); // ~2.5 FPS for stability
+        }
+
+        // 3. Start real-time audio chunking
+        try {
+          const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+          mediaRecorderRef.current = recorder;
+          recorder.ondataavailable = async (event) => {
+            if (event.data.size > 0 && socket && targetUserId && isRemoteAcceptedRef.current) {
+              const reader = new FileReader();
+              reader.onloadend = () => {
+                const base64Audio = reader.result as string;
+                socket.emit('video:audio-frame', {
+                  toUserId: targetUserId,
+                  fromUserId: user.id,
+                  conversationId: callData.conversationId,
+                  audio: base64Audio
+                });
+              };
+              reader.readAsDataURL(event.data);
+            }
+          };
+          recorder.start(1000); // 1s chunks
+        } catch (e) {
+          console.warn('[WEB] MediaRecorder failed (likely codec), trying fallback...');
+          const recorder = new MediaRecorder(stream);
+          mediaRecorderRef.current = recorder;
+          recorder.ondataavailable = async (event) => {
+            if (event.data.size > 0 && socket && targetUserId && isRemoteAcceptedRef.current) {
+              const reader = new FileReader();
+              reader.onloadend = () => {
+                const base64Audio = reader.result as string;
+                socket.emit('video:audio-frame', {
+                  toUserId: targetUserId,
+                  fromUserId: user.id,
+                  conversationId: callData.conversationId,
+                  audio: base64Audio
+                });
+              };
+              reader.readAsDataURL(event.data);
+            }
+          };
+          recorder.start(1000);
+        }
+
       } catch (err) {
         console.error('Failed to get camera/mic:', err);
         alert('Hay cap quyen Camera va Microphone de goi video.');
@@ -234,24 +214,18 @@ export default function VideoCallModal() {
       }
     };
 
-    initWebRtc();
+    initFakeWebRtc();
 
     return () => {
       mounted = false;
-      const socket = socketService.getSocket();
+      if (streamIntervalRef.current) clearInterval(streamIntervalRef.current);
       socket?.off('video:call-answered', handleCallAnswered);
-      socket?.off('video:signal', handleSignal);
       socket?.off('video:call-rejected', handleCallRejected);
       socket?.off('video:call-ended', handleCallEnded);
-      teardownPeer();
+      socket?.off('video:frame', handleVideoFrame);
+      socket?.off('video:audio-frame', handleAudioFrame);
     };
-  }, [isCalling, callData, user?.id, user?.fullName, user?.avatarUrl, clearCall, setLocalStream, setRemoteStream]);
-
-  useEffect(() => {
-    if (remoteVideoRef.current && remoteStream) {
-      remoteVideoRef.current.srcObject = remoteStream;
-    }
-  }, [remoteStream]);
+  }, [isCalling, callData, user?.id, user?.fullName, user?.avatarUrl, clearCall, setLocalStream]);
 
   const toggleMute = () => {
     if (localStream) {
@@ -279,10 +253,10 @@ export default function VideoCallModal() {
 
   return (
     <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-black animate-in fade-in duration-300">
+      <canvas ref={canvasRef} className="hidden" />
       <div className="absolute inset-0 w-full h-full">
         {isAudioCall ? (
           <div className="w-full h-full flex flex-col items-center justify-center bg-gray-900 border-none">
-            {remoteStream && <video ref={remoteVideoRef} autoPlay playsInline className="hidden" />}
             <div className="relative w-40 h-40">
               {callData?.callerAvatar ? (
                 <img src={callData.callerAvatar} alt="avatar" className="w-full h-full rounded-full object-cover shadow-2xl border-4 border-primary-500 z-10 relative" />
@@ -291,12 +265,10 @@ export default function VideoCallModal() {
                   {callData?.callerName?.charAt(0).toUpperCase() || 'U'}
                 </div>
               )}
-              <div className="absolute inset-0 rounded-full border border-primary-500 animate-[ping_2s_ease-in-out_infinite]"></div>
-              <div className="absolute inset-0 rounded-full border border-primary-500 animate-[ping_2.5s_ease-in-out_infinite]" style={{ animationDelay: '0.5s' }}></div>
             </div>
           </div>
-        ) : remoteStream ? (
-          <video ref={remoteVideoRef} autoPlay playsInline className="w-full h-full object-cover" />
+        ) : remoteFrame ? (
+          <img src={remoteFrame} className="w-full h-full object-cover" alt="Remote Video Frame" />
         ) : (
           <div className="w-full h-full flex flex-col items-center justify-center bg-gray-900">
             <div className={`w-24 h-24 rounded-full border-4 border-primary-500 mb-6 ${isRemoteAccepted ? 'border-t-primary-500' : 'border-t-transparent animate-spin'}`}></div>
@@ -324,9 +296,7 @@ export default function VideoCallModal() {
           {callData?.callerName || (isAudioCall ? 'Cuoc goi thoai' : 'Cuoc goi video')}
         </h2>
         <p className="text-white/80 mt-1 shadow-black drop-shadow-md">
-          {remoteStream
-            ? (isAudioCall ? 'Dang goi thoai...' : 'Da ket noi')
-            : (isRemoteAccepted ? 'Dau ben kia da nhan cuoc goi' : 'Dang cho may...')}
+           {isRemoteAccepted ? 'Dau ben kia da nhan cuoc goi (Fake Video Call)' : 'Dang cho may...'}
         </p>
       </div>
 
