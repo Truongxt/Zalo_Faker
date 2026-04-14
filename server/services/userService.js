@@ -23,8 +23,51 @@ const PERMANENT_LOCK_RESEND_LIMIT_SECONDS = 60;
 
 const normalizeEmail = (email) => String(email || "").trim().toLowerCase();
 const normalizePhone = (phone) => String(phone || "").trim().replace(/[\s().-]/g, "");
-const buildSessionKey = (userId) => `auth:session:${String(userId)}`;
+const normalizePlatform = (platform) => {
+  const normalized = String(platform || "").trim().toLowerCase();
+
+  if (normalized === "mobile" || normalized === "android" || normalized === "ios") {
+    return "mobile";
+  }
+
+  if (normalized === "web" || normalized === "browser") {
+    return "web";
+  }
+
+  return "unknown";
+};
+
+const buildSessionKey = (userId, platform = "unknown") =>
+  `auth:session:${String(userId)}:${normalizePlatform(platform)}`;
+
+const buildLegacySessionKey = (userId) => `auth:session:${String(userId)}`;
 const generateSessionId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
+const resolveSessionKey = async ({ userId, sessionId, platform }) => {
+  const normalizedUserId = String(userId || "");
+  const expectedSessionId = String(sessionId || "");
+  const normalizedPlatform = normalizePlatform(platform);
+
+  const scopedKey = buildSessionKey(normalizedUserId, normalizedPlatform);
+  const scopedSessionId = await safeGet(scopedKey);
+  if (scopedSessionId && scopedSessionId === expectedSessionId) {
+    return {
+      key: scopedKey,
+      platform: normalizedPlatform,
+    };
+  }
+
+  const legacyKey = buildLegacySessionKey(normalizedUserId);
+  const legacySessionId = await safeGet(legacyKey);
+  if (legacySessionId && legacySessionId === expectedSessionId) {
+    return {
+      key: legacyKey,
+      platform: normalizedPlatform,
+    };
+  }
+
+  return null;
+};
 
 const generateOtp = () => String(Math.floor(100000 + Math.random() * 900000));
 
@@ -197,22 +240,26 @@ const UserService = {
     if (!isMatch) throw new Error("Invalid password");
 
     const sessionId = generateSessionId();
+    const sessionPlatform = normalizePlatform(loginMeta.platform);
     const payload = {
       userId: user.userId,
       email: user.email,
       accountStatus,
       sessionId,
+      platform: sessionPlatform,
     };
 
     const accessToken = signAccessToken(payload);
     const refreshToken = signRefreshToken(payload);
 
-    await safeSet(buildSessionKey(user.userId), sessionId);
+    await safeSet(buildSessionKey(user.userId, sessionPlatform), sessionId);
+    await safeDel(buildLegacySessionKey(user.userId));
 
-    await refreshTokenRepository.deleteByUserId(user.userId);
+    await refreshTokenRepository.deleteByUserIdAndPlatform(user.userId, sessionPlatform);
     await refreshTokenRepository.create({
       refreshToken,
       userId: user.userId,
+      platform: sessionPlatform,
       createdAt: new Date().toISOString()
     });
 
@@ -222,7 +269,7 @@ const UserService = {
         userId: user.userId,
         loginId: `${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
         loginAt: new Date().toISOString(),
-        platform: loginMeta.platform || "unknown",
+        platform: sessionPlatform,
         deviceInfo: loginMeta.deviceInfo || "Unknown",
         ipAddress: loginMeta.ipAddress || "Unknown",
       });
@@ -244,11 +291,17 @@ const UserService = {
       const decoded = verifyRefreshToken(refreshToken);
       const userId = decoded?.userId;
       const sessionId = decoded?.sessionId;
+      const sessionPlatform = normalizePlatform(decoded?.platform);
 
       if (userId && sessionId) {
-        const activeSessionId = await safeGet(buildSessionKey(userId));
-        if (activeSessionId === sessionId) {
-          await safeDel(buildSessionKey(userId));
+        const matchedSession = await resolveSessionKey({
+          userId,
+          sessionId,
+          platform: sessionPlatform,
+        });
+
+        if (matchedSession?.key) {
+          await safeDel(matchedSession.key);
         }
       }
     } catch (_err) {
@@ -285,12 +338,25 @@ const UserService = {
     const sessionId = decoded.sessionId;
     if (!sessionId) throw new Error("Session expired");
 
-    const activeSessionId = await safeGet(buildSessionKey(decoded.userId));
-    if (!activeSessionId || activeSessionId !== sessionId) {
+    const sessionPlatform = normalizePlatform(decoded?.platform || stored?.platform);
+
+    const matchedSession = await resolveSessionKey({
+      userId: decoded.userId,
+      sessionId,
+      platform: sessionPlatform,
+    });
+
+    if (!matchedSession) {
       throw new Error("Session expired");
     }
 
-    const payload = { userId: decoded.userId, email: decoded.email, accountStatus, sessionId };
+    const payload = {
+      userId: decoded.userId,
+      email: decoded.email,
+      accountStatus,
+      sessionId,
+      platform: sessionPlatform,
+    };
     const newAccessToken = signAccessToken(payload);
 
     return { accessToken: newAccessToken };

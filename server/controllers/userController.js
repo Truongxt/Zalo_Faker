@@ -21,7 +21,7 @@ const userController = {
 
       // Extract device info from request
       const loginMeta = {
-        platform: platform || req.headers["x-platform"] || "unknown",
+        platform: platform || req.headers["x-platform"] || "web",
         deviceInfo: deviceInfo || req.headers["x-device-info"] || req.headers["user-agent"] || "Unknown",
         ipAddress: req.headers["x-forwarded-for"] || req.connection?.remoteAddress || req.ip || "Unknown",
       };

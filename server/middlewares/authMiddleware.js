@@ -2,7 +2,24 @@ const { verifyAccessToken } = require("../utils/jwt.js");
 const userRepository = require("../repository/userRepository");
 const { safeGet } = require("../utils/redisClient");
 
-const buildSessionKey = (userId) => `auth:session:${String(userId)}`;
+const normalizePlatform = (platform) => {
+  const normalized = String(platform || "").trim().toLowerCase();
+
+  if (normalized === "mobile" || normalized === "android" || normalized === "ios") {
+    return "mobile";
+  }
+
+  if (normalized === "web" || normalized === "browser") {
+    return "web";
+  }
+
+  return "unknown";
+};
+
+const buildSessionKey = (userId, platform = "unknown") =>
+  `auth:session:${String(userId)}:${normalizePlatform(platform)}`;
+
+const buildLegacySessionKey = (userId) => `auth:session:${String(userId)}`;
 
 const normalizeUserPayload = (decoded = {}) => {
   const rawUserId = decoded.userId ?? decoded.id ?? decoded.sub;
@@ -68,12 +85,26 @@ const authMiddleware = async (req, res, next) => {
       return res.status(401).json({ message: "Session expired" });
     }
 
-    const activeSessionId = await safeGet(buildSessionKey(normalizedUser.userId));
-    if (!activeSessionId || activeSessionId !== sessionId) {
+    const tokenPlatform = normalizePlatform(normalizedUser.platform);
+    const scopedSessionId = await safeGet(
+      buildSessionKey(normalizedUser.userId, tokenPlatform),
+    );
+
+    let isValidSession = Boolean(scopedSessionId && scopedSessionId === sessionId);
+
+    if (!isValidSession) {
+      const legacySessionId = await safeGet(buildLegacySessionKey(normalizedUser.userId));
+      isValidSession = Boolean(legacySessionId && legacySessionId === sessionId);
+    }
+
+    if (!isValidSession) {
       return res.status(401).json({ message: "Session expired" });
     }
 
-    req.user = normalizedUser;
+    req.user = {
+      ...normalizedUser,
+      platform: tokenPlatform,
+    };
 
     next();
   } catch (err) {

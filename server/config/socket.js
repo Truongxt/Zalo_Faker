@@ -9,7 +9,23 @@ const { redisClient, getIsRedisReady, safeGet } = require("../utils/redisClient"
 
 const presenceKey = (userId, platform) => `presence:${userId}:${platform}`;
 const allPresencePattern = (userId) => `presence:${userId}:*`;
-const sessionKey = (userId) => `auth:session:${String(userId)}`;
+const normalizePlatform = (platform) => {
+  const normalized = String(platform || "").trim().toLowerCase();
+
+  if (normalized === "mobile" || normalized === "android" || normalized === "ios") {
+    return "mobile";
+  }
+
+  if (normalized === "web" || normalized === "browser") {
+    return "web";
+  }
+
+  return "unknown";
+};
+
+const sessionKey = (userId, platform = "unknown") =>
+  `auth:session:${String(userId)}:${normalizePlatform(platform)}`;
+const legacySessionKey = (userId) => `auth:session:${String(userId)}`;
 
 const MEDIA_FALLBACK_BY_TYPE = {
   image: "[Hinh anh]",
@@ -72,14 +88,27 @@ module.exports = (socketConfig) => {
         return next(new Error("Authentication error: Session expired"));
       }
 
-      const activeSessionId = await safeGet(sessionKey(decoded.userId));
-      if (!activeSessionId || activeSessionId !== decodedSessionId) {
+      const tokenPlatform = normalizePlatform(
+        decoded.platform || socket.handshake.auth?.platform,
+      );
+
+      const scopedSessionId = await safeGet(sessionKey(decoded.userId, tokenPlatform));
+      let isValidSession = Boolean(scopedSessionId && scopedSessionId === decodedSessionId);
+
+      if (!isValidSession) {
+        const legacySessionIdValue = await safeGet(legacySessionKey(decoded.userId));
+        isValidSession = Boolean(
+          legacySessionIdValue && legacySessionIdValue === decodedSessionId,
+        );
+      }
+
+      if (!isValidSession) {
         return next(new Error("Authentication error: Session expired"));
       }
 
       socket.userId = String(decoded.userId);
       socket.userEmail = decoded.email;
-      socket.platform = socket.handshake.auth?.platform || "web";
+      socket.platform = tokenPlatform;
       socket.sessionId = String(decodedSessionId);
 
       next();
@@ -158,11 +187,15 @@ module.exports = (socketConfig) => {
       const existingSocket = io.sockets.sockets.get(socketId);
       if (!existingSocket) continue;
 
+      const samePlatform =
+        normalizePlatform(existingSocket.platform) === normalizePlatform(socket.platform);
+      if (!samePlatform) continue;
+
       const sameSession = existingSocket.sessionId && existingSocket.sessionId === socket.sessionId;
       if (sameSession) continue;
 
       existingSocket.emit("session:force_logout", {
-        reason: "Co tai khoan da dang nhap tren thiet bi khac.",
+        reason: "Co tai khoan da dang nhap tren thiet bi khac cung nen tang.",
         platform: socket.platform,
       });
 

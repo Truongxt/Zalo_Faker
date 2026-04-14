@@ -46,6 +46,7 @@ export const authService = {
 
     async login(identifier: string, password: string): Promise<{ user: User; accessToken: string, refreshToken: string }> {
         const normalizedIdentifier = identifier.trim();
+        const deviceInfo = typeof navigator !== 'undefined' ? navigator.userAgent : 'Web';
 
         const response = await fetch(`${baseAPI}/users/login`, {
             method: 'POST',
@@ -55,6 +56,8 @@ export const authService = {
                 // Backward-compatible payload for older backend versions.
                 email: normalizedIdentifier,
                 password,
+                platform: 'web',
+                deviceInfo,
             })
         });
 

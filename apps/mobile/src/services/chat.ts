@@ -52,6 +52,9 @@ const normalizeMessage = (msg: any): Message => {
   const rawContent = msg?.content;
   const contentText = extractContentText(rawContent);
   const contentMediaUrl = extractContentMediaUrl(rawContent);
+  const rawMetadata = msg?.metadata && typeof msg.metadata === "object"
+    ? msg.metadata
+    : undefined;
 
   const attachmentFromPayload = Array.isArray(msg?.attachments)
     ? msg.attachments
@@ -74,6 +77,12 @@ const normalizeMessage = (msg: any): Message => {
             typeof attachment?.thumbnailUrl === "string"
               ? attachment.thumbnailUrl
               : undefined,
+          transcript:
+            typeof attachment?.transcript === "string"
+              ? attachment.transcript
+              : typeof attachment?.text === "string"
+                ? attachment.text
+                : undefined,
         };
       })
       .filter(Boolean)
@@ -93,6 +102,12 @@ const normalizeMessage = (msg: any): Message => {
             typeof (rawContent as any)?.thumbnail === "string"
               ? (rawContent as any).thumbnail
               : undefined,
+          transcript:
+            typeof (rawContent as any)?.transcript === "string"
+              ? (rawContent as any).transcript
+              : typeof (rawMetadata as any)?.transcript === "string"
+                ? (rawMetadata as any).transcript
+                : undefined,
         }]
       : [];
 

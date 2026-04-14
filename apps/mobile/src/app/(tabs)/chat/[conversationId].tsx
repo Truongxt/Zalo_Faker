@@ -15,7 +15,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
-import { Audio, type AVPlaybackStatus } from "expo-av";
+import { Audio, Video, ResizeMode, type AVPlaybackStatus } from "expo-av";
 import { Ionicons } from "@expo/vector-icons";
 import { useChatStore } from "@/stores/chatStore";
 import { useAuthStore } from "@/stores/authStore";
@@ -87,12 +87,14 @@ type VoiceMessagePlayerProps = {
   audioUrl: string;
   durationSeconds?: number;
   textColor: string;
+  onPressMessage?: () => void;
 };
 
 function VoiceMessagePlayer({
   audioUrl,
   durationSeconds,
   textColor,
+  onPressMessage,
 }: VoiceMessagePlayerProps) {
   const soundRef = useRef<Audio.Sound | null>(null);
   const mountedRef = useRef(true);
@@ -194,11 +196,15 @@ function VoiceMessagePlayer({
   return (
     <TouchableOpacity
       activeOpacity={0.8}
-      onPress={togglePlayPause}
+      onPress={() => {
+        onPressMessage?.();
+        void togglePlayPause();
+      }}
       style={{
         flexDirection: "row",
         alignItems: "center",
-        minWidth: 180,
+        width: "100%",
+        minWidth: 0,
         gap: 8,
       }}
     >
@@ -242,7 +248,13 @@ function VoiceMessagePlayer({
         </View>
       </View>
 
-      <Text style={{ color: textColor, fontSize: 12 }}>
+      <Text
+        style={{
+          color: textColor,
+          fontSize: 12,
+          flexShrink: 0,
+        }}
+      >
         {formatAudioTime(positionMillis)} / {formatAudioTime(durationMillis)}
       </Text>
 
@@ -256,21 +268,63 @@ function VoiceMessagePlayer({
 type MessageItemProps = {
   msg: Message;
   isMe: boolean;
+  isGroupedWithPrevious?: boolean;
   onLongPress: (msg: Message) => void;
 };
 
-function MessageItem({ msg, isMe, onLongPress }: MessageItemProps) {
+function MessageItem({
+  msg,
+  isMe,
+  isGroupedWithPrevious = false,
+  onLongPress,
+}: MessageItemProps) {
+  const [showVoiceTranscript, setShowVoiceTranscript] = useState(false);
   const bg = isMe ? "#0068FF" : "#F3F4F6";
   const textColor = isMe ? "#fff" : "#111827";
+  const showSenderMeta = !isMe && !isGroupedWithPrevious;
   const voiceAttachment = (msg.attachments || []).find(
     (attachment) => attachment.type === "voice",
+  );
+  const videoAttachment = (msg.attachments || []).find(
+    (attachment) => attachment.type === "video",
   );
   const fallbackVoiceUrl =
     typeof msg.content === "string" && /^https?:\/\//i.test(msg.content)
       ? msg.content
       : undefined;
+  const fallbackVideoUrl =
+    typeof msg.content === "string" && /^https?:\/\//i.test(msg.content)
+      ? msg.content
+      : undefined;
   const voiceUrl = voiceAttachment?.url || fallbackVoiceUrl;
+  const videoUrl = videoAttachment?.url || fallbackVideoUrl;
   const voiceDuration = voiceAttachment?.duration;
+  const transcriptFromContent =
+    typeof msg.content === "string" &&
+    msg.content.trim() &&
+    !/^https?:\/\//i.test(msg.content) &&
+    msg.content !== "Tin nhan thoai"
+      ? msg.content.trim()
+      : "";
+  const voiceTranscript =
+    voiceAttachment?.transcript ||
+    ((msg as any)?.metadata?.transcript as string | undefined) ||
+    transcriptFromContent;
+  const transcriptStatus = String(
+    ((msg as any)?.metadata?.transcriptStatus as string | undefined) || "",
+  ).toLowerCase();
+  const resolvedTranscript = voiceTranscript?.trim() || "";
+  const transcriptLabel = resolvedTranscript
+    ? resolvedTranscript
+    : transcriptStatus === "failed"
+      ? "He thong chua tach duoc text. Dang thu lai o lan tai tiep theo."
+      : transcriptStatus === "disabled"
+        ? "Tinh nang tach text dang tat tren server."
+        : transcriptStatus === "missing_audio_url"
+          ? "Khong tim thay file ghi am de tach text."
+          : transcriptStatus === "empty"
+            ? "Khong nhan dien duoc noi dung tu file ghi am nay."
+            : "Dang xu ly tach text cho doan ghi am...";
 
   const renderContent = () => {
     if (msg.isDeleted) {
@@ -292,14 +346,115 @@ function MessageItem({ msg, isMe, onLongPress }: MessageItemProps) {
             resizeMode="cover"
           />
         );
+      case "video":
+        if (!videoUrl) {
+          return (
+            <View
+              style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
+            >
+              <Ionicons
+                name="videocam-off-outline"
+                size={18}
+                color={textColor}
+              />
+              <Text style={{ color: textColor }}>
+                Video (khong co duong dan)
+              </Text>
+            </View>
+          );
+        }
+
+        return (
+          <Video
+            source={{ uri: videoUrl }}
+            style={{
+              width: 230,
+              height: 300,
+              borderRadius: 12,
+              backgroundColor: "#000",
+            }}
+            useNativeControls
+            shouldPlay
+            isLooping
+            resizeMode={ResizeMode.CONTAIN}
+            onError={(error) => {
+              console.error("Khong the phat video:", error);
+            }}
+          />
+        );
       case "voice":
         if (voiceUrl) {
           return (
-            <VoiceMessagePlayer
-              audioUrl={voiceUrl}
-              durationSeconds={voiceDuration}
-              textColor={textColor}
-            />
+            <View style={{ minWidth: 210 }}>
+              <VoiceMessagePlayer
+                audioUrl={voiceUrl}
+                durationSeconds={voiceDuration}
+                textColor={textColor}
+                onPressMessage={() => setShowVoiceTranscript(true)}
+              />
+
+              <View
+                style={{
+                  marginTop: 6,
+                  alignItems: "flex-end",
+                }}
+              >
+                <TouchableOpacity
+                  onPress={() => setShowVoiceTranscript((prev) => !prev)}
+                  activeOpacity={0.8}
+                  style={{
+                    paddingHorizontal: 8,
+                    height: 28,
+                    borderRadius: 14,
+                    backgroundColor: isMe
+                      ? "rgba(255,255,255,0.2)"
+                      : "rgba(17,24,39,0.08)",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    flexDirection: "row",
+                    gap: 3,
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: textColor,
+                      fontSize: 11,
+                      fontWeight: "700",
+                    }}
+                  >
+                    Text
+                  </Text>
+                  <Ionicons
+                    name={showVoiceTranscript ? "chevron-up" : "chevron-down"}
+                    size={14}
+                    color={textColor}
+                  />
+                </TouchableOpacity>
+              </View>
+
+              {showVoiceTranscript && (
+                <View
+                  style={{
+                    marginTop: 8,
+                    paddingTop: 6,
+                    borderTopWidth: 1,
+                    borderTopColor: isMe
+                      ? "rgba(255,255,255,0.26)"
+                      : "rgba(17,24,39,0.14)",
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: textColor,
+                      fontSize: 13,
+                      lineHeight: 18,
+                    }}
+                  >
+                    {transcriptLabel}
+                  </Text>
+                </View>
+              )}
+            </View>
           );
         }
         return (
@@ -351,11 +506,11 @@ function MessageItem({ msg, isMe, onLongPress }: MessageItemProps) {
       style={{
         flexDirection: "row",
         justifyContent: isMe ? "flex-end" : "flex-start",
-        marginHorizontal: 12,
-        marginVertical: 3,
+        marginHorizontal: 10,
+        marginVertical: isGroupedWithPrevious ? 1 : 2,
       }}
     >
-      {!isMe && (
+      {showSenderMeta && (
         <Avatar
           name={msg.senderName || "?"}
           uri={(msg as any).senderAvatar}
@@ -363,13 +518,18 @@ function MessageItem({ msg, isMe, onLongPress }: MessageItemProps) {
         />
       )}
 
-      <View style={{ maxWidth: "72%", marginLeft: isMe ? 0 : 8 }}>
-        {!isMe && (
+      <View
+        style={{
+          maxWidth: "74%",
+          marginLeft: isMe ? 0 : showSenderMeta ? 8 : 40,
+        }}
+      >
+        {showSenderMeta && (
           <Text
             style={{
               fontSize: 11,
               color: "#6B7280",
-              marginBottom: 2,
+              marginBottom: 1,
               marginLeft: 4,
             }}
           >
@@ -381,8 +541,8 @@ function MessageItem({ msg, isMe, onLongPress }: MessageItemProps) {
           style={{
             backgroundColor: bg,
             borderRadius: 18,
-            paddingHorizontal: 12,
-            paddingVertical: 8,
+            paddingHorizontal: 11,
+            paddingVertical: 7,
           }}
         >
           {renderContent()}
@@ -393,7 +553,7 @@ function MessageItem({ msg, isMe, onLongPress }: MessageItemProps) {
             flexDirection: "row",
             justifyContent: isMe ? "flex-end" : "flex-start",
             gap: 6,
-            marginTop: 2,
+            marginTop: 1,
           }}
         >
           <Text style={{ fontSize: 10, color: "#9CA3AF" }}>
@@ -750,29 +910,39 @@ export default function ChatRoomScreen() {
     await chatService.addReaction(convId, selectedMsg.id, emoji);
   };
 
-  const renderMessage = ({ item }: { item: Message }) => (
-    <MessageItem
-      msg={item}
-      isMe={item.senderId === user?.id}
-      onLongPress={handleLongPress}
-    />
-  );
+  const renderMessage = ({ item, index }: { item: Message; index: number }) => {
+    const previousMessage = index > 0 ? convMessages[index - 1] : null;
+    const isGroupedWithPrevious =
+      Boolean(previousMessage) &&
+      previousMessage!.senderId === item.senderId &&
+      !previousMessage!.isDeleted &&
+      !item.isDeleted;
+
+    return (
+      <MessageItem
+        msg={item}
+        isMe={item.senderId === user?.id}
+        isGroupedWithPrevious={isGroupedWithPrevious}
+        onLongPress={handleLongPress}
+      />
+    );
+  };
 
   return (
     <KeyboardAvoidingView
       style={{ flex: 1, backgroundColor: "#F9FAFB" }}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
-      keyboardVerticalOffset={insets.top}
+      keyboardVerticalOffset={Platform.OS === "ios" ? insets.top : 0}
     >
       {/* Header */}
       <View
         style={{
           backgroundColor: "#fff",
-          paddingTop: insets.top,
+          paddingTop: 5,
           flexDirection: "row",
           alignItems: "center",
-          paddingHorizontal: 12,
-          paddingBottom: 10,
+          paddingHorizontal: 10,
+          paddingBottom: 6,
           borderBottomWidth: 1,
           borderBottomColor: "#F3F4F6",
         }}
@@ -784,9 +954,9 @@ export default function ChatRoomScreen() {
           <Ionicons name="arrow-back" size={24} color="#111827" />
         </TouchableOpacity>
 
-        <Avatar name={convName} uri={convAvatar} size={38} />
+        <Avatar name={convName} uri={convAvatar} size={36} />
 
-        <View style={{ flex: 1, marginLeft: 10 }}>
+        <View style={{ flex: 1, marginLeft: 8 }}>
           <Text
             style={{ fontWeight: "700", fontSize: 15, color: "#111827" }}
             numberOfLines={1}
@@ -814,20 +984,28 @@ export default function ChatRoomScreen() {
         </View>
 
         <TouchableOpacity
-          style={{ padding: 6 }}
+          style={{ padding: 4 }}
           onPress={() => startCall("audio")}
           disabled={conversation?.type === "group"}
         >
           <Ionicons name="call-outline" size={22} color="#6B7280" />
         </TouchableOpacity>
         <TouchableOpacity
-          style={{ padding: 6 }}
+          style={{ padding: 4 }}
           onPress={() => startCall("video")}
           disabled={conversation?.type === "group"}
         >
           <Ionicons name="videocam-outline" size={22} color="#6B7280" />
         </TouchableOpacity>
-        <TouchableOpacity style={{ padding: 6 }}>
+        <TouchableOpacity
+          style={{ padding: 4 }}
+          onPress={() =>
+            router.push({
+              pathname: "/(tabs)/chat/conversation-info",
+              params: { conversationId: String(convId) },
+            })
+          }
+        >
           <Ionicons name="ellipsis-vertical" size={20} color="#6B7280" />
         </TouchableOpacity>
       </View>
@@ -848,7 +1026,7 @@ export default function ChatRoomScreen() {
           data={convMessages}
           keyExtractor={(item) => item.id}
           renderItem={renderMessage}
-          contentContainerStyle={{ paddingVertical: 10, paddingBottom: 4 }}
+          contentContainerStyle={{ paddingVertical: 4, paddingBottom: 2 }}
           ListEmptyComponent={
             <View
               style={{
@@ -911,18 +1089,19 @@ export default function ChatRoomScreen() {
           flexDirection: "row",
           alignItems: "flex-end",
           backgroundColor: "#fff",
-          paddingHorizontal: 8,
-          paddingVertical: 8,
-          paddingBottom: Math.max(insets.bottom, 8),
+          paddingHorizontal: 6,
+          paddingVertical: 5,
+          paddingBottom: Math.max(insets.bottom, 4),
+          marginBottom: Platform.OS === "android" ? 0 : 5,
           borderTopWidth: 1,
           borderTopColor: "#F3F4F6",
-          gap: 6,
+          gap: 3,
         }}
       >
-        <TouchableOpacity onPress={handlePickImage} style={{ padding: 8 }}>
+        <TouchableOpacity onPress={handlePickImage} style={{ padding: 6 }}>
           <Ionicons name="image-outline" size={24} color="#6B7280" />
         </TouchableOpacity>
-        <TouchableOpacity onPress={handlePickFile} style={{ padding: 8 }}>
+        <TouchableOpacity onPress={handlePickFile} style={{ padding: 6 }}>
           <Ionicons name="attach-outline" size={24} color="#6B7280" />
         </TouchableOpacity>
 
@@ -937,7 +1116,7 @@ export default function ChatRoomScreen() {
             backgroundColor: "#F3F4F6",
             borderRadius: 20,
             paddingHorizontal: 14,
-            paddingVertical: 8,
+            paddingVertical: 7,
             fontSize: 15,
             color: "#111827",
             maxHeight: 120,
