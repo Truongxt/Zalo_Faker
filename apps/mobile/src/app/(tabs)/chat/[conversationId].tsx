@@ -20,7 +20,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { useChatStore } from "@/stores/chatStore";
 import { useAuthStore } from "@/stores/authStore";
 import { chatService } from "@/services/chat";
-import { userService } from "@/services";
+import { pinGroupMessage, unpinGroupMessage } from "@/services/groupService";
+import { friendsService, userService } from "@/services";
 import { socketService } from "@/lib/socket";
 import { Avatar } from "@/components/ui/Avatar";
 import { GrayToast } from "@/components/ui";
@@ -61,6 +62,74 @@ function formatAudioTime(millis: number) {
   const seconds = totalSeconds % 60;
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
+
+type ParsedCallPayload = {
+  callType: "audio" | "video";
+  status: string;
+  duration: number;
+};
+
+const normalizeCallType = (value: unknown): ParsedCallPayload["callType"] | null => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "video") return "video";
+  if (normalized === "audio" || normalized === "voice") return "audio";
+  return null;
+};
+
+const normalizeCallStatus = (value: unknown): string | null => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) return null;
+  return normalized === "ended" ? "finished" : normalized;
+};
+
+const parseCallPayloadFromObject = (
+  value: Record<string, unknown>,
+): ParsedCallPayload | null => {
+  const callType = normalizeCallType(value.callType);
+  const status = normalizeCallStatus(value.status || value.callStatus);
+  if (!callType || !status) return null;
+
+  const duration =
+    typeof value.duration === "number" && Number.isFinite(value.duration)
+      ? Math.max(0, Math.floor(value.duration))
+      : 0;
+
+  return { callType, status, duration };
+};
+
+const parseCallPayload = (value: unknown): ParsedCallPayload | null => {
+  if (!value) return null;
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return null;
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        return null;
+      }
+      return parseCallPayloadFromObject(parsed as Record<string, unknown>);
+    } catch {
+      return null;
+    }
+  }
+
+  if (typeof value !== "object" || Array.isArray(value)) return null;
+  const objectValue = value as Record<string, unknown>;
+  const direct = parseCallPayloadFromObject(objectValue);
+  if (direct) return direct;
+
+  const nestedText =
+    typeof objectValue.text === "string"
+      ? objectValue.text
+      : typeof objectValue.message === "string"
+        ? objectValue.message
+        : typeof objectValue.content === "string"
+          ? objectValue.content
+          : "";
+
+  return nestedText ? parseCallPayload(nestedText) : null;
+};
 
 function getPresenceLabel(
   isOnline: boolean,
@@ -322,9 +391,14 @@ function MessageItem({
         ? "Tinh nang tach text dang tat tren server."
         : transcriptStatus === "missing_audio_url"
           ? "Khong tim thay file ghi am de tach text."
-          : transcriptStatus === "empty"
+        : transcriptStatus === "empty"
             ? "Khong nhan dien duoc noi dung tu file ghi am nay."
             : "Dang xu ly tach text cho doan ghi am...";
+  const parsedCallPayload =
+    parseCallPayload(msg.content) ||
+    (msg.type === "call"
+      ? { callType: "audio" as const, status: "finished", duration: 0 }
+      : null);
 
   const renderContent = () => {
     if (msg.isDeleted) {
@@ -334,6 +408,76 @@ function MessageItem({
         >
           Tin nhan da bi thu hoi
         </Text>
+      );
+    }
+
+    if (parsedCallPayload) {
+      const isMissed =
+        parsedCallPayload.status === "missed" ||
+        parsedCallPayload.status === "rejected";
+      const callStatusText = (() => {
+        const suffix = parsedCallPayload.callType === "video" ? " video" : "";
+        if (parsedCallPayload.status === "finished") {
+          return isMe ? `Cuoc goi di${suffix}` : `Cuoc goi den${suffix}`;
+        }
+        if (parsedCallPayload.status === "missed") {
+          return isMe ? "Thue bao khong nhac may" : `Cuoc goi nho${suffix}`;
+        }
+        if (parsedCallPayload.status === "rejected") return "Cuoc goi bi tu choi";
+        if (parsedCallPayload.status === "cancelled") return "Cuoc goi da huy";
+        return parsedCallPayload.callType === "video"
+          ? "Cuoc goi video"
+          : "Cuoc goi";
+      })();
+
+      return (
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+          <View
+            style={{
+              width: 36,
+              height: 36,
+              borderRadius: 18,
+              alignItems: "center",
+              justifyContent: "center",
+              backgroundColor: isMissed
+                ? isMe
+                  ? "rgba(255,255,255,0.24)"
+                  : "#fee2e2"
+                : isMe
+                  ? "rgba(255,255,255,0.24)"
+                  : "#dbeafe",
+            }}
+          >
+            <Ionicons
+              name={parsedCallPayload.callType === "video" ? "videocam" : "call"}
+              size={18}
+              color={
+                isMissed
+                  ? isMe
+                    ? "#fff"
+                    : "#ef4444"
+                  : isMe
+                    ? "#fff"
+                    : "#3b82f6"
+              }
+            />
+          </View>
+          <View style={{ minWidth: 0, flexShrink: 1 }}>
+            <Text style={{ color: textColor, fontWeight: "700", fontSize: 15 }}>
+              {callStatusText}
+            </Text>
+            {parsedCallPayload.status === "finished" && (
+              <Text style={{ color: textColor, opacity: 0.75, fontSize: 12 }}>
+                {formatAudioTime(parsedCallPayload.duration * 1000)}
+              </Text>
+            )}
+            {isMissed && !isMe && (
+              <Text style={{ color: "#ef4444", fontSize: 12, fontWeight: "600" }}>
+                Nhan de goi lai
+              </Text>
+            )}
+          </View>
+        </View>
       );
     }
 
@@ -581,7 +725,10 @@ export default function ChatRoomScreen() {
   const insets = useSafeAreaInsets();
   const { user, accessToken } = useAuthStore();
 
-  const { messages, conversations, addMessage, updateConversation } =
+  const {
+    messages,
+    conversations,
+  } =
     useChatStore();
   const convId = conversationId || "";
   const convMessages: Message[] = (messages as any)[convId] || [];
@@ -599,6 +746,9 @@ export default function ChatRoomScreen() {
     null,
   );
   const [presenceTick, setPresenceTick] = useState(0);
+  const [blockStatus, setBlockStatus] = useState<
+    "none" | "blocked_by_me" | "blocked_by_other"
+  >("none");
   const flatListRef = useRef<FlatList>(null);
   const typingTimeout = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
@@ -621,6 +771,64 @@ export default function ChatRoomScreen() {
     conversation?.type === "private"
       ? getPresenceLabel(isPartnerOnline, partnerLastSeenAt)
       : "";
+  const isBlockedByMe = blockStatus === "blocked_by_me";
+  const isBlockedByOther = blockStatus === "blocked_by_other";
+  const isMessagingBlocked = conversation?.type === "private" && (isBlockedByMe || isBlockedByOther);
+  const myGroupRole = String(
+    conversation?.participants?.find((p) => String(p.userId) === String(user?.id))
+      ?.role || "member",
+  ).toLowerCase();
+  const pinScope = String(
+    conversation?.groupSettings?.permissions?.pinMessage || "admin_deputy",
+  ).toLowerCase();
+  const canPinInGroup =
+    conversation?.type === "group"
+      ? (() => {
+          const roleRank: Record<string, number> = {
+            member: 1,
+            deputy: 2,
+            admin: 3,
+          };
+          const scopeRank: Record<string, number> = {
+            all: 1,
+            admin_deputy: 2,
+            admin: 3,
+          };
+          const currentRank = roleRank[myGroupRole] || 0;
+          const requiredRank = scopeRank[pinScope] || Number.MAX_SAFE_INTEGER;
+          return currentRank >= requiredRank;
+        })()
+      : false;
+  const pinnedMessage = conversation?.groupSettings?.pinnedMessage || null;
+
+  const getPinnedMessagePreview = useCallback((message: any) => {
+    if (!message) return "Tin nhan da ghim";
+    if (message.metadata?.isAnnouncement) {
+      const announceText = String(message.content?.text || "").trim();
+      return announceText ? `[Thong bao] ${announceText}` : "[Thong bao]";
+    }
+
+    const content = message.content;
+    if (typeof content === "string" && content.trim()) {
+      return content.trim();
+    }
+    if (content && typeof content === "object") {
+      const text = String(
+        content.text || content.message || content.content || "",
+      ).trim();
+      if (text) return text;
+      if (typeof content.fileName === "string" && content.fileName.trim()) {
+        return `[File] ${content.fileName.trim()}`;
+      }
+    }
+
+    if (message.type === "image") return "[Hinh anh]";
+    if (message.type === "video") return "[Video]";
+    if (message.type === "voice") return "[Tin nhan thoai]";
+    if (message.type === "sticker") return "[Sticker]";
+    if (message.type === "file") return "[Tap tin]";
+    return "Tin nhan da ghim";
+  }, []);
 
   // Re-render presence label every minute so "X phút trước" updates naturally.
   useEffect(() => {
@@ -690,6 +898,71 @@ export default function ChatRoomScreen() {
       socketService.off("presence:offline", handlePresenceOffline);
     };
   }, [conversation?.type, otherParticipant?.userId]);
+
+  useEffect(() => {
+    if (!user?.id || !otherParticipant?.userId || conversation?.type !== "private") {
+      setBlockStatus("none");
+      return;
+    }
+
+    let cancelled = false;
+    const syncBlockStatus = async () => {
+      try {
+        const relation = await friendsService.getExitingFriend(
+          String(user.id),
+          String(otherParticipant.userId),
+        );
+        if (cancelled) return;
+
+        if (!relation || String((relation as any).status) !== "blocked") {
+          setBlockStatus("none");
+          return;
+        }
+
+        const blockedByMe = String(relation.fromUserId) === String(user.id);
+        setBlockStatus(blockedByMe ? "blocked_by_me" : "blocked_by_other");
+      } catch {
+        if (!cancelled) setBlockStatus("none");
+      }
+    };
+
+    void syncBlockStatus();
+    return () => {
+      cancelled = true;
+    };
+  }, [conversation?.type, otherParticipant?.userId, user?.id]);
+
+  useEffect(() => {
+    if (!otherParticipant?.userId || !user?.id) return;
+
+    const handleFriendBlocked = ({ targetUserId }: { targetUserId: string }) => {
+      if (String(targetUserId) !== String(otherParticipant.userId)) return;
+      setBlockStatus("blocked_by_me");
+      GrayToast("Da chan nguoi dung");
+    };
+
+    const handleBlockedBy = ({ blockedByUserId }: { blockedByUserId: string }) => {
+      if (String(blockedByUserId) !== String(otherParticipant.userId)) return;
+      setBlockStatus("blocked_by_other");
+      GrayToast("Ban da bi chan");
+    };
+
+    const handleFriendUnblocked = ({ targetUserId }: { targetUserId: string }) => {
+      if (String(targetUserId) !== String(otherParticipant.userId)) return;
+      setBlockStatus("none");
+      GrayToast("Da mo chan nguoi dung");
+    };
+
+    socketService.on("friend:blocked", handleFriendBlocked);
+    socketService.on("friend:blocked_by", handleBlockedBy);
+    socketService.on("friend:unblocked", handleFriendUnblocked);
+
+    return () => {
+      socketService.off("friend:blocked", handleFriendBlocked);
+      socketService.off("friend:blocked_by", handleBlockedBy);
+      socketService.off("friend:unblocked", handleFriendUnblocked);
+    };
+  }, [otherParticipant?.userId, user?.id]);
 
   const startCall = useCallback(
     (callType: "audio" | "video") => {
@@ -797,6 +1070,7 @@ export default function ChatRoomScreen() {
   }, [convMessages.length]);
 
   const handleTextChange = (val: string) => {
+    if (isMessagingBlocked) return;
     setText(val);
     if (convId && user) {
       socketService.emit("chat:typing", { conversationId: convId });
@@ -806,6 +1080,10 @@ export default function ChatRoomScreen() {
   const handleSend = async () => {
     const trimmed = text.trim();
     if (!trimmed || isSending) return;
+    if (isMessagingBlocked) {
+      GrayToast(isBlockedByMe ? "Ban da chan nguoi dung nay" : "Ban da bi chan");
+      return;
+    }
     setText("");
     setIsSending(true);
     if (convId && user) {
@@ -821,6 +1099,10 @@ export default function ChatRoomScreen() {
   };
 
   const handlePickImage = async () => {
+    if (isMessagingBlocked) {
+      GrayToast(isBlockedByMe ? "Ban da chan nguoi dung nay" : "Ban da bi chan");
+      return;
+    }
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) {
       Alert.alert("Cần quyền", "Hãy cấp quyền truy cập ảnh");
@@ -871,6 +1153,10 @@ export default function ChatRoomScreen() {
   };
 
   const handlePickFile = async () => {
+    if (isMessagingBlocked) {
+      GrayToast(isBlockedByMe ? "Ban da chan nguoi dung nay" : "Ban da bi chan");
+      return;
+    }
     try {
       const result = await DocumentPicker.getDocumentAsync({
         copyToCacheDirectory: true,
@@ -892,20 +1178,112 @@ export default function ChatRoomScreen() {
     }
   };
 
+  const handleUpdatePinnedMessage = useCallback(
+    (nextPinnedMessage: any | null) => {
+      if (!conversation || conversation.type !== "group") return;
+
+      const fallbackSettings = {
+        invite: {
+          code: conversation.groupSettings?.invite?.code || "",
+          approvalRequired:
+            conversation.groupSettings?.invite?.approvalRequired ?? true,
+        },
+        permissions: {
+          sendMedia:
+            conversation.groupSettings?.permissions?.sendMedia || "all",
+          pinMessage:
+            conversation.groupSettings?.permissions?.pinMessage ||
+            "admin_deputy",
+          sendAnnouncement:
+            conversation.groupSettings?.permissions?.sendAnnouncement ||
+            "admin_deputy",
+        },
+        pinnedMessage: null,
+      };
+
+      useChatStore.getState().updateConversation(convId, {
+        groupSettings: {
+          ...(conversation.groupSettings || fallbackSettings),
+          pinnedMessage: nextPinnedMessage,
+        },
+      });
+    },
+    [convId, conversation],
+  );
+
+  const handlePinMessage = useCallback(
+    async (message: Message) => {
+      if (!convId || conversation?.type !== "group") return;
+      if (!canPinInGroup) {
+        GrayToast("Ban khong co quyen ghim tin nhan trong nhom nay");
+        return;
+      }
+      if (message.isDeleted) {
+        GrayToast("Khong the ghim tin nhan da thu hoi");
+        return;
+      }
+
+      try {
+        const result = await pinGroupMessage(convId, message.id);
+        const nextPinned =
+          (result as any)?.pinnedMessage ||
+          (result as any)?.group?.groupSettings?.pinnedMessage ||
+          null;
+        handleUpdatePinnedMessage(nextPinned);
+        GrayToast("Da ghim tin nhan");
+      } catch (error: any) {
+        GrayToast(error?.message || "Khong the ghim tin nhan");
+      }
+    },
+    [canPinInGroup, convId, conversation?.type, handleUpdatePinnedMessage],
+  );
+
+  const handleUnpinMessage = useCallback(async () => {
+    if (!convId || conversation?.type !== "group") return;
+    if (!canPinInGroup) {
+      GrayToast("Ban khong co quyen bo ghim tin nhan trong nhom nay");
+      return;
+    }
+
+    try {
+      await unpinGroupMessage(convId);
+      handleUpdatePinnedMessage(null);
+      GrayToast("Da bo ghim tin nhan");
+    } catch (error: any) {
+      GrayToast(error?.message || "Khong the bo ghim tin nhan");
+    }
+  }, [canPinInGroup, convId, conversation?.type, handleUpdatePinnedMessage]);
+
   const handleLongPress = (msg: Message) => {
     setSelectedMsg(msg);
     const isMe = msg.senderId === user?.id;
+    const isPinnedMessage = Boolean(
+      pinnedMessage && String(pinnedMessage.messageId) === String(msg.id),
+    );
 
     const options: Array<{
       text: string;
       onPress?: () => void;
-      style?: "destructive" | "cancel";
+      style?: "default" | "destructive" | "cancel";
     }> = [
       {
         text: "Thả cảm xúc",
         onPress: () => setShowReactions(true),
       },
     ];
+
+    if (!msg.isDeleted && conversation?.type === "group" && canPinInGroup) {
+      options.push({
+        text: isPinnedMessage ? "Bo ghim tin nhan" : "Ghim tin nhan",
+        onPress: () => {
+          if (isPinnedMessage) {
+            void handleUnpinMessage();
+            return;
+          }
+          void handlePinMessage(msg);
+        },
+      });
+    }
 
     if (isMe && !msg.isDeleted) {
       options.push({
@@ -943,6 +1321,92 @@ export default function ChatRoomScreen() {
     setShowReactions(false);
     if (!selectedMsg) return;
     await chatService.addReaction(convId, selectedMsg.id, emoji);
+  };
+
+  const handleBlockUser = () => {
+    if (conversation?.type !== "private" || !otherParticipant?.userId) return;
+
+    const partnerId = String(otherParticipant.userId);
+    const partnerName = otherParticipant.fullName || "nguoi dung";
+
+    Alert.alert(
+      "Chan nguoi dung",
+      `Ban co chac muon chan ${partnerName}?`,
+      [
+        { text: "Huy", style: "cancel" },
+        {
+          text: "Chan",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await friendsService.blockUser(partnerId);
+              setBlockStatus("blocked_by_me");
+              GrayToast("Da chan nguoi dung");
+            } catch {
+              GrayToast("Khong the chan nguoi dung");
+            }
+          },
+        },
+      ],
+      { cancelable: true },
+    );
+  };
+
+  const handleUnblockUser = () => {
+    if (conversation?.type !== "private" || !otherParticipant?.userId) return;
+
+    const partnerId = String(otherParticipant.userId);
+    const partnerName = otherParticipant.fullName || "nguoi dung";
+
+    Alert.alert(
+      "Mo chan nguoi dung",
+      `Ban co chac muon mo chan ${partnerName}?`,
+      [
+        { text: "Huy", style: "cancel" },
+        {
+          text: "Mo chan",
+          style: "default",
+          onPress: async () => {
+            try {
+              await friendsService.unblockUser(partnerId);
+              setBlockStatus("none");
+              GrayToast("Da mo chan nguoi dung");
+            } catch {
+              GrayToast("Khong the mo chan nguoi dung");
+            }
+          },
+        },
+      ],
+      { cancelable: true },
+    );
+  };
+
+  const handleHeaderMenuPress = () => {
+    const options: Array<{
+      text: string;
+      style?: "default" | "cancel" | "destructive";
+      onPress?: () => void;
+    }> = [
+      {
+        text: "Thong tin hoi thoai",
+        onPress: () =>
+          router.push({
+            pathname: "/(tabs)/chat/conversation-info",
+            params: { conversationId: String(convId) },
+          }),
+      },
+    ];
+
+    if (conversation?.type === "private") {
+      options.push({
+        text: isBlockedByMe ? "Mo chan nguoi dung" : "Chan nguoi dung",
+        style: isBlockedByMe ? "default" : "destructive",
+        onPress: isBlockedByMe ? handleUnblockUser : handleBlockUser,
+      });
+    }
+
+    options.push({ text: "Dong", style: "cancel" });
+    Alert.alert("Tuy chon", undefined, options);
   };
 
   const renderMessage = ({ item, index }: { item: Message; index: number }) => {
@@ -1034,18 +1498,70 @@ export default function ChatRoomScreen() {
         </TouchableOpacity>
         <TouchableOpacity
           style={{ padding: 4 }}
-          onPress={() =>
-            router.push({
-              pathname: "/(tabs)/chat/conversation-info",
-              params: { conversationId: String(convId) },
-            })
-          }
+          onPress={handleHeaderMenuPress}
         >
           <Ionicons name="ellipsis-vertical" size={20} color="#6B7280" />
         </TouchableOpacity>
       </View>
 
       {/* Messages */}
+      {conversation?.type === "group" && pinnedMessage && (
+        <View
+          style={{
+            backgroundColor: "#FFFBEB",
+            borderBottomWidth: 1,
+            borderBottomColor: "#FDE68A",
+            paddingHorizontal: 12,
+            paddingVertical: 8,
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 8,
+          }}
+        >
+          <View style={{ flexDirection: "row", alignItems: "center", flex: 1 }}>
+            <Ionicons name="pin" size={14} color="#B45309" />
+            <View style={{ marginLeft: 6, flex: 1 }}>
+              <Text
+                style={{
+                  color: "#92400E",
+                  fontSize: 11,
+                  fontWeight: "700",
+                }}
+              >
+                Tin nhan da ghim
+              </Text>
+              <Text
+                numberOfLines={1}
+                style={{ color: "#92400E", fontSize: 12 }}
+              >
+                {getPinnedMessagePreview(pinnedMessage)}
+              </Text>
+            </View>
+          </View>
+
+          {canPinInGroup && (
+            <TouchableOpacity
+              onPress={() => void handleUnpinMessage()}
+              style={{
+                paddingHorizontal: 8,
+                paddingVertical: 4,
+                borderRadius: 999,
+                backgroundColor: "#FEF3C7",
+                borderWidth: 1,
+                borderColor: "#F59E0B",
+              }}
+            >
+              <Text
+                style={{ color: "#92400E", fontSize: 11, fontWeight: "700" }}
+              >
+                Bo ghim
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
+
       {isLoading ? (
         <View
           style={{ flex: 1, alignItems: "center", justifyContent: "center" }}
@@ -1141,8 +1657,39 @@ export default function ChatRoomScreen() {
             paddingRight: 8,
           }}
         >
+          {isMessagingBlocked && (
+            <View
+              style={{
+                position: "absolute",
+                top: -42,
+                left: 8,
+                right: 8,
+                minHeight: 34,
+                borderRadius: 10,
+                borderWidth: 1,
+                borderColor: "#FCD34D",
+                backgroundColor: "#FEF3C7",
+                paddingHorizontal: 10,
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+              }}
+            >
+              <Text style={{ color: "#92400E", fontSize: 12, fontWeight: "600" }}>
+                {isBlockedByMe ? "Ban da chan nguoi dung nay" : "Ban da bi chan"}
+              </Text>
+              {isBlockedByMe && (
+                <TouchableOpacity onPress={handleUnblockUser} style={{ paddingVertical: 3 }}>
+                  <Text style={{ color: "#92400E", fontSize: 12, fontWeight: "700" }}>
+                    Mo chan
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
           <TouchableOpacity
             onPress={() => GrayToast("Tính năng sticker đang phát triển")}
+            disabled={Boolean(isMessagingBlocked)}
             style={{
               width: 36,
               height: 36,
@@ -1156,9 +1703,16 @@ export default function ChatRoomScreen() {
           <TextInput
             value={text}
             onChangeText={handleTextChange}
-            placeholder="Tin nhắn"
+            placeholder={
+              isMessagingBlocked
+                ? isBlockedByMe
+                  ? "Ban da chan nguoi dung nay"
+                  : "Ban da bi chan"
+                : "Tin nhắn"
+            }
             placeholderTextColor="#8A8F98"
             multiline
+            editable={!isMessagingBlocked}
             style={{
               flex: 1,
               marginLeft: 4,
@@ -1172,6 +1726,7 @@ export default function ChatRoomScreen() {
 
           <TouchableOpacity
             onPress={handlePickFile}
+            disabled={Boolean(isMessagingBlocked)}
             style={{
               width: 36,
               height: 36,
@@ -1188,7 +1743,7 @@ export default function ChatRoomScreen() {
                 ? handleSend
                 : () => GrayToast("Tính năng ghi âm đang phát triển")
             }
-            disabled={isSending}
+            disabled={isSending || Boolean(isMessagingBlocked)}
             style={{
               width: 36,
               height: 36,
@@ -1209,6 +1764,7 @@ export default function ChatRoomScreen() {
 
           <TouchableOpacity
             onPress={handlePickImage}
+            disabled={Boolean(isMessagingBlocked)}
             style={{
               width: 36,
               height: 36,

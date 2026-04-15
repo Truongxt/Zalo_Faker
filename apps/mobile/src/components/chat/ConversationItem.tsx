@@ -30,10 +30,36 @@ const getConversationAvatar = (conversation: Conversation, currentUserId: string
   return partner?.avatarUrl || null;
 };
 
+const getCallPreviewFromRawText = (value: string): string | null => {
+  const trimmed = String(value || "").trim();
+  if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return null;
+
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+
+    const callTypeRaw = String((parsed as any).callType || "").toLowerCase();
+    const statusRaw = String((parsed as any).status || "").toLowerCase();
+    if (!callTypeRaw || !statusRaw) return null;
+
+    const callType = callTypeRaw === "video" ? "video" : "audio";
+    const suffix = callType === "video" ? " video" : "";
+    const status = statusRaw === "ended" ? "finished" : statusRaw;
+
+    if (status === "finished") return `Cuoc goi${suffix}`;
+    if (status === "missed") return `Cuoc goi nho${suffix}`;
+    if (status === "rejected") return "Cuoc goi bi tu choi";
+    if (status === "cancelled") return "Cuoc goi da huy";
+    return callType === "video" ? "Cuoc goi video" : "Cuoc goi";
+  } catch {
+    return null;
+  }
+};
+
 const getLastMessageText = (conversation: Conversation) => {
   const content = conversation.lastMessage?.content;
   if (!content) return "Chưa có tin nhắn";
-  return content;
+  return getCallPreviewFromRawText(content) || content;
 };
 
 const getLastMessageTime = (conversation: Conversation) => {

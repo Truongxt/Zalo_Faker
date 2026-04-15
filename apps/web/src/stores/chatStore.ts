@@ -15,7 +15,7 @@ export interface Message {
     id: string
     conversationId: string
     senderId: string
-    type: 'text' | 'image' | 'video' | 'file' | 'sticker' | 'voice'
+    type: 'text' | 'image' | 'video' | 'file' | 'sticker' | 'voice' | 'call' | 'system'
     content: {
         text?: string
         mediaUrl?: string
@@ -24,6 +24,8 @@ export interface Message {
         fileSize?: number
         duration?: number
         transcript?: string
+        callType?: 'audio' | 'video'
+        callStatus?: string
     }
     metadata?: {
         isAnnouncement?: boolean
@@ -42,9 +44,79 @@ export interface Message {
     lastRead?: string
 }
 
+type ParsedCallPayload = {
+    callType: 'audio' | 'video'
+    callStatus: string
+    duration?: number
+}
+
+const normalizeCallType = (value: unknown): ParsedCallPayload['callType'] | undefined => {
+    const normalized = String(value || '').trim().toLowerCase()
+    if (normalized === 'video') return 'video'
+    if (normalized === 'audio' || normalized === 'voice') return 'audio'
+    return undefined
+}
+
+const normalizeCallStatus = (value: unknown): string | undefined => {
+    const normalized = String(value || '').trim().toLowerCase()
+    if (!normalized) return undefined
+    if (normalized === 'ended') return 'finished'
+    return normalized
+}
+
+const parseCallPayloadObject = (value: Record<string, unknown>): ParsedCallPayload | null => {
+    const callType = normalizeCallType(value.callType)
+    const callStatus = normalizeCallStatus(value.status || value.callStatus)
+    if (!callType || !callStatus) return null
+
+    const duration = typeof value.duration === 'number' && Number.isFinite(value.duration)
+        ? Math.max(0, Math.floor(value.duration))
+        : undefined
+
+    return { callType, callStatus, duration }
+}
+
+const parseCallPayload = (value: unknown): ParsedCallPayload | null => {
+    if (typeof value === 'string') {
+        const trimmed = value.trim()
+        if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) return null
+
+        try {
+            const parsed = JSON.parse(trimmed)
+            if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
+            return parseCallPayloadObject(parsed as Record<string, unknown>)
+        } catch {
+            return null
+        }
+    }
+
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+
+    const direct = parseCallPayloadObject(value as Record<string, unknown>)
+    if (direct) return direct
+
+    const nestedText =
+        typeof (value as Record<string, unknown>).text === 'string'
+            ? (value as Record<string, unknown>).text
+            : typeof (value as Record<string, unknown>).message === 'string'
+                ? (value as Record<string, unknown>).message
+                : typeof (value as Record<string, unknown>).content === 'string'
+                    ? (value as Record<string, unknown>).content
+                    : ''
+
+    return nestedText ? parseCallPayload(nestedText) : null
+}
+
 const normalizeMessageContent = (rawContent: unknown): Message['content'] => {
+    const parsedCall = parseCallPayload(rawContent)
+
     if (typeof rawContent === 'string') {
-        return { text: rawContent }
+        return {
+            text: rawContent,
+            callType: parsedCall?.callType,
+            callStatus: parsedCall?.callStatus,
+            duration: parsedCall?.duration,
+        }
     }
 
     if (!rawContent || typeof rawContent !== 'object') {
@@ -77,8 +149,12 @@ const normalizeMessageContent = (rawContent: unknown): Message['content'] => {
         thumbnail: typeof content.thumbnail === 'string' ? content.thumbnail : undefined,
         fileName: typeof content.fileName === 'string' ? content.fileName : undefined,
         fileSize: typeof content.fileSize === 'number' ? content.fileSize : undefined,
-        duration: typeof content.duration === 'number' ? content.duration : undefined,
+        duration: typeof content.duration === 'number'
+            ? content.duration
+            : parsedCall?.duration,
         transcript: typeof content.transcript === 'string' ? content.transcript : undefined,
+        callType: parsedCall?.callType,
+        callStatus: parsedCall?.callStatus,
     }
 }
 
