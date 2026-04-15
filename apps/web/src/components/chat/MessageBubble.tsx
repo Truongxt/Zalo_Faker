@@ -104,6 +104,67 @@ type ParsedCallPayload = {
   duration: number;
 };
 
+type FilePreviewTarget = {
+  name: string;
+  fileUrl: string;
+  previewUrl: string;
+};
+
+const OFFICE_EXTENSIONS = new Set([
+  "doc",
+  "docx",
+  "xls",
+  "xlsx",
+  "ppt",
+  "pptx",
+]);
+
+const getFileExtension = (value: string) => {
+  const cleanValue = value.split("?")[0].split("#")[0];
+  const parts = cleanValue.split(".");
+  if (parts.length < 2) return "";
+  return String(parts[parts.length - 1] || "").trim().toLowerCase();
+};
+
+const getFileNameFromUrl = (url: string) => {
+  const cleanUrl = url.split("?")[0];
+  const lastSegment = cleanUrl.split("/").pop() || "Tep dinh kem";
+  try {
+    return decodeURIComponent(lastSegment);
+  } catch {
+    return lastSegment;
+  }
+};
+
+const buildFilePreviewTarget = (
+  fileUrl?: string,
+  fileName?: string,
+): FilePreviewTarget | null => {
+  const normalizedUrl = String(fileUrl || "").trim();
+  if (!normalizedUrl || !/^https?:\/\//i.test(normalizedUrl)) return null;
+
+  const resolvedName = String(fileName || "").trim() || getFileNameFromUrl(normalizedUrl);
+  const ext = getFileExtension(resolvedName || normalizedUrl);
+
+  if (ext === "pdf") {
+    return {
+      name: resolvedName,
+      fileUrl: normalizedUrl,
+      previewUrl: normalizedUrl,
+    };
+  }
+
+  if (OFFICE_EXTENSIONS.has(ext)) {
+    return {
+      name: resolvedName,
+      fileUrl: normalizedUrl,
+      previewUrl: `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(normalizedUrl)}`,
+    };
+  }
+
+  return null;
+};
+
 const normalizeCallType = (
   value: unknown,
 ): ParsedCallPayload["callType"] | null => {
@@ -188,6 +249,8 @@ export default function MessageBubble({
   const [showReactionPicker, setShowReactionPicker] = useState(false);
   const [showConfirmRecall, setShowConfirmRecall] = useState(false);
   const [showVoiceTranscript, setShowVoiceTranscript] = useState(false);
+  const [activeFilePreview, setActiveFilePreview] =
+    useState<FilePreviewTarget | null>(null);
   const reactionRef = useRef<HTMLDivElement>(null);
   const confirmRef = useRef<HTMLDivElement>(null);
   const isAnnouncement = Boolean(message.metadata?.isAnnouncement);
@@ -207,6 +270,11 @@ export default function MessageBubble({
   const transcriptText = String(
     content.transcript || message.metadata?.transcript || "",
   ).trim();
+  const filePreviewTarget = buildFilePreviewTarget(
+    content.mediaUrl,
+    content.fileName,
+  );
+  const fileNameLabel = content.fileName || getFileNameFromUrl(content.mediaUrl || "");
 
   const transcriptLabel =
     transcriptText ||
@@ -229,7 +297,7 @@ export default function MessageBubble({
   const getCallStatusText = (status: string, callType: "audio" | "video") => {
     const suffix = callType === "video" ? " video" : "";
     if (status === "finished") {
-      return isSent ? `Cuoc goi di${suffix}` : `Cuoc goi den${suffix}`;
+      return isSent ? `Cuộc gọi đến${suffix}` : `Cuộc gọi đến${suffix}`;
     }
     if (status === "missed") {
       return isSent ? "Thue bao khong nhac may" : `Cuoc goi nho${suffix}`;
@@ -268,7 +336,7 @@ export default function MessageBubble({
           )}
           {isMissed && !isSent && (
             <p className="text-xs font-medium text-red-500 dark:text-red-300">
-              Nhan de goi lai
+              Nhấn để gọi lại
             </p>
           )}
         </div>
@@ -403,24 +471,43 @@ export default function MessageBubble({
                 {content.text}
               </p>
             )}
-            <a
-              href={content.mediaUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-3 p-3 bg-black/10 dark:bg-white/10 rounded-lg hover:bg-black/20 dark:hover:bg-white/20 transition-colors"
-            >
+
+            <div className="flex items-center gap-3 p-3 bg-black/10 dark:bg-white/10 rounded-lg">
               <div className="w-10 h-10 bg-primary-500 rounded-lg flex items-center justify-center text-white text-sm font-medium">
-                {content.fileName?.split(".").pop()?.toUpperCase() || "FILE"}
+                {fileNameLabel?.split(".").pop()?.toUpperCase() || "FILE"}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="font-medium truncate">{content.fileName}</p>
+                <p className="font-medium truncate">{fileNameLabel}</p>
                 <p className="text-sm opacity-70">
                   {content.fileSize
                     ? `${(content.fileSize / 1024).toFixed(1)} KB`
                     : ""}
                 </p>
               </div>
-            </a>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {filePreviewTarget && (
+                <button
+                  onClick={() => setActiveFilePreview(filePreviewTarget)}
+                  className="px-3 py-1.5 text-xs font-semibold rounded-full bg-primary-500 text-white hover:bg-primary-600 transition-colors"
+                  type="button"
+                >
+                  Xem trước
+                </button>
+              )}
+
+              {content.mediaUrl && (
+                <a
+                  href={content.mediaUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-3 py-1.5 text-xs font-semibold rounded-full bg-black/10 dark:bg-white/10 hover:bg-black/20 dark:hover:bg-white/20 transition-colors"
+                >
+                  Mở file
+                </a>
+              )}
+            </div>
           </div>
         );
 
@@ -481,9 +568,10 @@ export default function MessageBubble({
   }
 
   return (
-    <div
-      className={`flex ${isSent ? "justify-end" : "justify-start"} group mb-4`}
-    >
+    <>
+      <div
+        className={`flex ${isSent ? "justify-end" : "justify-start"} group mb-4`}
+      >
       <div
         className={`flex items-end gap-2 max-w-[75%] ${isSent ? "flex-row-reverse" : ""}`}
       >
@@ -720,6 +808,55 @@ export default function MessageBubble({
           )}
         </div>
       </div>
-    </div>
+      </div>
+
+      {activeFilePreview && (
+        <div
+          className="fixed inset-0 z-[1000] bg-black/60 p-4 md:p-8 flex items-center justify-center"
+          onClick={() => setActiveFilePreview(null)}
+        >
+          <div
+            className="w-full max-w-6xl h-[88vh] bg-white dark:bg-dark-200 rounded-2xl overflow-hidden shadow-2xl flex flex-col"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+              <div className="min-w-0">
+                <p className="font-semibold text-gray-900 dark:text-gray-100 truncate">
+                  {activeFilePreview.name}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  Xem truoc tep dinh kem
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <a
+                  href={activeFilePreview.fileUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-3 py-1.5 text-xs font-semibold rounded-full bg-black/10 dark:bg-white/10 hover:bg-black/20 dark:hover:bg-white/20 transition-colors"
+                >
+                  Mở file
+                </a>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveFilePreview(null)}
+                  className="px-3 py-1.5 text-xs font-semibold rounded-full bg-gray-200 text-gray-700 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 transition-colors"
+                >
+                  Dong
+                </button>
+              </div>
+            </div>
+
+            <iframe
+              src={activeFilePreview.previewUrl}
+              title={`file-preview-${message.id}`}
+              className="flex-1 w-full bg-gray-50 dark:bg-gray-900"
+            />
+          </div>
+        </div>
+      )}
+    </>
   );
 }

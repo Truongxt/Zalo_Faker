@@ -392,6 +392,21 @@ const unpinGroupMessage = async (groupId: string) => {
     return response.json();
 }
 
+const pinConversationMessage = async (conversationId: string, messageId: string) => {
+    const response = await fetchWithAuth(`/conversations/${conversationId}/pin-message`, {
+        method: "PUT",
+        body: JSON.stringify({ messageId })
+    });
+    return response.json();
+}
+
+const unpinConversationMessage = async (conversationId: string) => {
+    const response = await fetchWithAuth(`/conversations/${conversationId}/pin-message`, {
+        method: "DELETE"
+    });
+    return response.json();
+}
+
 const getUserByPhone = async (phone: string): Promise<User> => {
     const response = await fetchWithAuth(`/users/phone/${phone}`);
     const data = await response.json();
@@ -471,6 +486,8 @@ export {
     updateGroupPermissions,
     pinGroupMessage,
     unpinGroupMessage,
+    pinConversationMessage,
+    unpinConversationMessage,
     getStickers,
     updateConversationBackground,
     uploadMedia,

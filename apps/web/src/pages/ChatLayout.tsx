@@ -169,6 +169,35 @@ export default function ChatLayout() {
         });
       };
 
+      const handlePinnedMessageGlobal = (data: {
+        conversationId: string;
+        pinnedMessage: any | null;
+      }) => {
+        if (!data?.conversationId) return;
+
+        const store = useChatStore.getState();
+        const conversation = store.conversations.find(
+          (c) => c.id === data.conversationId,
+        );
+        if (!conversation) return;
+
+        updateConversation(data.conversationId, {
+          groupSettings: {
+            ...(conversation.groupSettings || {
+              invite: { code: "", approvalRequired: true },
+              joinRequests: [],
+              permissions: {
+                sendMedia: "all",
+                pinMessage: conversation.type === "group" ? "admin_deputy" : "all",
+                sendAnnouncement:
+                  conversation.type === "group" ? "admin_deputy" : "all",
+              },
+            }),
+            pinnedMessage: data.pinnedMessage || null,
+          },
+        });
+      };
+
       const socket = socketService.getSocket();
       if (socket) {
         console.log("[socket] attaching global listeners:", socket.id);
@@ -178,6 +207,7 @@ export default function ChatLayout() {
         socket.on("chat:message", handleNewMessageGlobal);
         socket.on("chat:recalled", handleRecalledGlobal);
         socket.on("chat:reaction", handleReactionGlobal);
+        socket.on("chat:pinned_message", handlePinnedMessageGlobal);
       }
     }
 
@@ -190,6 +220,7 @@ export default function ChatLayout() {
         socket.off("chat:message");
         socket.off("chat:recalled");
         socket.off("chat:reaction");
+        socket.off("chat:pinned_message");
       }
     };
   }, [

@@ -600,6 +600,29 @@ const getOtherParticipantId = (conversation, userId) => {
       }
     });
 
+    socket.on("chat:sync_pinned_message", async (data, callback) => {
+      try {
+        const conversationId = String(data?.conversationId || "");
+        if (!conversationId) {
+          return callback?.({ success: false, error: "conversationId is required" });
+        }
+
+        await ensureConversationMembership(conversationId, socket.userId);
+        const conversation = await conversationService.getConversation(conversationId);
+
+        io.to(toRoomId(conversationId)).emit("chat:pinned_message", {
+          conversationId,
+          pinnedMessage: conversation?.groupSettings?.pinnedMessage || null,
+          updatedBy: socket.userId,
+        });
+
+        callback?.({ success: true });
+      } catch (err) {
+        console.error("chat:sync_pinned_message error:", err);
+        callback?.({ success: false, error: err.message });
+      }
+    });
+
     const persistCallHistory = async (data, fallbackStatus) => {
       try {
         const conversationId = String(data?.conversationId || "");
