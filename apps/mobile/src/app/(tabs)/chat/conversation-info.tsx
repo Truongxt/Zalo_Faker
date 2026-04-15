@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   Image,
   Linking,
+  Modal,
   ScrollView,
   Switch,
   Text,
@@ -19,6 +21,7 @@ import { Avatar } from "@/components/ui/Avatar";
 import { GrayToast } from "@/components/ui";
 import { chatService } from "@/services/chat";
 import { conversationService } from "@/services/conversationService";
+import { aiService, type AISummaryResponse } from "@/services/aiService";
 import { useAuthStore } from "@/stores/authStore";
 import { useChatStore } from "@/stores/chatStore";
 import type { Conversation, Message } from "@/types";
@@ -209,16 +212,23 @@ function ActionItem({
   icon,
   label,
   onPress,
+  disabled,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
   onPress: () => void;
+  disabled?: boolean;
 }) {
   return (
     <TouchableOpacity
       activeOpacity={0.8}
       onPress={onPress}
-      style={{ alignItems: "center", width: "30%" }}
+      disabled={disabled}
+      style={{
+        alignItems: "center",
+        width: "23%",
+        opacity: disabled ? 0.5 : 1,
+      }}
     >
       <View
         style={{
@@ -449,6 +459,11 @@ export default function ConversationInfoScreen() {
   const muteUntil = currentParticipant?.muteUntil ?? null;
   const [isUpdatingMute, setIsUpdatingMute] = useState(false);
   const [isUpdatingPin, setIsUpdatingPin] = useState(false);
+  const [isSummarizing, setIsSummarizing] = useState(false);
+  const [showSummaryModal, setShowSummaryModal] = useState(false);
+  const [summaryResult, setSummaryResult] = useState<AISummaryResponse | null>(
+    null,
+  );
   const [showMedia, setShowMedia] = useState(true);
   const [showFiles, setShowFiles] = useState(true);
   const [showLinks, setShowLinks] = useState(true);
@@ -579,6 +594,29 @@ export default function ConversationInfoScreen() {
     }
   };
 
+  const handleSummarizeToday = async () => {
+    if (!conversation || isSummarizing) return;
+
+    setShowSummaryModal(true);
+    setSummaryResult(null);
+    setIsSummarizing(true);
+
+    try {
+      const result = await aiService.summarizeConversation(conversation.id);
+      setSummaryResult(result);
+    } catch (error) {
+      console.error("Khong the tom tat hoi thoai:", error);
+      setSummaryResult({
+        conversationId: conversation.id,
+        date: new Date().toISOString().slice(0, 10),
+        messageCount: 0,
+        summary: "Không thể tóm tắt lúc này. Vui lòng thử lại sau.",
+      });
+    } finally {
+      setIsSummarizing(false);
+    }
+  };
+
   if (!id || !conversation) {
     return (
       <SafeAreaView className="flex-1 bg-[#ECEEF3]" edges={["top", "bottom"]}>
@@ -693,7 +731,7 @@ export default function ConversationInfoScreen() {
             style={{
               marginTop: 18,
               flexDirection: "row",
-              justifyContent: "space-around",
+              justifyContent: "space-between",
               paddingHorizontal: 12,
             }}
           >
@@ -708,6 +746,14 @@ export default function ConversationInfoScreen() {
               onPress={() => {
                 void handlePinPress();
               }}
+            />
+            <ActionItem
+              icon="sparkles-outline"
+              label={isSummarizing ? "Đang tóm tắt" : "Tóm tắt hôm nay"}
+              onPress={() => {
+                void handleSummarizeToday();
+              }}
+              disabled={isSummarizing}
             />
             <ActionItem
               icon="people-outline"
@@ -1173,6 +1219,180 @@ export default function ConversationInfoScreen() {
 
         <View style={{ height: 16 }} />
       </ScrollView>
+
+      <Modal
+        visible={showSummaryModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowSummaryModal(false)}
+      >
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: "rgba(15, 23, 42, 0.5)",
+            justifyContent: "center",
+            alignItems: "center",
+            paddingHorizontal: 18,
+          }}
+        >
+          <TouchableOpacity
+            style={{
+              position: "absolute",
+              top: 0,
+              right: 0,
+              bottom: 0,
+              left: 0,
+            }}
+            activeOpacity={1}
+            onPress={() => {
+              if (!isSummarizing) setShowSummaryModal(false);
+            }}
+          />
+
+          <View
+            style={{
+              width: "100%",
+              maxWidth: 420,
+              borderRadius: 16,
+              backgroundColor: "#FFFFFF",
+              overflow: "hidden",
+            }}
+          >
+            <View
+              style={{
+                paddingHorizontal: 16,
+                paddingVertical: 14,
+                borderBottomWidth: 1,
+                borderBottomColor: "#E2E8F0",
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+              }}
+            >
+              <View
+                style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
+              >
+                <View
+                  style={{
+                    width: 30,
+                    height: 30,
+                    borderRadius: 15,
+                    backgroundColor: "#DBEAFE",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <Ionicons name="sparkles-outline" size={16} color="#1D4ED8" />
+                </View>
+                <View>
+                  <Text
+                    style={{
+                      color: "#0F172A",
+                      fontSize: 16,
+                      fontWeight: "700",
+                    }}
+                  >
+                    Tóm tắt hôm nay
+                  </Text>
+                  {summaryResult ? (
+                    <Text
+                      style={{ color: "#64748B", fontSize: 12, marginTop: 1 }}
+                    >
+                      {summaryResult.date} • {summaryResult.messageCount} tin
+                      nhắn
+                    </Text>
+                  ) : null}
+                </View>
+              </View>
+
+              <TouchableOpacity
+                onPress={() => setShowSummaryModal(false)}
+                disabled={isSummarizing}
+                style={{
+                  width: 30,
+                  height: 30,
+                  borderRadius: 15,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  backgroundColor: "#F1F5F9",
+                }}
+              >
+                <Ionicons name="close" size={18} color="#475569" />
+              </TouchableOpacity>
+            </View>
+
+            <View style={{ paddingHorizontal: 16, paddingVertical: 14 }}>
+              {isSummarizing ? (
+                <View style={{ alignItems: "center", paddingVertical: 20 }}>
+                  <ActivityIndicator size="large" color="#2563EB" />
+                  <Text
+                    style={{ marginTop: 12, color: "#475569", fontSize: 14 }}
+                  >
+                    AI đang tóm tắt hội thoại...
+                  </Text>
+                </View>
+              ) : summaryResult ? (
+                <ScrollView
+                  style={{ maxHeight: 260 }}
+                  showsVerticalScrollIndicator={false}
+                >
+                  <Text
+                    style={{
+                      color: "#1E293B",
+                      fontSize: 15,
+                      lineHeight: 22,
+                    }}
+                  >
+                    {summaryResult.summary}
+                  </Text>
+                </ScrollView>
+              ) : null}
+            </View>
+
+            {!isSummarizing ? (
+              <View
+                style={{
+                  borderTopWidth: 1,
+                  borderTopColor: "#E2E8F0",
+                  paddingHorizontal: 16,
+                  paddingVertical: 12,
+                  flexDirection: "row",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                }}
+              >
+                <TouchableOpacity
+                  onPress={() => {
+                    void handleSummarizeToday();
+                  }}
+                  style={{
+                    paddingHorizontal: 10,
+                    paddingVertical: 6,
+                    borderRadius: 8,
+                    backgroundColor: "#DBEAFE",
+                  }}
+                >
+                  <Text style={{ color: "#1D4ED8", fontWeight: "600" }}>
+                    Tóm tắt lại
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={() => setShowSummaryModal(false)}
+                  style={{
+                    paddingHorizontal: 14,
+                    paddingVertical: 7,
+                    borderRadius: 8,
+                    backgroundColor: "#2563EB",
+                  }}
+                >
+                  <Text style={{ color: "#fff", fontWeight: "600" }}>Đóng</Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }

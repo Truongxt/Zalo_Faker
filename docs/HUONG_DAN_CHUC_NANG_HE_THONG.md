@@ -39,6 +39,7 @@ Tai lieu nay tong hop cac chuc nang chinh cua he thong Zalo_Faker de:
 ## Quy uoc huong dan cho AI tro ly
 
 - Neu nguoi dung hoi ve tai khoan: uu tien huong dan theo luong Dang ky, Dang nhap, Quen mat khau, Doi mat khau.
+- Neu nguoi dung hoi "xoa tai khoan": thong bao he thong chua co luong xoa truc tiep trong app, huong dan vao Cai dat bao mat de khoa tai khoan tam thoi hoac vinh vien.
 - Neu nguoi dung hoi ve chat: huong dan vao tab Chat, mo dung conversation, gui dung loai noi dung.
 - Neu nguoi dung hoi ve AI Assistant: huong dan tab Discover, cach tao thread moi (+), mo lich su (icon dong ho), va giu de xoa thread.
 - Neu nguoi dung gap loi 401/het phien: huong dan dang nhap lai.

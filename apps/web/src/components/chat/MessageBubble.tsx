@@ -43,6 +43,53 @@ type NormalizedContent = {
   transcript?: string;
 };
 
+type FilePreviewKind = "pdf" | "text";
+
+const TEXT_FILE_EXTENSIONS = new Set([
+  "txt",
+  "md",
+  "log",
+  "csv",
+  "json",
+  "xml",
+  "yaml",
+  "yml",
+]);
+
+const getFileNameFromUrl = (url?: string) => {
+  if (!url) return "";
+
+  try {
+    const parsed = new URL(url);
+    const lastSegment = parsed.pathname.split("/").pop() || "";
+    return decodeURIComponent(lastSegment);
+  } catch {
+    const clean = String(url).split("?")[0].split("#")[0];
+    const lastSegment = clean.split("/").pop() || "";
+    return decodeURIComponent(lastSegment);
+  }
+};
+
+const getFileExtension = (fileName: string) => {
+  const normalized = String(fileName || "").trim().toLowerCase();
+  const segments = normalized.split(".");
+  if (segments.length < 2) return "";
+  return segments.pop() || "";
+};
+
+const getPreviewKind = (
+  fileName?: string,
+  mediaUrl?: string,
+): FilePreviewKind | null => {
+  const resolvedFileName = String(fileName || getFileNameFromUrl(mediaUrl)).trim();
+  const extension = getFileExtension(resolvedFileName);
+
+  if (extension === "pdf") return "pdf";
+  if (TEXT_FILE_EXTENSIONS.has(extension)) return "text";
+
+  return null;
+};
+
 const normalizeContent = (rawContent: any): NormalizedContent => {
   if (typeof rawContent === "string") {
     return { text: rawContent };
@@ -101,6 +148,14 @@ export default function MessageBubble({
   const [showReactionPicker, setShowReactionPicker] = useState(false);
   const [showConfirmRecall, setShowConfirmRecall] = useState(false);
   const [showVoiceTranscript, setShowVoiceTranscript] = useState(false);
+  const [activeFilePreview, setActiveFilePreview] = useState<{
+    kind: FilePreviewKind;
+    mediaUrl: string;
+    fileName: string;
+  } | null>(null);
+  const [textPreviewContent, setTextPreviewContent] = useState("");
+  const [textPreviewLoading, setTextPreviewLoading] = useState(false);
+  const [textPreviewError, setTextPreviewError] = useState("");
   const reactionRef = useRef<HTMLDivElement>(null);
   const confirmRef = useRef<HTMLDivElement>(null);
   const isAnnouncement = Boolean(message.metadata?.isAnnouncement);
@@ -201,6 +256,78 @@ export default function MessageBubble({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [showReactionPicker, showConfirmRecall]);
 
+  useEffect(() => {
+    if (!activeFilePreview || activeFilePreview.kind !== "text") return;
+
+    const controller = new AbortController();
+
+    const loadTextPreview = async () => {
+      setTextPreviewLoading(true);
+      setTextPreviewError("");
+      setTextPreviewContent("");
+
+      try {
+        const response = await fetch(activeFilePreview.mediaUrl, {
+          signal: controller.signal,
+        });
+
+        if (!response.ok) {
+          throw new Error(`Cannot load file (${response.status})`);
+        }
+
+        const text = await response.text();
+        setTextPreviewContent(text);
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Không thể tải nội dung file";
+        setTextPreviewError(message);
+      } finally {
+        if (!controller.signal.aborted) {
+          setTextPreviewLoading(false);
+        }
+      }
+    };
+
+    loadTextPreview();
+
+    return () => {
+      controller.abort();
+    };
+  }, [activeFilePreview]);
+
+  useEffect(() => {
+    if (!activeFilePreview) return;
+
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setActiveFilePreview(null);
+      }
+    };
+
+    document.addEventListener("keydown", onEscape);
+    return () => {
+      document.removeEventListener("keydown", onEscape);
+    };
+  }, [activeFilePreview]);
+
+  const openFilePreview = (
+    kind: FilePreviewKind,
+    mediaUrl: string,
+    fileName: string,
+  ) => {
+    setActiveFilePreview({ kind, mediaUrl, fileName });
+  };
+
+  const closeFilePreview = () => {
+    setActiveFilePreview(null);
+    setTextPreviewContent("");
+    setTextPreviewLoading(false);
+    setTextPreviewError("");
+  };
+
   const renderContent = () => {
     switch (message.type) {
       case "image":
@@ -242,6 +369,11 @@ export default function MessageBubble({
         );
 
       case "file":
+        const resolvedFileName =
+          content.fileName || getFileNameFromUrl(content.mediaUrl) || "File";
+        const previewKind = getPreviewKind(resolvedFileName, content.mediaUrl);
+        const mediaUrl = String(content.mediaUrl || "");
+
         return (
           <div className="flex flex-col gap-2">
             {content.text && (
@@ -249,24 +381,54 @@ export default function MessageBubble({
                 {content.text}
               </p>
             )}
-            <a
-              href={content.mediaUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-3 p-3 bg-black/10 dark:bg-white/10 rounded-lg hover:bg-black/20 dark:hover:bg-white/20 transition-colors"
-            >
-              <div className="w-10 h-10 bg-primary-500 rounded-lg flex items-center justify-center text-white text-sm font-medium">
-                {content.fileName?.split(".").pop()?.toUpperCase() || "FILE"}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-medium truncate">{content.fileName}</p>
-                <p className="text-sm opacity-70">
-                  {content.fileSize
-                    ? `${(content.fileSize / 1024).toFixed(1)} KB`
-                    : ""}
-                </p>
-              </div>
-            </a>
+            {previewKind && mediaUrl ? (
+              <button
+                type="button"
+                onClick={() => openFilePreview(previewKind, mediaUrl, resolvedFileName)}
+                className="flex items-center gap-3 p-3 text-left bg-black/10 dark:bg-white/10 rounded-lg hover:bg-black/20 dark:hover:bg-white/20 transition-colors"
+              >
+                <div className="w-10 h-10 bg-primary-500 rounded-lg flex items-center justify-center text-white text-sm font-medium">
+                  {resolvedFileName.split(".").pop()?.toUpperCase() || "FILE"}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium truncate">{resolvedFileName}</p>
+                  <p className="text-sm opacity-70">
+                    {content.fileSize
+                      ? `${(content.fileSize / 1024).toFixed(1)} KB`
+                      : "Nhấn để xem trước"}
+                  </p>
+                </div>
+              </button>
+            ) : (
+              <a
+                href={content.mediaUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-3 p-3 bg-black/10 dark:bg-white/10 rounded-lg hover:bg-black/20 dark:hover:bg-white/20 transition-colors"
+              >
+                <div className="w-10 h-10 bg-primary-500 rounded-lg flex items-center justify-center text-white text-sm font-medium">
+                  {resolvedFileName.split(".").pop()?.toUpperCase() || "FILE"}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium truncate">{resolvedFileName}</p>
+                  <p className="text-sm opacity-70">
+                    {content.fileSize
+                      ? `${(content.fileSize / 1024).toFixed(1)} KB`
+                      : ""}
+                  </p>
+                </div>
+              </a>
+            )}
+            {previewKind && mediaUrl && (
+              <a
+                href={mediaUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs underline opacity-75 hover:opacity-100"
+              >
+                Mở file ở tab mới
+              </a>
+            )}
           </div>
         );
 
@@ -327,12 +489,13 @@ export default function MessageBubble({
   }
 
   return (
-    <div
-      className={`flex ${isSent ? "justify-end" : "justify-start"} group mb-4`}
-    >
+    <>
       <div
-        className={`flex items-end gap-2 max-w-[75%] ${isSent ? "flex-row-reverse" : ""}`}
+        className={`flex ${isSent ? "justify-end" : "justify-start"} group mb-4`}
       >
+        <div
+          className={`flex items-end gap-2 max-w-[75%] ${isSent ? "flex-row-reverse" : ""}`}
+        >
         {/* Avatar for received messages */}
         {!isSent &&
           showAvatar &&
@@ -559,7 +722,75 @@ export default function MessageBubble({
             </div>
           )}
         </div>
+        </div>
       </div>
-    </div>
+
+      {activeFilePreview && (
+        <div
+          className="fixed inset-0 z-[120] bg-black/60 backdrop-blur-[1px] p-4 md:p-8"
+          onClick={closeFilePreview}
+        >
+          <div
+            className="mx-auto h-full max-w-5xl rounded-2xl bg-white dark:bg-dark-200 shadow-xl border border-gray-200 dark:border-gray-700 flex flex-col"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+              <h3 className="text-sm md:text-base font-semibold truncate pr-3">
+                Xem trước: {activeFilePreview.fileName}
+              </h3>
+              <div className="flex items-center gap-2">
+                <a
+                  href={activeFilePreview.mediaUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs md:text-sm px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 dark:bg-dark-300 dark:hover:bg-dark-100"
+                >
+                  Mở tab mới
+                </a>
+                <button
+                  type="button"
+                  onClick={closeFilePreview}
+                  className="text-xs md:text-sm px-3 py-1.5 rounded-lg bg-primary-500 hover:bg-primary-600 text-white"
+                >
+                  Đóng
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 min-h-0 p-4">
+              {activeFilePreview.kind === "pdf" ? (
+                <iframe
+                  src={activeFilePreview.mediaUrl}
+                  title={activeFilePreview.fileName}
+                  className="w-full h-full rounded-lg border border-gray-200 dark:border-gray-700"
+                />
+              ) : textPreviewLoading ? (
+                <div className="h-full flex items-center justify-center text-sm text-gray-500">
+                  Đang tải nội dung file...
+                </div>
+              ) : textPreviewError ? (
+                <div className="h-full flex flex-col items-center justify-center gap-3 text-center">
+                  <p className="text-sm text-red-500">
+                    Không thể xem trước file này: {textPreviewError}
+                  </p>
+                  <a
+                    href={activeFilePreview.mediaUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm underline"
+                  >
+                    Mở file ở tab mới
+                  </a>
+                </div>
+              ) : (
+                <pre className="h-full w-full overflow-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-dark-300 p-4 text-xs md:text-sm whitespace-pre-wrap [overflow-wrap:anywhere] [word-break:break-word]">
+                  {textPreviewContent || "File rỗng"}
+                </pre>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }

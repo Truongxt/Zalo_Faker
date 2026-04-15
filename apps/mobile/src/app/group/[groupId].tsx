@@ -340,9 +340,6 @@ export default function GroupChatScreen() {
               </Text>
             </View>
           }
-          onContentSizeChange={() =>
-            flatListRef.current?.scrollToEnd({ animated: false })
-          }
         />
       )}
 
@@ -384,7 +381,7 @@ export default function GroupChatScreen() {
           backgroundColor: "#fff",
           paddingHorizontal: 8,
           paddingTop: 6,
-          paddingBottom: Math.max(insets.bottom, 6),
+          paddingBottom: Platform.OS === "ios" ? Math.max(insets.bottom, 6) : 6,
           borderTopWidth: 1,
           borderTopColor: "#F3F4F6",
         }}

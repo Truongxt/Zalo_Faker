@@ -30,6 +30,14 @@ const sessionKey = (userId, platform = "unknown") =>
   `auth:session:${String(userId)}:${normalizePlatform(platform)}`;
 const legacySessionKey = (userId) => `auth:session:${String(userId)}`;
 
+const normalizeUserIdValue = (value) => {
+  if (value == null) return "";
+  if (typeof value === "object") {
+    return String(value.userId || value.id || value._id || value.value || "").trim();
+  }
+  return String(value).trim();
+};
+
 const MEDIA_FALLBACK_BY_TYPE = {
   image: "[Hinh anh]",
   video: "[Video]",
@@ -130,17 +138,20 @@ module.exports = (socketConfig) => {
     try {
       if (!getIsRedisReady()) return false;
 
+      const normalizedUserId = normalizeUserIdValue(userId);
+      if (!normalizedUserId) return false;
+
       for await (const key of redisClient.scanIterator({
-        MATCH: allPresencePattern(userId),
+        MATCH: String(allPresencePattern(normalizedUserId)),
         COUNT: 10,
       })) {
-        const socketId = await redisClient.get(key);
+        const socketId = await redisClient.get(String(key));
         if (socketId && io.sockets.sockets.has(socketId)) {
           return true;
         }
 
         // Cleanup stale presence keys left behind by abrupt disconnects.
-        await redisClient.del(key);
+        await redisClient.del(String(key));
       }
 
       return false;
@@ -536,8 +547,16 @@ module.exports = (socketConfig) => {
     socket.on("presence:get_online_users", async (userIds, callback) => {
       try {
         const onlineStatuses = {};
-        for (const uid of userIds || []) {
-          onlineStatuses[uid] = await isUserOnline(String(uid));
+        const targetIds = Array.isArray(userIds)
+          ? userIds
+          : userIds && typeof userIds === "object"
+            ? Object.values(userIds)
+            : [];
+
+        for (const uid of targetIds) {
+          const normalizedUid = normalizeUserIdValue(uid);
+          if (!normalizedUid) continue;
+          onlineStatuses[normalizedUid] = await isUserOnline(normalizedUid);
         }
 
         callback?.({ success: true, onlineStatuses });

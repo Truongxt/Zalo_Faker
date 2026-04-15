@@ -2,7 +2,9 @@ const {
   askAI,
   getAIChatHistory,
   deleteAIConversationHistory,
+  summarizeConversationToday,
 } = require("../services/aiService");
+
 
 const askAssistant = async (req, res) => {
   try {
@@ -106,8 +108,37 @@ const deleteAssistantConversationHistory = async (req, res) => {
   }
 };
 
+const summarizeConversation = async (req, res) => {
+  try {
+    const userId = req.user?.userId;
+    const { conversationId } = req.params || {};
+
+    if (!userId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    if (!conversationId) {
+      return res.status(400).json({ message: "conversationId is required" });
+    }
+
+    const result = await summarizeConversationToday({ conversationId, userId });
+
+    return res.status(200).json({
+      success: true,
+      data: result,
+    });
+  } catch (error) {
+    console.error("AI SUMMARIZE ERROR:", error);
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || "Failed to summarize conversation",
+    });
+  }
+};
+
 module.exports = {
   askAssistant,
   getAssistantHistory,
   deleteAssistantConversationHistory,
-};
+  summarizeConversation,
+};

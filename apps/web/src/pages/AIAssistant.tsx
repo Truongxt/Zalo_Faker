@@ -334,16 +334,28 @@ export default function AIAssistant() {
       });
     } catch (error) {
       console.error("Ask assistant failed:", error);
+      const errorMessage =
+        error instanceof Error ? error.message.toLowerCase() : "";
+      const isTimeout = errorMessage.includes("timed out");
+
       setMessages((prev) => [
         ...prev,
         {
           id: `assistant-fallback-${Date.now()}`,
           role: "assistant",
-          text: "Xin lỗi, hiện tại mình chưa thể trả lời. Bạn thử lại sau nhé.",
+          text: isTimeout
+            ? "Mình phản hồi chậm hơn bình thường. Bạn thử lại sau vài giây nhé."
+            : "Xin lỗi, hiện tại mình chưa thể trả lời. Bạn thử lại sau nhé.",
           createdAt: new Date().toISOString(),
         },
       ]);
-      addToast("Không thể gửi câu hỏi tới AI.", "error", 3000);
+      addToast(
+        isTimeout
+          ? "AI đang quá tải hoặc phản hồi chậm. Vui lòng thử lại."
+          : "Không thể gửi câu hỏi tới AI.",
+        "error",
+        3000,
+      );
     } finally {
       setIsSending(false);
     }

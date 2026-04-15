@@ -57,7 +57,10 @@ import {
   getGroupSettings,
   pinGroupMessage,
   unpinGroupMessage,
+  summarizeConversation,
+  type AISummaryResponse,
 } from "@/services/api";
+
 import { socketService } from "@/lib/socket";
 import EmojiPicker, { EmojiClickData, Theme } from "emoji-picker-react";
 import {
@@ -197,6 +200,11 @@ export default function ChatRoom() {
     previewUrl?: string;
   } | null>(null);
   const [isMutingConversation, setIsMutingConversation] = useState(false);
+  const [isSummarizing, setIsSummarizing] = useState(false);
+  const [summaryResult, setSummaryResult] = useState<AISummaryResponse | null>(
+    null,
+  );
+  const [showSummaryModal, setShowSummaryModal] = useState(false);
 
   // Pagination state
   const pagination = useMessagePagination(conversationId);
@@ -1262,10 +1270,8 @@ export default function ChatRoom() {
 
     try {
       await deleteChatHistory(conversationId);
-      // Cập nhật lại list messages trên client về []
       useChatStore.getState().setMessages(conversationId, []);
       setShowMenu(false);
-      // Clear preview
       updateConversation(conversationId, {
         lastMessage: undefined,
         updatedAt: new Date().toISOString(),
@@ -1273,6 +1279,28 @@ export default function ChatRoom() {
     } catch (error) {
       console.error("Lỗi khi xóa lịch sử", error);
       alert("Không thể xóa lịch sử trò chuyện lúc này.");
+    }
+  };
+
+  const handleSummarizeToday = async () => {
+    if (!conversationId) return;
+    setShowMenu(false);
+    setIsSummarizing(true);
+    setSummaryResult(null);
+    setShowSummaryModal(true);
+    try {
+      const result = await summarizeConversation(conversationId);
+      setSummaryResult(result);
+    } catch (error) {
+      console.error("Lỗi tóm tắt:", error);
+      setSummaryResult({
+        conversationId: conversationId,
+        date: new Date().toISOString().slice(0, 10),
+        messageCount: 0,
+        summary: "Không thể tóm tắt lúc này. Vui lòng thử lại sau.",
+      });
+    } finally {
+      setIsSummarizing(false);
     }
   };
 
@@ -1682,6 +1710,14 @@ export default function ChatRoom() {
           >
             <Info className="w-5 h-5" />
           </button>
+          <button
+            onClick={handleSummarizeToday}
+            disabled={isSummarizing}
+            className="hidden md:inline-flex p-2 rounded-lg text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-900/20 disabled:opacity-50"
+            title="Tóm tắt hội thoại hôm nay"
+          >
+            <FileText className="w-5 h-5" />
+          </button>
           <div className="relative" ref={menuRef}>
             <button
               onClick={() => setShowMenu(!showMenu)}
@@ -1750,6 +1786,14 @@ export default function ChatRoom() {
                   className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-dark-100 transition-colors"
                 >
                   Đổi hình nền
+                </button>
+                <button
+                  onClick={handleSummarizeToday}
+                  disabled={isSummarizing}
+                  className="w-full text-left px-4 py-2 text-sm text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-900/20 transition-colors flex items-center gap-2 disabled:opacity-50"
+                >
+                  <FileText className="w-4 h-4" />
+                  {isSummarizing ? "Đang tóm tắt..." : "Tóm tắt hôm nay"}
                 </button>
                 <button
                   onClick={handleDeleteHistory}
@@ -2213,6 +2257,21 @@ export default function ChatRoom() {
                   >
                     <SmileIcon className="w-5 h-5" />
                   </button>
+
+                  {/* AI Summarize shortcut */}
+                  <button
+                    type="button"
+                    onClick={handleSummarizeToday}
+                    disabled={isSummarizing}
+                    title="Tóm tắt hội thoại hôm nay bằng AI"
+                    className="p-1 rounded-full hover:bg-indigo-100 dark:hover:bg-indigo-900/30 text-gray-500 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {isSummarizing ? (
+                      <Loader className="w-5 h-5 animate-spin" />
+                    ) : (
+                      <FileText className="w-5 h-5" />
+                    )}
+                  </button>
                 </div>
 
                 {/* Emoji Picker Popup */}
@@ -2623,6 +2682,113 @@ export default function ChatRoom() {
           onApply={handleUpdateBackground}
           onClose={() => setShowBackgroundPicker(false)}
         />
+      )}
+
+      {/* ── AI Summary Modal ── */}
+      {showSummaryModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowSummaryModal(false);
+          }}
+        >
+          {/* Backdrop */}
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+
+          {/* Modal card */}
+          <div className="relative z-10 w-full max-w-lg bg-white dark:bg-dark-300 rounded-2xl shadow-2xl overflow-hidden animate-scale-in">
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-gray-800 bg-gradient-to-r from-indigo-500 to-violet-600">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center">
+                  <FileText className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-white text-base">
+                    Tóm tắt hội thoại hôm nay
+                  </h3>
+                  {summaryResult && (
+                    <p className="text-indigo-200 text-xs mt-0.5">
+                      {formatPanelDate(summaryResult.date)} •{" "}
+                      {summaryResult.messageCount} tin nhắn
+                    </p>
+                  )}
+                </div>
+              </div>
+              <button
+                onClick={() => setShowSummaryModal(false)}
+                className="w-8 h-8 rounded-lg bg-white/20 hover:bg-white/30 flex items-center justify-center transition-colors"
+              >
+                <X className="w-4 h-4 text-white" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="px-6 py-5 max-h-[60vh] overflow-y-auto">
+              {isSummarizing ? (
+                <div className="flex flex-col items-center justify-center py-12 gap-4">
+                  <div className="relative">
+                    <div className="w-14 h-14 rounded-full border-4 border-indigo-100 dark:border-indigo-900/40 border-t-indigo-500 animate-spin" />
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <FileText className="w-5 h-5 text-indigo-500" />
+                    </div>
+                  </div>
+                  <p className="text-gray-500 dark:text-gray-400 text-sm font-medium">
+                    AI đang phân tích hội thoại...
+                  </p>
+                  <p className="text-gray-400 dark:text-gray-500 text-xs text-center max-w-xs">
+                    Quá trình này có thể mất vài giây tuỳ theo số lượng tin nhắn
+                  </p>
+                </div>
+              ) : summaryResult ? (
+                <div className="space-y-4">
+                  {summaryResult.messageCount === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-10 gap-3">
+                      <div className="w-12 h-12 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center">
+                        <FileText className="w-6 h-6 text-gray-400" />
+                      </div>
+                      <p className="text-gray-500 dark:text-gray-400 text-sm text-center">
+                        {summaryResult.summary}
+                      </p>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex items-center gap-2 text-xs text-gray-400 dark:text-gray-500 font-medium uppercase tracking-wider">
+                        <div className="flex-1 h-px bg-gray-100 dark:bg-gray-800" />
+                        Nội dung tóm tắt
+                        <div className="flex-1 h-px bg-gray-100 dark:bg-gray-800" />
+                      </div>
+                      <div className="bg-gradient-to-br from-indigo-50 to-violet-50 dark:from-indigo-900/20 dark:to-violet-900/20 rounded-xl p-4 border border-indigo-100 dark:border-indigo-800/40">
+                        <p className="text-gray-800 dark:text-gray-100 text-sm leading-relaxed whitespace-pre-wrap">
+                          {summaryResult.summary}
+                        </p>
+                      </div>
+                    </>
+                  )}
+                </div>
+              ) : null}
+            </div>
+
+            {/* Footer */}
+            {!isSummarizing && (
+              <div className="px-6 py-4 border-t border-gray-100 dark:border-gray-800 flex justify-between items-center gap-3 bg-gray-50 dark:bg-dark-200">
+                <button
+                  onClick={handleSummarizeToday}
+                  className="flex items-center gap-2 px-4 py-2 text-sm text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg transition-colors font-medium"
+                >
+                  <Loader className="w-4 h-4" />
+                  Tóm tắt lại
+                </button>
+                <button
+                  onClick={() => setShowSummaryModal(false)}
+                  className="px-5 py-2 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors"
+                >
+                  Đóng
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );

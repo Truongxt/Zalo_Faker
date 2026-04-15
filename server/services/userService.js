@@ -207,6 +207,56 @@ const UserService = {
     return await userRepository.update(params);
   },
 
+  deleteUser: async (userId) => {
+    if (!userId) {
+      throw new Error("userId is required");
+    }
+
+    const user = await userRepository.getById(userId);
+    if (!user) {
+      throw new Error("User not found");
+    }
+
+    const accountStatus = user.accountStatus || user.status || "active";
+    if (accountStatus === "deleted") {
+      throw new Error("Account is already deleted");
+    }
+
+    await Promise.all([
+      safeDel(buildSessionKey(userId, "web")),
+      safeDel(buildSessionKey(userId, "mobile")),
+      safeDel(buildSessionKey(userId, "unknown")),
+      safeDel(buildLegacySessionKey(userId)),
+      refreshTokenRepository.deleteByUserId(userId),
+    ]);
+
+    const now = new Date().toISOString();
+    const params = {
+      TableName: tableName,
+      Key: { userId },
+      UpdateExpression:
+        "set accountStatus = :accountStatus, #status = :status, presenceStatus = :presenceStatus, lastActiveAt = :lastActiveAt",
+      ExpressionAttributeNames: {
+        "#status": "status",
+      },
+      ExpressionAttributeValues: {
+        ":accountStatus": "deleted",
+        ":status": "deleted",
+        ":presenceStatus": "offline",
+        ":lastActiveAt": now,
+      },
+      ReturnValues: "ALL_NEW",
+    };
+
+    const result = await userRepository.update(params);
+    const { password: _, ...safeUser } = result;
+
+    return {
+      message: "Account deleted successfully",
+      user: safeUser,
+    };
+  },
+
 
 
   login: async (identifier, password, loginMeta = {}) => {

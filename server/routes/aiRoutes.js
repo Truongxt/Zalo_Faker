@@ -4,7 +4,9 @@ const {
 	askAssistant,
 	getAssistantHistory,
 	deleteAssistantConversationHistory,
+	summarizeConversation,
 } = require("../controllers/aiController");
+
 
 const router = express.Router();
 /**
@@ -57,5 +59,11 @@ router.post("/chat",  auth , askAssistant);
 router.get("/history", auth, getAssistantHistory);
 router.delete("/history/:conversationId", auth, deleteAssistantConversationHistory);
 
+/**
+ * POST /ai/summarize/:conversationId
+ * Tóm tắt tin nhắn trong ngày của một cuộc trò chuyện bằng AI
+ */
+router.post("/summarize/:conversationId", auth, summarizeConversation);
 
-module.exports = router;
+
+module.exports = router;

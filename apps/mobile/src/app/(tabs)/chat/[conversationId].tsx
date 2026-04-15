@@ -10,12 +10,16 @@ import {
   Alert,
   ActivityIndicator,
   Image,
+  Modal,
+  ScrollView,
+  Linking,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import { Audio, Video, ResizeMode, type AVPlaybackStatus } from "expo-av";
+import { WebView } from "react-native-webview";
 import { Ionicons } from "@expo/vector-icons";
 import { useChatStore } from "@/stores/chatStore";
 import { useAuthStore } from "@/stores/authStore";
@@ -28,6 +32,70 @@ import type { Message } from "@/types";
 import { API_URL } from "@/constants/config";
 
 const REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "😡"];
+
+const TEXT_PREVIEW_EXTENSIONS = new Set([
+  "txt",
+  "md",
+  "log",
+  "csv",
+  "json",
+  "xml",
+  "yml",
+  "yaml",
+]);
+
+type FilePreviewKind = "pdf" | "text";
+
+type FilePreviewPayload = {
+  url: string;
+  name: string;
+  kind: FilePreviewKind;
+};
+
+const isHttpUrl = (value: unknown) => /^https?:\/\//i.test(String(value || ""));
+
+const getFileNameFromUrl = (url: string) => {
+  try {
+    const withoutQuery = String(url || "").split("?")[0];
+    const name = withoutQuery.split("/").pop() || "";
+    return decodeURIComponent(name);
+  } catch (_err) {
+    const withoutQuery = String(url || "").split("?")[0];
+    return withoutQuery.split("/").pop() || "";
+  }
+};
+
+const getFileExtension = (nameOrUrl: string) => {
+  const fileName = getFileNameFromUrl(nameOrUrl).toLowerCase();
+  const ext = fileName.includes(".") ? fileName.split(".").pop() : "";
+  return String(ext || "");
+};
+
+const resolveFilePreviewPayload = (message: Message): FilePreviewPayload | null => {
+  const fileAttachment = (message.attachments || []).find(
+    (attachment) => attachment.type === "file" && isHttpUrl(attachment.url),
+  );
+  const fallbackUrl =
+    typeof message.content === "string" && isHttpUrl(message.content)
+      ? message.content
+      : "";
+
+  const url = fileAttachment?.url || fallbackUrl;
+  if (!url) return null;
+
+  const name = fileAttachment?.name || getFileNameFromUrl(url) || "File dinh kem";
+  const extension = getFileExtension(name || url);
+
+  if (extension === "pdf") {
+    return { url, name, kind: "pdf" };
+  }
+
+  if (TEXT_PREVIEW_EXTENSIONS.has(extension)) {
+    return { url, name, kind: "text" };
+  }
+
+  return null;
+};
 
 /** Upload a single file (image / document / voice) to server */
 async function uploadFile(
@@ -270,6 +338,7 @@ type MessageItemProps = {
   isMe: boolean;
   isGroupedWithPrevious?: boolean;
   onLongPress: (msg: Message) => void;
+  onPreviewFile: (file: FilePreviewPayload) => void;
 };
 
 function MessageItem({
@@ -277,6 +346,7 @@ function MessageItem({
   isMe,
   isGroupedWithPrevious = false,
   onLongPress,
+  onPreviewFile,
 }: MessageItemProps) {
   const [showVoiceTranscript, setShowVoiceTranscript] = useState(false);
   const bg = isMe ? "#0068FF" : "#F3F4F6";
@@ -298,6 +368,7 @@ function MessageItem({
       : undefined;
   const voiceUrl = voiceAttachment?.url || fallbackVoiceUrl;
   const videoUrl = videoAttachment?.url || fallbackVideoUrl;
+  const filePreviewPayload = resolveFilePreviewPayload(msg);
   const voiceDuration = voiceAttachment?.duration;
   const transcriptFromContent =
     typeof msg.content === "string" &&
@@ -466,11 +537,48 @@ function MessageItem({
           </View>
         );
       case "file":
+        const attachmentName =
+          (msg as any).attachments?.[0]?.name || filePreviewPayload?.name || "File dinh kem";
+
+        if (filePreviewPayload) {
+          return (
+            <TouchableOpacity
+              activeOpacity={0.85}
+              onPress={() => onPreviewFile(filePreviewPayload)}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 8,
+              }}
+            >
+              <Ionicons
+                name={filePreviewPayload.kind === "pdf" ? "document-text-outline" : "reader-outline"}
+                size={18}
+                color={textColor}
+              />
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: textColor, flex: 1 }} numberOfLines={1}>
+                  {attachmentName}
+                </Text>
+                <Text
+                  style={{
+                    color: isMe ? "rgba(255,255,255,0.85)" : "#475569",
+                    fontSize: 12,
+                    marginTop: 2,
+                  }}
+                >
+                  Nhấn để xem trước
+                </Text>
+              </View>
+            </TouchableOpacity>
+          );
+        }
+
         return (
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
             <Ionicons name="document-outline" size={18} color={textColor} />
             <Text style={{ color: textColor, flex: 1 }} numberOfLines={1}>
-              {(msg as any).attachments?.[0]?.name || "File dinh kem"}
+              {attachmentName}
             </Text>
           </View>
         );
@@ -598,8 +706,15 @@ export default function ChatRoomScreen() {
   const [partnerLastSeenAt, setPartnerLastSeenAt] = useState<string | null>(
     null,
   );
+  const [previewFile, setPreviewFile] = useState<FilePreviewPayload | null>(
+    null,
+  );
+  const [isPreviewLoading, setIsPreviewLoading] = useState(false);
+  const [previewTextContent, setPreviewTextContent] = useState("");
+  const [previewError, setPreviewError] = useState<string | null>(null);
   const [presenceTick, setPresenceTick] = useState(0);
   const flatListRef = useRef<FlatList>(null);
+  const previewRequestIdRef = useRef(0);
   const typingTimeout = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
   );
@@ -945,6 +1060,53 @@ export default function ChatRoomScreen() {
     await chatService.addReaction(convId, selectedMsg.id, emoji);
   };
 
+  const closePreviewModal = useCallback(() => {
+    previewRequestIdRef.current += 1;
+    setPreviewFile(null);
+    setIsPreviewLoading(false);
+    setPreviewError(null);
+    setPreviewTextContent("");
+  }, []);
+
+  const handlePreviewFile = useCallback((file: FilePreviewPayload) => {
+    setPreviewFile(file);
+    setPreviewError(null);
+
+    if (file.kind !== "text") {
+      previewRequestIdRef.current += 1;
+      setIsPreviewLoading(false);
+      setPreviewTextContent("");
+      return;
+    }
+
+    const requestId = previewRequestIdRef.current + 1;
+    previewRequestIdRef.current = requestId;
+    setIsPreviewLoading(true);
+    setPreviewTextContent("");
+
+    fetch(file.url)
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        return response.text();
+      })
+      .then((text) => {
+        if (previewRequestIdRef.current !== requestId) return;
+        setPreviewTextContent(text || "");
+      })
+      .catch((error) => {
+        if (previewRequestIdRef.current !== requestId) return;
+        console.warn("Khong the tai noi dung file text:", error);
+        setPreviewError("Không thể tải nội dung file để xem trước.");
+      })
+      .finally(() => {
+        if (previewRequestIdRef.current === requestId) {
+          setIsPreviewLoading(false);
+        }
+      });
+  }, []);
+
   const renderMessage = ({ item, index }: { item: Message; index: number }) => {
     const previousMessage = index > 0 ? convMessages[index - 1] : null;
     const isGroupedWithPrevious =
@@ -959,6 +1121,7 @@ export default function ChatRoomScreen() {
         isMe={item.senderId === user?.id}
         isGroupedWithPrevious={isGroupedWithPrevious}
         onLongPress={handleLongPress}
+        onPreviewFile={handlePreviewFile}
       />
     );
   };
@@ -1077,9 +1240,6 @@ export default function ChatRoomScreen() {
               </Text>
             </View>
           }
-          onContentSizeChange={() =>
-            flatListRef.current?.scrollToEnd({ animated: false })
-          }
         />
       )}
 
@@ -1124,7 +1284,7 @@ export default function ChatRoomScreen() {
           backgroundColor: "#fff",
           paddingHorizontal: 8,
           paddingTop: 6,
-          paddingBottom: Math.max(insets.bottom, 6),
+          paddingBottom: Platform.OS === "ios" ? Math.max(insets.bottom, 6) : 6,
           marginBottom: Platform.OS === "android" ? 0 : 4,
           borderTopWidth: 1,
           borderTopColor: "#F3F4F6",
@@ -1220,6 +1380,189 @@ export default function ChatRoomScreen() {
           </TouchableOpacity>
         </View>
       </View>
+
+      <Modal
+        visible={Boolean(previewFile)}
+        transparent
+        animationType="slide"
+        onRequestClose={closePreviewModal}
+      >
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: "rgba(15, 23, 42, 0.5)",
+            justifyContent: "center",
+            paddingHorizontal: 12,
+            paddingTop: Math.max(insets.top, 12),
+            paddingBottom: Math.max(insets.bottom, 12),
+          }}
+        >
+          <TouchableOpacity
+            style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0 }}
+            activeOpacity={1}
+            onPress={closePreviewModal}
+          />
+
+          <View
+            style={{
+              flex: 1,
+              backgroundColor: "#FFFFFF",
+              borderRadius: 16,
+              overflow: "hidden",
+            }}
+          >
+            <View
+              style={{
+                paddingHorizontal: 14,
+                paddingVertical: 10,
+                borderBottomWidth: 1,
+                borderBottomColor: "#E2E8F0",
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+              }}
+            >
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flex: 1 }}>
+                <Ionicons name="document-outline" size={18} color="#1E293B" />
+                <Text
+                  numberOfLines={1}
+                  style={{
+                    color: "#1E293B",
+                    fontSize: 14,
+                    fontWeight: "600",
+                    flex: 1,
+                  }}
+                >
+                  {previewFile?.name || "Xem trước file"}
+                </Text>
+              </View>
+
+              <TouchableOpacity onPress={closePreviewModal} style={{ padding: 4 }}>
+                <Ionicons name="close" size={22} color="#64748B" />
+              </TouchableOpacity>
+            </View>
+
+            <View style={{ flex: 1, backgroundColor: "#F8FAFC" }}>
+              {previewFile?.kind === "pdf" && previewFile?.url ? (
+                <WebView
+                  source={{ uri: previewFile.url }}
+                  startInLoadingState
+                  renderLoading={() => (
+                    <View
+                      style={{
+                        flex: 1,
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      <ActivityIndicator size="large" color="#2563EB" />
+                      <Text style={{ marginTop: 12, color: "#64748B" }}>
+                        Đang tải bản xem trước PDF...
+                      </Text>
+                    </View>
+                  )}
+                />
+              ) : (
+                <View style={{ flex: 1, padding: 12 }}>
+                  {isPreviewLoading ? (
+                    <View
+                      style={{
+                        flex: 1,
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      <ActivityIndicator size="large" color="#2563EB" />
+                      <Text style={{ marginTop: 12, color: "#64748B" }}>
+                        Đang tải nội dung file...
+                      </Text>
+                    </View>
+                  ) : previewError ? (
+                    <View
+                      style={{
+                        flex: 1,
+                        alignItems: "center",
+                        justifyContent: "center",
+                        paddingHorizontal: 12,
+                      }}
+                    >
+                      <Ionicons name="warning-outline" size={28} color="#DC2626" />
+                      <Text
+                        style={{
+                          marginTop: 10,
+                          color: "#991B1B",
+                          textAlign: "center",
+                          lineHeight: 20,
+                        }}
+                      >
+                        {previewError}
+                      </Text>
+                    </View>
+                  ) : (
+                    <ScrollView
+                      style={{ flex: 1 }}
+                      contentContainerStyle={{ paddingBottom: 20 }}
+                    >
+                      <Text
+                        style={{
+                          color: "#0F172A",
+                          fontSize: 14,
+                          lineHeight: 22,
+                        }}
+                      >
+                        {previewTextContent || "File text không có nội dung để hiển thị."}
+                      </Text>
+                    </ScrollView>
+                  )}
+                </View>
+              )}
+            </View>
+
+            <View
+              style={{
+                paddingHorizontal: 14,
+                paddingVertical: 10,
+                borderTopWidth: 1,
+                borderTopColor: "#E2E8F0",
+                flexDirection: "row",
+                justifyContent: "space-between",
+                alignItems: "center",
+              }}
+            >
+              <TouchableOpacity
+                onPress={() => {
+                  if (!previewFile?.url) return;
+                  Linking.openURL(previewFile.url).catch(() => {
+                    GrayToast("Không thể mở file");
+                  });
+                }}
+                style={{
+                  paddingHorizontal: 12,
+                  paddingVertical: 8,
+                  borderRadius: 8,
+                  backgroundColor: "#DBEAFE",
+                }}
+              >
+                <Text style={{ color: "#1D4ED8", fontWeight: "600" }}>
+                  Mở ngoài ứng dụng
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={closePreviewModal}
+                style={{
+                  paddingHorizontal: 14,
+                  paddingVertical: 8,
+                  borderRadius: 8,
+                  backgroundColor: "#2563EB",
+                }}
+              >
+                <Text style={{ color: "#FFFFFF", fontWeight: "600" }}>Đóng</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }

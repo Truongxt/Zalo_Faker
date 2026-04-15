@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { Href, Tabs, useRouter, useSegments } from "expo-router";
-import { Alert, Pressable, Text, TouchableOpacity, View } from "react-native";
+import {
+  Alert,
+  Platform,
+  Pressable,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Header } from "@/components/ui";
@@ -109,8 +116,13 @@ export default function TabsLayout() {
   }, [router, user?.id, user?.fullName, user?.avatarUrl]);
 
   const segments = useSegments() as string[];
+  const activeLeafSegment = segments[segments.length - 1] || "";
+  const isInChatStack = segments.includes("chat");
+  const isChatListScreen = activeLeafSegment === "chats";
   const isDetailScreen =
-    segments.includes("[conversationId]") || segments.includes("[callId]");
+    (isInChatStack && !isChatListScreen) || segments.includes("[callId]");
+  const tabBarBottomInset =
+    Platform.OS === "ios" ? Math.max(insets.bottom, 4) : 4;
 
   return (
     <View style={{ flex: 1 }}>
@@ -125,11 +137,12 @@ export default function TabsLayout() {
           tabBarInactiveTintColor: "#9CA3AF",
           tabBarHideOnKeyboard: true,
           tabBarStyle: {
+            display: isDetailScreen ? "none" : "flex",
             borderTopWidth: 0.5,
             borderTopColor: "#E5E7EB",
             paddingTop: 4,
-            paddingBottom: Math.max(insets.bottom, 4),
-            height: 60 + Math.max(insets.bottom, 4),
+            paddingBottom: tabBarBottomInset,
+            height: 60 + tabBarBottomInset,
           },
           tabBarLabelStyle: {
             fontSize: 10,

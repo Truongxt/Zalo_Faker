@@ -335,6 +335,13 @@ export interface AIAskResponse {
     reply: string;
 }
 
+export interface AISummaryResponse {
+    conversationId: string;
+    date: string;
+    messageCount: number;
+    summary: string;
+}
+
 export interface AIHistoryItem {
     userId: string;
     chatId: string;
@@ -344,11 +351,39 @@ export interface AIHistoryItem {
     askedAt: string;
 }
 
+const AI_REQUEST_TIMEOUT_MS = (() => {
+    const timeout = Number(import.meta.env.VITE_AI_REQUEST_TIMEOUT_MS);
+    return Number.isFinite(timeout) && timeout > 0 ? timeout : 30000;
+})();
+
+const withTimeout = async <T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> => {
+    let timeoutId: number | null = null;
+
+    try {
+        return await Promise.race([
+            promise,
+            new Promise<T>((_resolve, reject) => {
+                timeoutId = window.setTimeout(() => {
+                    reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+                }, timeoutMs);
+            })
+        ]);
+    } finally {
+        if (timeoutId !== null) {
+            window.clearTimeout(timeoutId);
+        }
+    }
+}
+
 const askAssistant = async (question: string, conversationId?: string): Promise<AIAskResponse> => {
-    const response = await fetchWithAuth(`/ai/chat`, {
-        method: 'POST',
-        body: JSON.stringify({ question, conversationId })
-    });
+    const response = await withTimeout(
+        fetchWithAuth(`/ai/chat`, {
+            method: 'POST',
+            body: JSON.stringify({ question, conversationId })
+        }),
+        AI_REQUEST_TIMEOUT_MS,
+        'AI request'
+    );
     const data = await response.json();
 
     return {
@@ -375,6 +410,16 @@ const deleteAssistantConversationHistory = async (conversationId: string): Promi
     });
     const data = await response.json();
     return Number(data?.data?.deletedCount || 0);
+}
+
+const summarizeConversation = async (conversationId: string): Promise<AISummaryResponse> => {
+    const response = await withTimeout(
+        fetchWithAuth(`/ai/summarize/${conversationId}`, { method: 'POST' }),
+        AI_REQUEST_TIMEOUT_MS,
+        'AI summarize'
+    );
+    const data = await response.json();
+    return data?.data as AISummaryResponse;
 }
 
 export {
@@ -408,5 +453,7 @@ export {
     getFriends,
     askAssistant,
     getAssistantHistory,
-    deleteAssistantConversationHistory
+    deleteAssistantConversationHistory,
+    summarizeConversation,
 }
+

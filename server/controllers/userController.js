@@ -69,6 +69,10 @@ const userController = {
   deleteUser: async (req, res) => {
     try {
       const { userId } = req.params;
+      if (!req.user?.userId || String(req.user.userId) !== String(userId)) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+
       const result = await userService.deleteUser(userId);
       res.json(result);
     } catch (err) {
