@@ -20,6 +20,7 @@ import * as FileSystem from "expo-file-system";
 
 type CallType = "video" | "audio";
 type CallState = "ringing" | "accepted" | "ended";
+let globalAudioRecordingOwner: string | null = null;
 
 const extractMimeTypeFromDataUrl = (value: string): string => {
   if (!value?.startsWith("data:")) return "";
@@ -49,6 +50,7 @@ export default function CallScreen() {
   const toUserId = String(params.toUserId || "");
   const fromUserId = String(params.fromUserId || user?.id || "");
   const conversationId = String(params.conversationId || params.callId || "");
+  const callOwnerKeyRef = useRef(`call-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
 
   const displayName = useMemo(() => {
     if (isCaller) return params.toUserName || "Nguoi dung";
@@ -69,6 +71,8 @@ export default function CallScreen() {
   const streamIntervalRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const audioIntervalRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const audioRecordingRef = useRef<Audio.Recording | null>(null);
+  const audioLoopStartedRef = useRef(false);
+  const audioChunkInFlightRef = useRef(false);
   const mountedRef = useRef(true);
   const hasEmittedInitialSignal = useRef(false);
 
@@ -96,11 +100,16 @@ export default function CallScreen() {
   const cleanupMedia = async () => {
     if (streamIntervalRef.current) clearTimeout(streamIntervalRef.current);
     if (audioIntervalRef.current) clearTimeout(audioIntervalRef.current);
+    audioLoopStartedRef.current = false;
+    audioChunkInFlightRef.current = false;
     if (audioRecordingRef.current) {
         try {
             await audioRecordingRef.current.stopAndUnloadAsync();
         } catch (e) {}
         audioRecordingRef.current = null;
+    }
+    if (globalAudioRecordingOwner === callOwnerKeyRef.current) {
+      globalAudioRecordingOwner = null;
     }
   };
 
@@ -279,10 +288,13 @@ export default function CallScreen() {
 
     const startAudioCapture = async () => {
       if (!mountedRef.current) return;
+      if (audioLoopStartedRef.current) return;
+      audioLoopStartedRef.current = true;
 
       const permissionResponse = await Audio.requestPermissionsAsync();
       if (!permissionResponse.granted) {
         console.log("[MOBILE] Microphone permission denied");
+        audioLoopStartedRef.current = false;
         return;
       }
 
@@ -295,9 +307,29 @@ export default function CallScreen() {
 
       const runAudio = async () => {
         if (!mountedRef.current) return;
+        if (
+          globalAudioRecordingOwner &&
+          globalAudioRecordingOwner !== callOwnerKeyRef.current
+        ) {
+          audioIntervalRef.current = setTimeout(runAudio, 200);
+          return;
+        }
+        if (audioChunkInFlightRef.current) {
+          audioIntervalRef.current = setTimeout(runAudio, 120);
+          return;
+        }
 
+        globalAudioRecordingOwner = callOwnerKeyRef.current;
+        audioChunkInFlightRef.current = true;
         try {
           const targetId = isCaller ? toUserId : fromUserId;
+
+          if (audioRecordingRef.current) {
+            try {
+              await audioRecordingRef.current.stopAndUnloadAsync();
+            } catch {}
+            audioRecordingRef.current = null;
+          }
 
           const recording = new Audio.Recording();
           audioRecordingRef.current = recording;
@@ -329,7 +361,7 @@ export default function CallScreen() {
           // Record for 1.2s
           await new Promise(resolve => setTimeout(resolve, 1200));
 
-          if (mountedRef.current && audioRecordingRef.current) {
+          if (mountedRef.current && audioRecordingRef.current === recording) {
             await recording.stopAndUnloadAsync();
             const uri = recording.getURI();
             if (uri && targetId) {
@@ -341,17 +373,26 @@ export default function CallScreen() {
                   toUserId: targetId,
                   fromUserId: String(user.id),
                   conversationId,
-                  audio: "data:audio/mp4;base64," + base64,
-                  audioMimeType: "audio/mp4",
+                  audio: "data:audio/mp4;codecs=mp4a.40.2;base64," + base64,
+                  audioMimeType: "audio/mp4;codecs=mp4a.40.2",
                 });
             }
+            audioRecordingRef.current = null;
           }
         } catch (e) {
           console.log("[MOBILE] Audio recording error:", e);
+          if (audioRecordingRef.current) {
+            try {
+              await audioRecordingRef.current.stopAndUnloadAsync();
+            } catch {}
+            audioRecordingRef.current = null;
+          }
+        } finally {
+          audioChunkInFlightRef.current = false;
         }
 
         if (mountedRef.current) {
-          audioIntervalRef.current = setTimeout(runAudio, 100); // Small gap between chunks
+          audioIntervalRef.current = setTimeout(runAudio, 160);
         }
       };
 

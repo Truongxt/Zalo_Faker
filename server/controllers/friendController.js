@@ -230,6 +230,10 @@ async getExitingFriend(req, res) {
       const io = req.app.get("io");
       if (io) {
         io.to(`user:${actorId}`).emit("friend:unblocked", { userId: actorId, targetUserId });
+        io.to(`user:${targetUserId}`).emit("friend:unblocked_by", {
+          userId: targetUserId,
+          unblockedByUserId: actorId,
+        });
       }
 
       return res.status(200).json({

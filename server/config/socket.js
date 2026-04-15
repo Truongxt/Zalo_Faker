@@ -3,6 +3,7 @@ const messageService = require("../services/messageService");
 const conversationService = require("../services/conversationService");
 const conversationModel = require("../models/conversation");
 const GroupService = require("../services/groupService");
+const friendService = require("../services/friendService");
 const userRepository = require("../repository/userRepository");
 const { verifyAccessToken } = require("../utils/jwt");
 const { redisClient, getIsRedisReady, safeGet } = require("../utils/redisClient");
@@ -44,6 +45,7 @@ const MEDIA_FALLBACK_BY_TYPE = {
   voice: "[Tin nhan thoai]",
   sticker: "[Nhan dan]",
   file: "[File]",
+  call: "[Cuoc goi]",
 };
 
 const toRoomId = (conversationId) => `conv:${String(conversationId)}`;
@@ -56,7 +58,82 @@ const normalizeMessage = (message) => ({
   isDeleted: Boolean(message?.isDeleted),
 });
 
+const normalizeCallType = (value) => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "video") return "video";
+  if (normalized === "audio" || normalized === "voice") return "audio";
+  return "";
+};
+
+const normalizeCallStatus = (value) => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) return "";
+  return normalized === "ended" ? "finished" : normalized;
+};
+
+const parseCallPayloadFromObject = (payload) => {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+  const callType = normalizeCallType(payload.callType);
+  const status = normalizeCallStatus(payload.status || payload.callStatus);
+  if (!callType || !status) return null;
+  return { callType, status };
+};
+
+const parseCallPayload = (content) => {
+  if (!content) return null;
+
+  if (typeof content === "string") {
+    const trimmed = content.trim();
+    if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return null;
+
+    try {
+      return parseCallPayloadFromObject(JSON.parse(trimmed));
+    } catch {
+      return null;
+    }
+  }
+
+  if (typeof content !== "object" || Array.isArray(content)) return null;
+
+  const direct = parseCallPayloadFromObject(content);
+  if (direct) return direct;
+
+  const nestedText =
+    typeof content.text === "string"
+      ? content.text
+      : typeof content.message === "string"
+      ? content.message
+      : typeof content.content === "string"
+      ? content.content
+      : "";
+
+  return nestedText ? parseCallPayload(nestedText) : null;
+};
+
+const getCallPreviewText = (callPayload) => {
+  const suffix = callPayload.callType === "video" ? " video" : "";
+  if (callPayload.status === "finished") return `Cuoc goi${suffix}`;
+  if (callPayload.status === "missed") return `Cuoc goi nho${suffix}`;
+  if (callPayload.status === "rejected") return "Cuoc goi bi tu choi";
+  if (callPayload.status === "cancelled") return "Cuoc goi da huy";
+  return callPayload.callType === "video" ? "Cuoc goi video" : "Cuoc goi";
+};
+
+const resolveCallStatus = (status, fallback = "finished") => {
+  return normalizeCallStatus(status) || fallback;
+};
+
+const resolveCallType = (callType, fallback = "audio") => {
+  return normalizeCallType(callType) || fallback;
+};
+
+const resolveCallDuration = (duration) => {
+  if (typeof duration !== "number" || !Number.isFinite(duration)) return 0;
+  return Math.max(0, Math.floor(duration));
+};
+
 const getLastMessageText = ({ type, content, metadata }) => {
+  const callPayload = parseCallPayload(content);
   const contentText =
     typeof content === "string"
       ? content
@@ -66,6 +143,10 @@ const getLastMessageText = ({ type, content, metadata }) => {
 
   if (metadata?.isAnnouncement) {
     return `[Thong bao] ${contentText}`.trim();
+  }
+
+  if (type === "call" || callPayload) {
+    return getCallPreviewText(callPayload || { callType: "audio", status: "finished" });
   }
 
   if (contentText) return contentText;
@@ -171,8 +252,17 @@ module.exports = (socketConfig) => {
     return hasOnlineSocket;
   };
 
-  const isMemberOfConversation = (conversation, userId) =>
-    Boolean(conversation?.participants?.some((p) => String(p.userId) === String(userId)));
+const isMemberOfConversation = (conversation, userId) =>
+  Boolean(conversation?.participants?.some((p) => String(p.userId) === String(userId)));
+
+const getOtherParticipantId = (conversation, userId) => {
+  if (!conversation || conversation.type !== "private") return null;
+  const selfId = String(userId);
+  const otherParticipant = (conversation.participants || []).find(
+    (participant) => String(participant.userId) !== selfId,
+  );
+  return otherParticipant ? Number(otherParticipant.userId) : null;
+};
 
   const ensureConversationMembership = async (conversationId, userId) => {
     const conversation = await conversationService.getConversation(conversationId);
@@ -322,6 +412,11 @@ module.exports = (socketConfig) => {
             type,
             metadata,
           });
+        } else {
+          const otherUserId = getOtherParticipantId(conversation, socket.userId);
+          if (otherUserId) {
+            await friendService.ensureCanMessageBetweenUsers(socket.userId, otherUserId);
+          }
         }
 
         const saved = await messageService.createMessage({
@@ -516,6 +611,61 @@ module.exports = (socketConfig) => {
       }
     });
 
+    const persistCallHistory = async (data, fallbackStatus) => {
+      try {
+        const conversationId = String(data?.conversationId || "");
+        if (!conversationId) return;
+
+        await ensureConversationMembership(conversationId, socket.userId);
+
+        const status = resolveCallStatus(data?.status, fallbackStatus);
+        const callType = resolveCallType(data?.callType, "audio");
+        const duration = resolveCallDuration(data?.duration);
+
+        const saved = await messageService.createMessage({
+          conversationId,
+          senderId: socket.userId,
+          type: "call",
+          content: { status, callType, duration },
+          metadata: null,
+          replyTo: null,
+          reactions: [],
+          readBy: [],
+          isDeleted: false,
+        });
+
+        const roomId = toRoomId(conversationId);
+        const lastMessageContent = getLastMessageText({
+          type: "call",
+          content: { status, callType, duration },
+          metadata: null,
+        });
+
+        await conversationModel.updateConversation(conversationId, {
+          lastMessage: {
+            content: lastMessageContent,
+            type: "call",
+            senderId: socket.userId,
+            timestamp: saved.createdAt,
+          },
+        });
+
+        const normalized = normalizeMessage(saved);
+        io.to(roomId).emit("chat:message", normalized);
+        io.to(`user:${socket.userId}`).emit("chat:conversation_updated", {
+          conversationId,
+          lastMessage: {
+            content: lastMessageContent,
+            type: "call",
+            senderId: socket.userId,
+            timestamp: saved.createdAt,
+          },
+        });
+      } catch (error) {
+        console.warn("persistCallHistory error:", error?.message || error);
+      }
+    };
+
     socket.on("video:call-user", async (data) => {
       const delivered = emitToUserRoom(data.toUserId, "video:incoming-call", data);
       if (!delivered) {
@@ -529,10 +679,17 @@ module.exports = (socketConfig) => {
 
     socket.on("video:reject-call", async (data) => {
       emitToUserRoom(data.toUserId, "video:call-rejected", data);
+      await persistCallHistory(data, "rejected");
     });
 
     socket.on("video:end-call", async (data) => {
       emitToUserRoom(data.toUserId, "video:call-ended", data);
+      await persistCallHistory(
+        data,
+        String(data?.status || "").toLowerCase() === "cancelled"
+          ? "cancelled"
+          : "finished",
+      );
     });
 
     socket.on("video:signal", async (data) => {
@@ -542,6 +699,29 @@ module.exports = (socketConfig) => {
         conversationId: data.conversationId,
         signal: data.signal,
       });
+    });
+
+    socket.on("video:frame", async (data) => {
+      // Relay video frame (base64 JPEG) from sender to receiver
+      if (data.toUserId) {
+        emitToUserRoom(data.toUserId, "video:frame", {
+          fromUserId: socket.userId,
+          conversationId: data.conversationId,
+          frame: data.frame,
+        });
+      }
+    });
+
+    socket.on("video:audio-frame", async (data) => {
+      // Relay audio chunk (base64) from sender to receiver
+      if (data.toUserId) {
+        emitToUserRoom(data.toUserId, "video:audio-frame", {
+          fromUserId: socket.userId,
+          conversationId: data.conversationId,
+          audio: data.audio,
+          audioMimeType: data.audioMimeType,
+        });
+      }
     });
 
     socket.on("presence:get_online_users", async (userIds, callback) => {

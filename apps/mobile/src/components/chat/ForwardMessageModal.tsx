@@ -50,11 +50,20 @@ export function ForwardMessageModal({
     if (!message || selectedIds.length === 0) return;
     setIsSending(true);
     try {
+      const baseMetadata =
+        message.metadata && typeof message.metadata === "object"
+          ? message.metadata
+          : {};
       for (const convId of selectedIds) {
         await chatService.sendMessage(convId, {
           type: message.type,
           content: message.content,
-          metadata: { ...message.metadata, isForwarded: true },
+          metadata: {
+            ...baseMetadata,
+            isForwarded: true,
+            forwardedFromMessageId: message.id,
+            forwardedAt: new Date().toISOString(),
+          },
         });
       }
       onClose();

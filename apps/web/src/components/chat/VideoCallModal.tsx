@@ -38,6 +38,7 @@ export default function VideoCallModal() {
   const [isVideoOff, setIsVideoOff] = useState(false);
   const [isRemoteAccepted, setIsRemoteAccepted] = useState(false);
   const isRemoteAcceptedRef = useRef(false);
+  const acceptedAtRef = useRef<number | null>(null);
   const [remoteFrame, setRemoteFrame] = useState<string | null>(null);
   const streamIntervalRef = useRef<any>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -76,6 +77,34 @@ export default function VideoCallModal() {
     }
   };
 
+  const playChunkWithAudioContext = async (blob: Blob) => {
+    if (!audioContextRef.current) {
+      audioContextRef.current = new AudioContext();
+    }
+    const audioContext = audioContextRef.current;
+    if (audioContext.state === "suspended") {
+      await audioContext.resume();
+    }
+
+    const buffer = await blob.arrayBuffer();
+    const decoded = await audioContext.decodeAudioData(buffer.slice(0));
+    const source = audioContext.createBufferSource();
+    source.buffer = decoded;
+    source.connect(audioContext.destination);
+    source.start();
+  };
+
+
+  const markAccepted = () => {
+    if (!acceptedAtRef.current) {
+      acceptedAtRef.current = Date.now();
+    }
+  };
+
+  const getCallDurationSeconds = () => {
+    if (!acceptedAtRef.current) return 0;
+    return Math.max(0, Math.floor((Date.now() - acceptedAtRef.current) / 1000));
+  };
 
   const endCall = (notifyRemote = true) => {
     const state = useCallStore.getState();
@@ -90,13 +119,23 @@ export default function VideoCallModal() {
     setLocalStream(null);
 
     if (notifyRemote && targetUserId) {
+      const status =
+        acceptedAtRef.current
+          ? 'finished'
+          : callData?.isCaller
+            ? 'cancelled'
+            : 'finished';
       socketService.getSocket()?.emit('video:end-call', {
         toUserId: targetUserId,
         fromUserId: user?.id,
         conversationId: callData?.conversationId,
+        callType: callData?.callType || 'audio',
+        status,
+        duration: getCallDurationSeconds(),
       });
     }
 
+    acceptedAtRef.current = null;
     clearCall();
   };
 
@@ -106,12 +145,14 @@ export default function VideoCallModal() {
     let mounted = true;
     setIsRemoteAccepted(false);
     isRemoteAcceptedRef.current = false;
+    acceptedAtRef.current = null;
 
     const handleCallAnswered = async (data: any) => {
       if (!mounted || !callData.isCaller) return;
       if (String(data?.toUserId || '') !== String(user.id)) return;
       setIsRemoteAccepted(true);
       isRemoteAcceptedRef.current = true;
+      markAccepted();
     };
 
     const handleCallRejected = () => {
@@ -131,6 +172,7 @@ export default function VideoCallModal() {
       if (!isRemoteAcceptedRef.current) {
         setIsRemoteAccepted(true);
         isRemoteAcceptedRef.current = true;
+        markAccepted();
       }
       if (data.frame) {
          setRemoteFrame(data.frame);
@@ -146,6 +188,7 @@ export default function VideoCallModal() {
         if (!isRemoteAcceptedRef.current) {
           setIsRemoteAccepted(true);
           isRemoteAcceptedRef.current = true;
+          markAccepted();
         }
 
         try {
@@ -184,11 +227,21 @@ export default function VideoCallModal() {
           };
 
           player.onended = cleanup;
-          player.onerror = cleanup;
+          player.onerror = () => {
+            playChunkWithAudioContext(blob)
+              .catch((decodeErr) => {
+                console.warn('[WEB] Audio decode fallback failed:', decodeErr);
+              })
+              .finally(cleanup);
+          };
           
           player.play().catch(e => {
             console.warn('[WEB] Playback failed for chunk:', e);
-            cleanup();
+            playChunkWithAudioContext(blob)
+              .catch((decodeErr) => {
+                console.warn('[WEB] Audio decode fallback failed:', decodeErr);
+              })
+              .finally(cleanup);
           });
         } catch (err) {
           console.warn('[WEB] handleAudioFrame failed:', err);
@@ -257,6 +310,7 @@ export default function VideoCallModal() {
           });
           setIsRemoteAccepted(true);
           isRemoteAcceptedRef.current = true;
+          markAccepted();
         }
 
         // 2. Start fake video stream

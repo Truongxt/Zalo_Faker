@@ -17,6 +17,10 @@ import {
   Link2,
   Clock,
   UserPlus,
+  ShieldBan,
+  EyeOff,
+  Eye,
+  Lock,
 } from "lucide-react";
 import CreateGroupModal from "@/components/chat/CreateGroupModal";
 import LabelManagerModal from "@/components/chat/LabelManagerModal";
@@ -26,6 +30,8 @@ import {
   getLabels,
   joinGroupByInviteCode,
 } from "@/services/api";
+import authService from "@/services/auth";
+import { getMessagePreviewText } from "@/lib/messagePreview";
 import AddFriendModal from "@/components/friends/AddFriendModal";
 
 export default function Sidebar() {
@@ -40,6 +46,8 @@ export default function Sidebar() {
   } = useChatStore();
 
   const isContactsView = location.pathname.startsWith("/chat/contacts");
+  const contactsTab =
+    new URLSearchParams(location.search).get("tab") || "friends";
   const isAIView = location.pathname.startsWith("/chat/ai");
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState<"all" | "unread" | "groups">(
@@ -52,6 +60,8 @@ export default function Sidebar() {
     null,
   );
   const [activeLabelId, setActiveLabelId] = useState<string | null>(null);
+  const [unlockedHiddenChats, setUnlockedHiddenChats] = useState(false);
+  const [verifyingHiddenPin, setVerifyingHiddenPin] = useState(false);
   const { labels, setLabels } = useChatStore();
 
   useEffect(() => {
@@ -60,8 +70,53 @@ export default function Sidebar() {
     }
   }, [user, setLabels]);
 
+  const hasLockedHiddenChats = conversations.some((conv) => {
+    const currentP = (conv.participants || []).find(
+      (p) => String(p.userId) === String(user?.id),
+    );
+    return Boolean(currentP?.isHidden) && !unlockedHiddenChats;
+  });
+
+  const handleSearchChange = async (value: string) => {
+    setSearchQuery(value);
+
+    if (
+      !user?.id ||
+      value.length !== 6 ||
+      !/^\d{6}$/.test(value) ||
+      !hasLockedHiddenChats ||
+      verifyingHiddenPin
+    ) {
+      return;
+    }
+
+    try {
+      setVerifyingHiddenPin(true);
+      const result = await authService.verifyHiddenPin(user.id, value);
+      if (result?.success) {
+        setUnlockedHiddenChats(true);
+        setSearchQuery("");
+      }
+    } catch {
+      // Wrong PIN is treated as normal search input.
+    } finally {
+      setVerifyingHiddenPin(false);
+    }
+  };
+
   const filteredConversations = conversations.filter((conv) => {
     const participants = conv.participants || [];
+    const currentP = participants.find(
+      (p) => String(p.userId) === String(user?.id),
+    );
+    if (!currentP) return false;
+
+    if (unlockedHiddenChats) {
+      if (!currentP.isHidden) return false;
+    } else if (currentP.isHidden) {
+      return false;
+    }
+
     // Search filter
     if (searchQuery) {
       const other = participants.find(
@@ -80,9 +135,6 @@ export default function Sidebar() {
 
     // Label filter
     if (activeLabelId) {
-      const currentP = participants.find(
-        (p) => String(p.userId) === String(user?.id),
-      );
       if (!currentP?.labelIds?.includes(activeLabelId)) return false;
     }
 
@@ -191,6 +243,59 @@ export default function Sidebar() {
     }
   };
 
+  const handleToggleHide = async (e: React.MouseEvent, conv: Conversation) => {
+    e.stopPropagation();
+    if (!user) return;
+
+    const participants = conv.participants || [];
+    const currentP = participants.find(
+      (p) => String(p.userId) === String(user.id),
+    );
+    if (!currentP) return;
+
+    const nextHidden = !currentP.isHidden;
+
+    try {
+      if (nextHidden && !user.hasHiddenPin) {
+        const setupPin = window
+          .prompt("Nhap ma PIN 6 so de kich hoat an tro chuyen:")
+          ?.trim();
+        if (!setupPin) return;
+        if (!/^\d{6}$/.test(setupPin)) {
+          window.alert("PIN phai gom dung 6 chu so.");
+          return;
+        }
+        await authService.updateHiddenPin(user.id, setupPin);
+        useAuthStore.getState().updateProfile({ hasHiddenPin: true });
+      }
+
+      await updateParticipantSetting(conv.id, user.id, { isHidden: nextHidden });
+      useChatStore.getState().updateConversation(conv.id, {
+        participants: participants.map((part) =>
+          String(part.userId) === String(user.id)
+            ? { ...part, isHidden: nextHidden }
+            : part,
+        ),
+      });
+
+      if (!nextHidden && unlockedHiddenChats) {
+        const stillHasHidden = useChatStore
+          .getState()
+          .conversations.some((conversation) => {
+            const me = (conversation.participants || []).find(
+              (p) => String(p.userId) === String(user.id),
+            );
+            return Boolean(me?.isHidden);
+          });
+        if (!stillHasHidden) {
+          setUnlockedHiddenChats(false);
+        }
+      }
+    } catch (err) {
+      console.error("Error toggling hidden conversation:", err);
+    }
+  };
+
   const sortedConversations = [...filteredConversations].sort((a, b) => {
     const pA = (a.participants || []).find(
       (p) => String(p.userId) === String(user?.id),
@@ -257,12 +362,28 @@ export default function Sidebar() {
           <input
             type="text"
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => {
+              void handleSearchChange(e.target.value);
+            }}
             placeholder="Tìm kiếm"
-            className="w-full pl-10 pr-4 py-2 bg-gray-100 dark:bg-dark-300 rounded-lg
+            className={`w-full pl-10 py-2 bg-gray-100 dark:bg-dark-300 rounded-lg
                        text-gray-900 dark:text-white placeholder-gray-500
-                       focus:outline-none focus:ring-2 focus:ring-primary-500"
+                       focus:outline-none focus:ring-2 focus:ring-primary-500 ${unlockedHiddenChats ? "pr-24" : "pr-4"} ${hasLockedHiddenChats && !unlockedHiddenChats ? "ring-1 ring-red-300 dark:ring-red-700" : ""}`}
           />
+          {unlockedHiddenChats && (
+            <button
+              type="button"
+              onClick={() => {
+                setUnlockedHiddenChats(false);
+                setSearchQuery("");
+              }}
+              className="absolute right-2 top-1/2 -translate-y-1/2 inline-flex items-center gap-1 rounded-full border border-primary-300 bg-primary-50 px-2 py-1 text-[11px] font-semibold text-primary-600 hover:bg-primary-100"
+              title="Khoa lai tro chuyen an"
+            >
+              <Lock className="w-3 h-3" />
+              Dong
+            </button>
+          )}
         </div>
 
         {/* Tabs & Labels (Only show in Chat view) */}
@@ -323,8 +444,8 @@ export default function Sidebar() {
           /* Contacts Menu Items */
           <div className="space-y-1">
             <Link
-              to="/chat/contacts"
-              className={`flex items-center gap-3 p-3 rounded-lg transition-colors ${location.pathname === "/chat/contacts" ? "bg-primary-50 dark:bg-primary-900/20 text-primary-600" : "hover:bg-gray-50 dark:hover:bg-dark-200 text-gray-700 dark:text-gray-300"}`}
+              to="/chat/contacts?tab=requests"
+              className={`flex items-center gap-3 p-3 rounded-lg transition-colors ${isContactsView && contactsTab === "requests" ? "bg-primary-50 dark:bg-primary-900/20 text-primary-600" : "hover:bg-gray-50 dark:hover:bg-dark-200 text-gray-700 dark:text-gray-300"}`}
             >
               <div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center text-orange-600">
                 <UserPlus className="w-5 h-5" />
@@ -332,8 +453,8 @@ export default function Sidebar() {
               <span className="font-medium">Lời mời kết bạn</span>
             </Link>
             <Link
-              to="/chat/contacts"
-              className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-dark-200 text-gray-700 dark:text-gray-300"
+              to="/chat/contacts?tab=groups"
+              className={`flex items-center gap-3 p-3 rounded-lg transition-colors ${isContactsView && contactsTab === "groups" ? "bg-primary-50 dark:bg-primary-900/20 text-primary-600" : "hover:bg-gray-50 dark:hover:bg-dark-200 text-gray-700 dark:text-gray-300"}`}
             >
               <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600">
                 <Users className="w-5 h-5" />
@@ -341,13 +462,22 @@ export default function Sidebar() {
               <span className="font-medium">Danh sách nhóm</span>
             </Link>
             <Link
-              to="/chat/contacts"
-              className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-dark-200 text-gray-700 dark:text-gray-300"
+              to="/chat/contacts?tab=friends"
+              className={`flex items-center gap-3 p-3 rounded-lg transition-colors ${isContactsView && contactsTab === "friends" ? "bg-primary-50 dark:bg-primary-900/20 text-primary-600" : "hover:bg-gray-50 dark:hover:bg-dark-200 text-gray-700 dark:text-gray-300"}`}
             >
               <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center text-green-600">
                 <UserIcon className="w-5 h-5" />
               </div>
               <span className="font-medium">Danh sách bạn bè</span>
+            </Link>
+            <Link
+              to="/chat/contacts?tab=blocked"
+              className={`flex items-center gap-3 p-3 rounded-lg transition-colors ${isContactsView && contactsTab === "blocked" ? "bg-primary-50 dark:bg-primary-900/20 text-primary-600" : "hover:bg-gray-50 dark:hover:bg-dark-200 text-gray-700 dark:text-gray-300"}`}
+            >
+              <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center text-red-600">
+                <ShieldBan className="w-5 h-5" />
+              </div>
+              <span className="font-medium">Đã chặn</span>
             </Link>
           </div>
         ) : (
@@ -469,8 +599,13 @@ export default function Sidebar() {
                       </div>
                       <div className="flex items-center justify-between">
                         <p className="text-sm text-gray-500 dark:text-gray-400 truncate">
-                          {conv.lastMessage?.content ||
-                            "Bắt đầu cuộc trò chuyện"}
+                          {conv.lastMessage
+                            ? getMessagePreviewText({
+                                type: conv.lastMessage.type,
+                                content: conv.lastMessage.content,
+                                metadata: conv.lastMessage.metadata,
+                              })
+                            : "Bắt đầu cuộc trò chuyện"}
                         </p>
                         {conv.unreadCount > 0 && !isMuted && (
                           <span className="badge flex-shrink-0 ml-2">
@@ -509,6 +644,17 @@ export default function Sidebar() {
                         <BellOff
                           className={`w-4 h-4 ${isMuted ? "text-red-500" : ""}`}
                         />
+                      </button>
+                      <button
+                        onClick={(e) => handleToggleHide(e, conv)}
+                        className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-600 rounded-md transition-colors text-gray-500"
+                        title={currentP?.isHidden ? "Bo an" : "An tro chuyen"}
+                      >
+                        {currentP?.isHidden ? (
+                          <Eye className="w-4 h-4 text-primary-500" />
+                        ) : (
+                          <EyeOff className="w-4 h-4" />
+                        )}
                       </button>
                     </div>
                   </div>
@@ -584,3 +730,4 @@ export default function Sidebar() {
     </div>
   );
 }
+

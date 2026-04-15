@@ -104,6 +104,50 @@ const getPreviewKind = (
   return null;
 };
 
+const parseCallPayload = (value: unknown) => {
+  if (!value) return null;
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return null;
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        return null;
+      }
+      return parseCallPayload(parsed as Record<string, unknown>);
+    } catch {
+      return null;
+    }
+  }
+
+  if (typeof value !== "object" || Array.isArray(value)) return null;
+  const objectValue = value as Record<string, unknown>;
+
+  const callTypeRaw = String(objectValue.callType || "").trim().toLowerCase();
+  const statusRaw = String(
+    objectValue.status || objectValue.callStatus || "",
+  ).trim().toLowerCase();
+  if (!callTypeRaw || !statusRaw) return null;
+
+  const callType =
+    callTypeRaw === "video"
+      ? "video"
+      : callTypeRaw === "audio" || callTypeRaw === "voice"
+        ? "audio"
+        : null;
+  if (!callType) return null;
+
+  return {
+    callType,
+    status: statusRaw === "ended" ? "finished" : statusRaw,
+    duration:
+      typeof objectValue.duration === "number" && Number.isFinite(objectValue.duration)
+        ? Math.max(0, Math.floor(objectValue.duration))
+        : 0,
+  };
+};
+
 export function Message({
   message,
   isSent = false,
@@ -117,6 +161,7 @@ export function Message({
     : Colors.bubbleReceivedText;
   const attachments = message.attachments || [];
   const reactions = message.reactions || [];
+  const isForwarded = Boolean(message.metadata?.isForwarded);
   const content = message.isDeleted
     ? "Tin nhan da bi thu hoi"
     : message.content;
@@ -190,6 +235,12 @@ export function Message({
     }
   };
 
+  const parsedCallPayload =
+    parseCallPayload(content) ||
+    (message.type === "call"
+      ? { callType: "audio" as const, status: "finished", duration: 0 }
+      : null);
+
   return (
     <View className={`mb-3 px-3 ${isSent ? "items-end" : "items-start"}`}>
       {showTime ? (
@@ -237,14 +288,9 @@ export function Message({
             className="rounded-[22px] px-4 py-3"
             style={{ backgroundColor: bubbleBackground }}
           >
-            {message.type === "call" ? (
+            {parsedCallPayload ? (
               (() => {
-                let callData: any = {};
-                try {
-                  callData = typeof content === 'string' ? JSON.parse(content) : content;
-                } catch (e) {
-                  callData = { status: 'unknown' };
-                }
+                const callData: any = parsedCallPayload;
 
                 const isVideo = callData.callType === 'video';
                 const status = callData.status;
