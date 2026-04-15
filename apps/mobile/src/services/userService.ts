@@ -16,6 +16,33 @@ import { useAuthStore } from "@/stores/authStore";
 
 export type { LoginResponse };
 
+const resolvePresenceStatus = (
+  presenceStatus?: string | null,
+  fallbackStatus?: string | null,
+): User["status"] => {
+  const normalizedPresence = String(presenceStatus || "").trim().toLowerCase();
+  if (
+    normalizedPresence === "online" ||
+    normalizedPresence === "offline" ||
+    normalizedPresence === "away" ||
+    normalizedPresence === "busy"
+  ) {
+    return normalizedPresence as User["status"];
+  }
+
+  const normalizedFallback = String(fallbackStatus || "").trim().toLowerCase();
+  if (
+    normalizedFallback === "online" ||
+    normalizedFallback === "offline" ||
+    normalizedFallback === "away" ||
+    normalizedFallback === "busy"
+  ) {
+    return normalizedFallback as User["status"];
+  }
+
+  return "offline";
+};
+
 const getMimeTypeFromUri = (fileUri: string) => {
   const cleanUri = fileUri.split("?")[0];
   const fileName = cleanUri.split("/").pop() || "avatar.jpg";
@@ -46,9 +73,7 @@ const mapServerUser = (u: ServerUser): User => ({
   birthday: u.birthday,
   gender: u.gender,
   bio: null,
-  status: (u.presenceStatus === "online" || u.presenceStatus === "offline")
-    ? u.presenceStatus
-    : (u.status === "active" ? "online" : "offline"),
+  status: resolvePresenceStatus(u.presenceStatus, u.status),
   lastSeen: u.lastActiveAt ?? null,
   createdAt: u.createdAt,
   hasHiddenPin: !!u.hiddenChatPin,
@@ -78,17 +103,23 @@ class UserService {
   }
 
   // POST /api/users/login - đăng nhập
-  async login(email: string, password: string): Promise<LoginResponse> {
-    console.log(email, password);
+  async login(identifier: string, password: string): Promise<LoginResponse> {
+    const normalizedIdentifier = identifier.trim();
 
     const deviceInfo = `${Platform.OS} ${Platform.Version}`;
 
     const response = await apiClient.post<{ user: ServerUser; accessToken: string; refreshToken: string }>(
       "/api/users/login",
-      { email, password, platform: "mobile", deviceInfo },
+      {
+        identifier: normalizedIdentifier,
+        // Backward-compatible payload for older backend versions.
+        email: normalizedIdentifier,
+        password,
+        platform: "mobile",
+        deviceInfo,
+      },
     );
     const { user, accessToken, refreshToken } = response.data;
-    console.log(email, password);
     return { user: mapServerUser(user), accessToken, refreshToken };
   }
 
@@ -289,6 +320,14 @@ class UserService {
   // GET /api/users/:userId/hidden-pin/status - kiểm tra xem đã cài PIN chưa
   async getHiddenPinStatus(userId: string): Promise<{ isSet: boolean }> {
     const response = await apiClient.get<{ isSet: boolean }>(`/api/users/${userId}/hidden-pin/status`);
+    return response.data;
+  }
+
+  // GET /api/users/:userId/login-history?limit=50 - lịch sử đăng nhập
+  async getLoginHistory(userId: string, limit = 20): Promise<LoginHistoryItem[]> {
+    const response = await apiClient.get<LoginHistoryItem[]>(
+      `/api/users/${userId}/login-history?limit=${limit}`,
+    );
     return response.data;
   }
 

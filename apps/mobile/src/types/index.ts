@@ -86,7 +86,7 @@ export interface LoginHistoryItem {
 // ========================
 // Message
 // ========================
-export type MessageType = "text" | "image" | "video" | "file" | "voice" | "sticker" | "system";
+export type MessageType = "text" | "image" | "video" | "file" | "voice" | "sticker" | "call" | "system";
 
 export interface MessageReaction {
   emoji: string;
@@ -101,6 +101,7 @@ export interface MessageAttachment {
   size?: number;
   duration?: number; // voice/video duration
   thumbnailUrl?: string;
+  transcript?: string;
 }
 
 export interface Message {
@@ -170,6 +171,7 @@ export interface Participant {
   role: "admin" | "member";
   joinedAt: string;
   nickname?: string;
+  isPinned?: boolean;
   isMuted?: boolean;
   muteUntil?: string | null;
   labelIds?: string[];

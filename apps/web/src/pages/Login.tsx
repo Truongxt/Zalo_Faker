@@ -1,188 +1,207 @@
-﻿import { useState, FormEvent } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
-import { useAuthStore } from '@/stores/authStore'
-import { authService } from '@/services/auth'
-import { Eye, EyeOff, MessageCircle, Loader2 } from 'lucide-react'
+﻿import { useState, FormEvent } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { useAuthStore } from "@/stores/authStore";
+import { authService } from "@/services/auth";
+import { Eye, EyeOff, MessageCircle, Loader2 } from "lucide-react";
 
 export default function Login() {
-    const navigate = useNavigate()
-    const { setError, setUser, setAccessToken, setRefreshToken } = useAuthStore()
+  const navigate = useNavigate();
+  const { setError, setUser, setAccessToken, setRefreshToken } = useAuthStore();
 
-    const [email, setEmail] = useState('')
-    const [password, setPassword] = useState('')
-    const [showPassword, setShowPassword] = useState(false)
-    const [isLoading, setIsLoading] = useState(false)
-    const [error, setLocalError] = useState('')
-    const [isLockedError, setIsLockedError] = useState(false)
+  const [identifier, setIdentifier] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setLocalError] = useState("");
+  const [isLockedError, setIsLockedError] = useState(false);
 
-    const handleSubmit = async (e: FormEvent) => {
-        e.preventDefault()
-        setLocalError('')
-        setIsLockedError(false)
-        setIsLoading(true)
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setLocalError("");
+    setIsLockedError(false);
+    setIsLoading(true);
 
-        try {
-            const data = await authService.login(email, password)
-            setUser(data.user)
-            setAccessToken(data.accessToken)
-            setRefreshToken(data.refreshToken)
-            navigate('/chat')
-        } catch (err: any) {
-            const message = err.message || 'Đăng nhập thất bại. Vui lòng thử lại.'
-            const locked = /locked|khóa/i.test(message)
-            setIsLockedError(locked)
-            const displayMessage = locked
-                ? 'Tài khoản đang bị khóa. Vui lòng mở khóa để tiếp tục.'
-                : message
-            setLocalError(displayMessage)
-            setError(displayMessage)
-        } finally {
-            setIsLoading(false)
-        }
+    try {
+      const data = await authService.login(identifier, password);
+      setUser(data.user);
+      setAccessToken(data.accessToken);
+      setRefreshToken(data.refreshToken);
+      navigate("/chat");
+    } catch (err: any) {
+      const message = err.message || "Đăng nhập thất bại. Vui lòng thử lại.";
+      const locked = /locked|khóa/i.test(message);
+      setIsLockedError(locked);
+      const displayMessage = locked
+        ? "Tài khoản đang bị khóa. Vui lòng mở khóa để tiếp tục."
+        : message;
+      setLocalError(displayMessage);
+      setError(displayMessage);
+    } finally {
+      setIsLoading(false);
     }
+  };
 
-    return (
-        <div className="min-h-screen flex">
-            <div className="hidden lg:flex lg:w-1/2 gradient-primary items-center justify-center p-12">
-                <div className="max-w-md text-white">
-                    <div className="flex items-center gap-3 mb-8">
-                        <div className="w-14 h-14 bg-white/20 rounded-2xl flex items-center justify-center backdrop-blur-sm">
-                            <MessageCircle className="w-8 h-8 text-white" />
-                        </div>
-                        <h1 className="text-3xl font-bold">Zalo Faker</h1>
-                    </div>
-
-                    <h2 className="text-4xl font-bold mb-6 leading-tight">
-                        Kết nối mọi lúc,
-                        <br />
-                        mọi nơi
-                    </h2>
-
-                    <p className="text-lg text-white/80 mb-8">
-                        Nhắn tin, gọi video, chia sẻ khoảnh khắc với bạn bè và gia đình.
-                        Hoàn toàn miễn phí.
-                    </p>
-
-                    <div className="flex gap-4">
-                        <div className="flex items-center gap-2 bg-white/10 px-4 py-2 rounded-lg backdrop-blur-sm">
-                            <span className="text-2xl">💬</span>
-                            <span>Chat nhanh</span>
-                        </div>
-                        <div className="flex items-center gap-2 bg-white/10 px-4 py-2 rounded-lg backdrop-blur-sm">
-                            <span className="text-2xl">📹</span>
-                            <span>Video call</span>
-                        </div>
-                        <div className="flex items-center gap-2 bg-white/10 px-4 py-2 rounded-lg backdrop-blur-sm">
-                            <span className="text-2xl">🤖</span>
-                            <span>AI Bot</span>
-                        </div>
-                    </div>
-                </div>
+  return (
+    <div className="min-h-screen flex">
+      <div className="hidden lg:flex lg:w-1/2 gradient-primary items-center justify-center p-12">
+        <div className="max-w-md text-white">
+          <div className="flex items-center gap-3 mb-8">
+            <div className="w-14 h-14 bg-white/20 rounded-2xl flex items-center justify-center backdrop-blur-sm">
+              <MessageCircle className="w-8 h-8 text-white" />
             </div>
+            <h1 className="text-3xl font-bold">Zalo Faker</h1>
+          </div>
 
-            <div className="flex-1 flex items-center justify-center p-8 bg-gray-50 dark:bg-dark-100">
-                <div className="w-full max-w-md">
-                    <div className="lg:hidden text-center mb-8">
-                        <div className="inline-flex items-center gap-3 mb-4">
-                            <div className="w-12 h-12 gradient-primary rounded-xl flex items-center justify-center">
-                                <MessageCircle className="w-6 h-6 text-white" />
-                            </div>
-                            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Zalo Faker</h1>
-                        </div>
-                    </div>
+          <h2 className="text-4xl font-bold mb-6 leading-tight">
+            Kết nối mọi lúc,
+            <br />
+            mọi nơi
+          </h2>
 
-                    <div className="card p-8">
-                        <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
-                            Đăng nhập
-                        </h2>
-                        <p className="text-gray-600 dark:text-gray-400 mb-8">
-                            Chào mừng bạn trở lại! Vui lòng đăng nhập để tiếp tục.
-                        </p>
+          <p className="text-lg text-white/80 mb-8">
+            Nhắn tin, gọi video, chia sẻ khoảnh khắc với bạn bè và gia đình.
+            Hoàn toàn miễn phí.
+          </p>
 
-                        {error && (
-                            <div className="mb-6 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
-                                <p className="text-red-600 dark:text-red-400 text-sm">{error}</p>
-                                {isLockedError ? (
-                                    <Link
-                                        to="/unlock-account"
-                                        className="inline-block mt-2 text-amber-600 hover:text-amber-700 text-sm font-medium"
-                                    >
-                                        Mở khóa tài khoản ngay
-                                    </Link>
-                                ) : null}
-                            </div>
-                        )}
+          <div className="flex gap-4">
+            <div className="flex items-center gap-2 bg-white/10 px-4 py-2 rounded-lg backdrop-blur-sm">
+              <span className="text-2xl">💬</span>
+              <span>Chat nhanh</span>
+            </div>
+            <div className="flex items-center gap-2 bg-white/10 px-4 py-2 rounded-lg backdrop-blur-sm">
+              <span className="text-2xl">📹</span>
+              <span>Video call</span>
+            </div>
+            <div className="flex items-center gap-2 bg-white/10 px-4 py-2 rounded-lg backdrop-blur-sm">
+              <span className="text-2xl">🤖</span>
+              <span>AI Bot</span>
+            </div>
+          </div>
+        </div>
+      </div>
 
-                        <form onSubmit={handleSubmit} className="space-y-5">
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                    Email
-                                </label>
-                                <input
-                                    type="text"
-                                    value={email}
-                                    onChange={(e) => setEmail(e.target.value)}
-                                    className="input"
-                                    placeholder="example@email.com"
-                                    required
-                                    autoComplete="email"
-                                />
-                            </div>
+      <div className="flex-1 flex items-center justify-center p-8 bg-gray-50 dark:bg-dark-100">
+        <div className="w-full max-w-md">
+          <div className="lg:hidden text-center mb-8">
+            <div className="inline-flex items-center gap-3 mb-4">
+              <div className="w-12 h-12 gradient-primary rounded-xl flex items-center justify-center">
+                <MessageCircle className="w-6 h-6 text-white" />
+              </div>
+              <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+                Zalo Faker
+              </h1>
+            </div>
+          </div>
 
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                    Mật khẩu
-                                </label>
-                                <div className="relative">
-                                    <input
-                                        type={showPassword ? 'text' : 'password'}
-                                        value={password}
-                                        onChange={(e) => setPassword(e.target.value)}
-                                        className="input pr-12"
-                                        placeholder="••••••••"
-                                        required
-                                        autoComplete="current-password"
-                                    />
-                                    <button
-                                        type="button"
-                                        onClick={() => setShowPassword(!showPassword)}
-                                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
-                                    >
-                                        {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                                    </button>
-                                </div>
-                            </div>
+          <div className="card p-8">
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
+              Đăng nhập
+            </h2>
+            <p className="text-gray-600 dark:text-gray-400 mb-8">
+              Chào mừng bạn trở lại! Vui lòng đăng nhập để tiếp tục.
+            </p>
 
-                            <div className="flex items-center justify-between">
-                                <label className="flex items-center gap-2 cursor-pointer">
-                                    <input type="checkbox" className="w-4 h-4 rounded border-gray-300 text-primary-500 focus:ring-primary-500" />
-                                    <span className="text-sm text-gray-600 dark:text-gray-400">Ghi nhớ đăng nhập</span>
-                                </label>
-                                <Link to="/forgot-password" className="text-sm text-primary-500 hover:text-primary-600 font-medium">
-                                    Quên mật khẩu?
-                                </Link>
-                            </div>
+            {error && (
+              <div className="mb-6 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                <p className="text-red-600 dark:text-red-400 text-sm">
+                  {error}
+                </p>
+                {isLockedError ? (
+                  <Link
+                    to="/unlock-account"
+                    className="inline-block mt-2 text-amber-600 hover:text-amber-700 text-sm font-medium"
+                  >
+                    Mở khóa tài khoản ngay
+                  </Link>
+                ) : null}
+              </div>
+            )}
 
-                            <div className="text-right -mt-2">
-                                <Link to="/unlock-account" className="text-sm text-amber-600 hover:text-amber-700 font-medium">
-                                    Mở khóa tài khoản
-                                </Link>
-                            </div>
+            <form onSubmit={handleSubmit} className="space-y-5">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Email hoặc số điện thoại
+                </label>
+                <input
+                  type="text"
+                  value={identifier}
+                  onChange={(e) => setIdentifier(e.target.value)}
+                  className="input"
+                  placeholder="example@email.com hoặc 09xxxxxxxx"
+                  required
+                  autoComplete="username"
+                />
+              </div>
 
-                            <button
-                                type="submit"
-                                disabled={isLoading}
-                                className="btn-primary w-full h-12 text-base"
-                            >
-                                {isLoading ? (
-                                    <Loader2 className="w-5 h-5 animate-spin" />
-                                ) : (
-                                    'Đăng nhập'
-                                )}
-                            </button>
-                        </form>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Mật khẩu
+                </label>
+                <div className="relative">
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="input pr-12"
+                    placeholder="••••••••"
+                    required
+                    autoComplete="current-password"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+                  >
+                    {showPassword ? (
+                      <EyeOff className="w-5 h-5" />
+                    ) : (
+                      <Eye className="w-5 h-5" />
+                    )}
+                  </button>
+                </div>
+              </div>
 
-                        {/* <div className="relative my-8">
+              <div className="flex items-center justify-between">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="w-4 h-4 rounded border-gray-300 text-primary-500 focus:ring-primary-500"
+                  />
+                  <span className="text-sm text-gray-600 dark:text-gray-400">
+                    Ghi nhớ đăng nhập
+                  </span>
+                </label>
+                <Link
+                  to="/forgot-password"
+                  className="text-sm text-primary-500 hover:text-primary-600 font-medium"
+                >
+                  Quên mật khẩu?
+                </Link>
+              </div>
+
+              <div className="text-right -mt-2">
+                <Link
+                  to="/unlock-account"
+                  className="text-sm text-amber-600 hover:text-amber-700 font-medium"
+                >
+                  Mở khóa tài khoản
+                </Link>
+              </div>
+
+              <button
+                type="submit"
+                disabled={isLoading}
+                className="btn-primary w-full h-12 text-base"
+              >
+                {isLoading ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : (
+                  "Đăng nhập"
+                )}
+              </button>
+            </form>
+
+            {/* <div className="relative my-8">
                             <div className="absolute inset-0 flex items-center">
                                 <div className="w-full border-t border-gray-200 dark:border-gray-700" />
                             </div>
@@ -216,16 +235,19 @@ export default function Login() {
                                 Facebook
                             </button>
                         </div> */}
-                    </div>
+          </div>
 
-                    <p className="text-center mt-8 text-gray-600 dark:text-gray-400">
-                        Chưa có tài khoản?{' '}
-                        <Link to="/register" className="text-primary-500 hover:text-primary-600 font-medium">
-                            Đăng ký ngay
-                        </Link>
-                    </p>
-                </div>
-            </div>
+          <p className="text-center mt-8 text-gray-600 dark:text-gray-400">
+            Chưa có tài khoản?{" "}
+            <Link
+              to="/register"
+              className="text-primary-500 hover:text-primary-600 font-medium"
+            >
+              Đăng ký ngay
+            </Link>
+          </p>
         </div>
-    )
+      </div>
+    </div>
+  );
 }

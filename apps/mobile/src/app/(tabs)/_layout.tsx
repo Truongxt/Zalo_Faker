@@ -108,18 +108,22 @@ export default function TabsLayout() {
     };
   }, [router, user?.id, user?.fullName, user?.avatarUrl]);
 
-  const segments = useSegments();
-  const isDetailScreen = segments.includes("[conversationId]") || segments.includes("[callId]");
+  const segments = useSegments() as string[];
+  const isDetailScreen =
+    segments.includes("[conversationId]") || segments.includes("[callId]");
 
   return (
     <View style={{ flex: 1 }}>
-      {!isDetailScreen && <Header onAddPress={() => setMenuOpen((prev) => !prev)} />}
+      {!isDetailScreen && (
+        <Header onAddPress={() => setMenuOpen((prev) => !prev)} />
+      )}
 
       <Tabs
         screenOptions={{
           headerShown: false,
           tabBarActiveTintColor: Colors.primary,
           tabBarInactiveTintColor: "#9CA3AF",
+          tabBarHideOnKeyboard: true,
           tabBarStyle: {
             borderTopWidth: 0.5,
             borderTopColor: "#E5E7EB",
