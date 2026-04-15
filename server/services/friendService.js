@@ -201,6 +201,48 @@ const FriendService = {
     return users.filter(Boolean);
   },
 
+  async getBlockStateBetweenUsers(userId, targetUserId) {
+    const fromId = Number(userId);
+    const toId = Number(targetUserId);
+
+    if (!fromId || !toId) {
+      throw createError("userId and targetUserId are required", 400);
+    }
+
+    const [direct, reverse] = await Promise.all([
+      friendRepository.getDirectFriend(fromId, toId),
+      friendRepository.getDirectFriend(toId, fromId),
+    ]);
+
+    const blockedByActor =
+      Boolean(direct) && String(direct.status) === "blocked";
+    const blockedByTarget =
+      Boolean(reverse) && String(reverse.status) === "blocked";
+
+    return {
+      blockedByActor,
+      blockedByTarget,
+      direct,
+      reverse,
+    };
+  },
+
+  async ensureCanMessageBetweenUsers(userId, targetUserId) {
+    const state = await this.getBlockStateBetweenUsers(userId, targetUserId);
+
+    if (state.blockedByActor) {
+      const error = createError("You blocked this user. Unblock first.", 403);
+      error.code = "BLOCKED_BY_SELF";
+      throw error;
+    }
+
+    if (state.blockedByTarget) {
+      const error = createError("You are blocked by this user", 403);
+      error.code = "BLOCKED_BY_TARGET";
+      throw error;
+    }
+  },
+
 }
 
 module.exports =  FriendService;

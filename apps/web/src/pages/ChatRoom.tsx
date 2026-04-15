@@ -7,7 +7,7 @@ import {
   FormEvent,
   ChangeEvent,
 } from "react";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import {
   useChatStore,
   type Message,
@@ -71,6 +71,7 @@ import GroupManagementModal from "@/components/chat/GroupManagementModal";
 import ForwardMessageModal from "@/components/chat/ForwardMessageModal";
 import BackgroundPickerModal from "@/components/chat/BackgroundPickerModal";
 import { useCallStore } from "@/stores/callStore";
+import { friendsService } from "@/services/friendsService";
 
 type InfoPanelSectionKey = "media" | "files" | "links";
 
@@ -137,6 +138,7 @@ const formatPanelFileSize = (size?: number) => {
 };
 
 export default function ChatRoom() {
+  const navigate = useNavigate();
   const { conversationId } = useParams<{ conversationId: string }>();
   const { user } = useAuthStore();
   const { addToast } = useToast();
@@ -197,6 +199,10 @@ export default function ChatRoom() {
     previewUrl?: string;
   } | null>(null);
   const [isMutingConversation, setIsMutingConversation] = useState(false);
+  const [isBlockingUser, setIsBlockingUser] = useState(false);
+  const [blockStatus, setBlockStatus] = useState<
+    "none" | "blocked_by_me" | "blocked_by_other"
+  >("none");
 
   // Pagination state
   const pagination = useMessagePagination(conversationId);
@@ -440,6 +446,16 @@ export default function ChatRoom() {
   const handleSendMessage = async (e: FormEvent) => {
     e.preventDefault();
     if (!conversationId || !user) return;
+    if (isMessagingBlocked) {
+      addToast(
+        isBlockedByMe
+          ? "Bạn đã chặn người dùng này. Hãy mở chặn để nhắn tin."
+          : "Bạn đã bị chặn",
+        "warning",
+        3500,
+      );
+      return;
+    }
     if (!message.trim() && !pendingMedia) return;
     if (
       activeConversation?.type === "group" &&
@@ -794,6 +810,16 @@ export default function ChatRoom() {
     caption?: string,
   ) => {
     if (!conversationId || !user) return;
+    if (isMessagingBlocked) {
+      addToast(
+        isBlockedByMe
+          ? "Bạn đã chặn người dùng này. Hãy mở chặn để gửi tin."
+          : "Bạn đã bị chặn",
+        "warning",
+        3500,
+      );
+      return;
+    }
     if (activeConversation?.type === "group" && !canSendMediaInGroup) {
       addToast("Bạn không có quyền gửi media trong nhóm này.", "error", 4000);
       return;
@@ -1280,9 +1306,98 @@ export default function ChatRoom() {
   const currentP = activeConversation?.participants.find(
     (p) => String(p.userId) === String(user?.id),
   );
+  const isBlockedByMe = blockStatus === "blocked_by_me";
+  const isBlockedByOther = blockStatus === "blocked_by_other";
+  const isPrivateConversation = activeConversation?.type !== "group";
+  const isMessagingBlocked = isPrivateConversation && (isBlockedByMe || isBlockedByOther);
   const activeNickname = currentP?.nickname;
   const isMuted = currentP?.isMuted;
   const currentGroupRole = currentP?.role;
+
+  useEffect(() => {
+    if (!conversationId || !activeConversation || activeConversation.type === "group" || !user?.id) {
+      setBlockStatus("none");
+      return;
+    }
+
+    let cancelled = false;
+    const run = async () => {
+      const otherParticipant = activeConversation.participants.find(
+        (participant) => String(participant.userId) !== String(user.id),
+      );
+      if (!otherParticipant?.userId) {
+        if (!cancelled) setBlockStatus("none");
+        return;
+      }
+
+      try {
+        const relation = await friendsService.checkFriendship(
+          String(user.id),
+          String(otherParticipant.userId),
+        );
+        if (cancelled) return;
+
+        if (!relation || String((relation as any).status) !== "blocked") {
+          setBlockStatus("none");
+          return;
+        }
+
+        const blockedByMe = String(relation.fromUserId) === String(user.id);
+        setBlockStatus(blockedByMe ? "blocked_by_me" : "blocked_by_other");
+      } catch {
+        if (!cancelled) setBlockStatus("none");
+      }
+    };
+
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeConversation, conversationId, user?.id]);
+
+  useEffect(() => {
+    if (!otherUser?.userId || !user?.id) return;
+
+    const handleFriendBlocked = ({
+      targetUserId,
+    }: {
+      targetUserId: string;
+    }) => {
+      if (String(targetUserId) !== String(otherUser.userId)) return;
+      setBlockStatus("blocked_by_me");
+      addToast("Đã chặn người dùng", "success", 2500);
+    };
+
+    const handleBlockedBy = ({
+      blockedByUserId,
+    }: {
+      blockedByUserId: string;
+    }) => {
+      if (String(blockedByUserId) !== String(otherUser.userId)) return;
+      setBlockStatus("blocked_by_other");
+      addToast("Bạn đã bị chặn", "warning", 3000);
+    };
+
+    const handleFriendUnblocked = ({
+      targetUserId,
+    }: {
+      targetUserId: string;
+    }) => {
+      if (String(targetUserId) !== String(otherUser.userId)) return;
+      setBlockStatus("none");
+      addToast("Đã mở chặn người dùng", "success", 2500);
+    };
+
+    socketService.on("friend:blocked", handleFriendBlocked);
+    socketService.on("friend:blocked_by", handleBlockedBy);
+    socketService.on("friend:unblocked", handleFriendUnblocked);
+
+    return () => {
+      socketService.off("friend:blocked", handleFriendBlocked);
+      socketService.off("friend:blocked_by", handleBlockedBy);
+      socketService.off("friend:unblocked", handleFriendUnblocked);
+    };
+  }, [addToast, otherUser?.userId, user?.id]);
 
   const canUseGroupScope = useCallback(
     (scope?: GroupPermissionScope) => {
@@ -1423,6 +1538,47 @@ export default function ChatRoom() {
       addToast("Không thể cập nhật thông báo hội thoại.", "error", 3500);
     } finally {
       setIsMutingConversation(false);
+    }
+  };
+
+  const handleBlockUserInConversation = async () => {
+    if (!otherUser?.userId || activeConversation?.type === "group") return;
+    if (
+      !confirm(
+        `Chặn ${otherUser.fullName || "người dùng"}? Bạn sẽ không nhận tin nhắn từ người này nữa.`,
+      )
+    ) {
+      return;
+    }
+
+    try {
+      setIsBlockingUser(true);
+      await friendsService.blockUser(String(otherUser.userId));
+      setShowMenu(false);
+      setBlockStatus("blocked_by_me");
+      addToast("Đã chặn người dùng", "success", 2500);
+    } catch (error) {
+      console.error("Block user error:", error);
+      addToast("Không thể chặn người dùng lúc này", "error", 3500);
+    } finally {
+      setIsBlockingUser(false);
+    }
+  };
+
+  const handleUnblockUserInConversation = async () => {
+    if (!otherUser?.userId || activeConversation?.type === "group") return;
+
+    try {
+      setIsBlockingUser(true);
+      await friendsService.unblockUser(String(otherUser.userId));
+      setShowMenu(false);
+      setBlockStatus("none");
+      addToast("Đã mở chặn người dùng", "success", 2500);
+    } catch (error) {
+      console.error("Unblock user error:", error);
+      addToast("Không thể mở chặn người dùng lúc này", "error", 3500);
+    } finally {
+      setIsBlockingUser(false);
     }
   };
 
@@ -1572,6 +1728,11 @@ export default function ChatRoom() {
     });
   };
 
+  const handleOpenOtherProfile = () => {
+    if (activeConversation?.type === "group" || !otherUser?.userId) return;
+    navigate(`/profile/${otherUser.userId}`);
+  };
+
   if (!conversationId || !activeConversation) {
     return (
       <div className="flex-1 flex items-center justify-center bg-gray-50 dark:bg-dark-100">
@@ -1594,7 +1755,13 @@ export default function ChatRoom() {
             <ArrowLeft className="w-5 h-5" />
           </button>
 
-          <div className="relative">
+          <button
+            type="button"
+            onClick={handleOpenOtherProfile}
+            disabled={activeConversation.type === "group"}
+            className="relative rounded-full disabled:cursor-default"
+            title={activeConversation.type === "group" ? "" : "Xem trang cá nhân"}
+          >
             {conversationAvatar ? (
               <img
                 src={conversationAvatar}
@@ -1611,9 +1778,15 @@ export default function ChatRoom() {
             {otherUser?.status === "online" && (
               <span className="online-indicator" />
             )}
-          </div>
+          </button>
 
-          <div>
+          <button
+            type="button"
+            onClick={handleOpenOtherProfile}
+            disabled={activeConversation.type === "group"}
+            className="text-left disabled:cursor-default"
+            title={activeConversation.type === "group" ? "" : "Xem trang cá nhân"}
+          >
             <h3 className="font-semibold text-gray-900 dark:text-white flex items-center gap-2">
               {conversationName}
               {isMuted && (
@@ -1648,7 +1821,7 @@ export default function ChatRoom() {
                 </>
               )}
             </p>
-          </div>
+          </button>
         </div>
 
         <div className="flex items-center gap-1">
@@ -1751,6 +1924,25 @@ export default function ChatRoom() {
                 >
                   Đổi hình nền
                 </button>
+                {activeConversation?.type !== "group" && (
+                  <button
+                    onClick={
+                      isBlockedByMe
+                        ? handleUnblockUserInConversation
+                        : handleBlockUserInConversation
+                    }
+                    disabled={isBlockingUser}
+                    className="w-full text-left px-4 py-2 text-sm text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors disabled:opacity-50"
+                  >
+                    {isBlockingUser
+                      ? isBlockedByMe
+                        ? "Đang mở chặn..."
+                        : "Đang chặn..."
+                      : isBlockedByMe
+                        ? "Mở chặn người dùng"
+                        : "Chặn người dùng"}
+                  </button>
+                )}
                 <button
                   onClick={handleDeleteHistory}
                   className="w-full text-left px-4 py-2 text-sm text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors border-t border-gray-100 dark:border-gray-800"
@@ -1987,6 +2179,25 @@ export default function ChatRoom() {
 
       {/* Input */}
       <div className="p-4 border-t border-gray-200 dark:border-gray-800">
+        {isMessagingBlocked && (
+          <div className="mb-3 rounded-xl border border-amber-200 dark:border-amber-800/50 bg-amber-50 dark:bg-amber-900/20 px-3 py-2.5 text-sm flex items-center justify-between gap-3">
+            <span className="text-amber-800 dark:text-amber-200">
+              {isBlockedByMe
+                ? "Bạn đã chặn người dùng này"
+                : "Bạn đã bị chặn"}
+            </span>
+            {isBlockedByMe && (
+              <button
+                type="button"
+                onClick={handleUnblockUserInConversation}
+                disabled={isBlockingUser}
+                className="px-2.5 py-1 rounded-lg border border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-100 hover:bg-amber-100/70 dark:hover:bg-amber-800/40 disabled:opacity-50"
+              >
+                {isBlockingUser ? "Đang mở chặn..." : "Mở chặn"}
+              </button>
+            )}
+          </div>
+        )}
         {pendingMedia && (
           <div className="mb-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-dark-300 p-2.5">
             <div className="flex items-start gap-3">
@@ -2039,6 +2250,7 @@ export default function ChatRoom() {
               type="button"
               onClick={() => imageInputRef.current?.click()}
               disabled={
+                isMessagingBlocked ||
                 isSendingMedia ||
                 (activeConversation?.type === "group" && !canSendMediaInGroup)
               }
@@ -2061,6 +2273,7 @@ export default function ChatRoom() {
               type="button"
               onClick={() => fileInputRef.current?.click()}
               disabled={
+                isMessagingBlocked ||
                 isSendingMedia ||
                 (activeConversation?.type === "group" && !canSendMediaInGroup)
               }
@@ -2088,6 +2301,7 @@ export default function ChatRoom() {
             className="hidden"
             onChange={handlePickImage}
             disabled={
+              isMessagingBlocked ||
               isSendingMedia ||
               (activeConversation?.type === "group" && !canSendMediaInGroup)
             }
@@ -2098,6 +2312,7 @@ export default function ChatRoom() {
             className="hidden"
             onChange={handlePickFile}
             disabled={
+              isMessagingBlocked ||
               isSendingMedia ||
               (activeConversation?.type === "group" && !canSendMediaInGroup)
             }
@@ -2120,6 +2335,7 @@ export default function ChatRoom() {
                 <textarea
                   ref={inputRef}
                   value={message}
+                  disabled={isMessagingBlocked}
                   rows={1}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && !e.shiftKey) {
@@ -2134,7 +2350,11 @@ export default function ChatRoom() {
                     handleTyping();
                   }}
                   placeholder={
-                    announcementMode
+                    isMessagingBlocked
+                      ? isBlockedByMe
+                        ? "Bạn đã chặn người dùng này"
+                        : "Bạn đã bị chặn"
+                      : announcementMode
                       ? "Nhập nội dung thông báo..."
                       : "Nhập tin nhắn..."
                   }
@@ -2176,6 +2396,7 @@ export default function ChatRoom() {
                       type="button"
                       onClick={() => setShowStickerPicker(!showStickerPicker)}
                       disabled={
+                        isMessagingBlocked ||
                         activeConversation?.type === "group" &&
                         !canSendMediaInGroup
                       }
@@ -2205,11 +2426,12 @@ export default function ChatRoom() {
                   <button
                     type="button"
                     onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                    disabled={isMessagingBlocked}
                     className={`p-1 rounded-full transition-colors ${
                       showEmojiPicker
                         ? "bg-primary-100 text-primary-500"
                         : "hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500"
-                    }`}
+                    } disabled:opacity-40 disabled:cursor-not-allowed`}
                   >
                     <SmileIcon className="w-5 h-5" />
                   </button>
@@ -2240,6 +2462,7 @@ export default function ChatRoom() {
           {(message.trim() || pendingMedia) && !isRecording ? (
             <button
               type="submit"
+              disabled={isMessagingBlocked}
               className="p-3 bg-primary-500 text-white rounded-full hover:bg-primary-600 transition-colors flex-shrink-0"
             >
               <Send className="w-5 h-5" />
@@ -2249,6 +2472,7 @@ export default function ChatRoom() {
               type="button"
               onClick={handleToggleRecord}
               disabled={
+                isMessagingBlocked ||
                 activeConversation?.type === "group" && !canSendMediaInGroup
               }
               className={`p-3 text-white rounded-full transition-all flex-shrink-0
@@ -2283,21 +2507,43 @@ export default function ChatRoom() {
             <div className="rounded-2xl bg-white dark:bg-dark-200 border border-gray-200 dark:border-gray-700 p-4">
               <div className="flex flex-col items-center text-center">
                 {conversationAvatar ? (
-                  <img
-                    src={conversationAvatar}
-                    alt={conversationName}
-                    className="w-20 h-20 rounded-full object-cover"
-                  />
+                  <button
+                    type="button"
+                    onClick={handleOpenOtherProfile}
+                    disabled={activeConversation.type === "group"}
+                    className="rounded-full disabled:cursor-default"
+                    title={activeConversation.type === "group" ? "" : "Xem trang cá nhân"}
+                  >
+                    <img
+                      src={conversationAvatar}
+                      alt={conversationName}
+                      className="w-20 h-20 rounded-full object-cover"
+                    />
+                  </button>
                 ) : (
-                  <div className="w-20 h-20 rounded-full bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center">
-                    <span className="text-2xl font-semibold text-primary-600 dark:text-primary-300">
-                      {conversationName?.charAt(0).toUpperCase()}
-                    </span>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={handleOpenOtherProfile}
+                    disabled={activeConversation.type === "group"}
+                    className="rounded-full disabled:cursor-default"
+                    title={activeConversation.type === "group" ? "" : "Xem trang cá nhân"}
+                  >
+                    <div className="w-20 h-20 rounded-full bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center">
+                      <span className="text-2xl font-semibold text-primary-600 dark:text-primary-300">
+                        {conversationName?.charAt(0).toUpperCase()}
+                      </span>
+                    </div>
+                  </button>
                 )}
-                <p className="mt-3 font-semibold text-gray-900 dark:text-white">
+                <button
+                  type="button"
+                  onClick={handleOpenOtherProfile}
+                  disabled={activeConversation.type === "group"}
+                  className="mt-3 font-semibold text-gray-900 dark:text-white disabled:cursor-default"
+                  title={activeConversation.type === "group" ? "" : "Xem trang cá nhân"}
+                >
                   {conversationName}
-                </p>
+                </button>
                 <p className="text-xs text-gray-500 dark:text-gray-400">
                   {activeConversation.type === "group"
                     ? `${activeConversation.participants.length} thành viên`
@@ -2307,7 +2553,9 @@ export default function ChatRoom() {
                 </p>
               </div>
 
-              <div className="mt-4 grid grid-cols-2 gap-2">
+              <div
+                className={`mt-4 grid gap-2 ${activeConversation.type === "group" ? "grid-cols-2" : "grid-cols-3"}`}
+              >
                 <button
                   type="button"
                   onClick={handleToggleSearch}
@@ -2323,6 +2571,26 @@ export default function ChatRoom() {
                 >
                   {isMuted ? "Bật thông báo" : "Tắt thông báo"}
                 </button>
+                {activeConversation.type !== "group" && (
+                  <button
+                    type="button"
+                    onClick={
+                      isBlockedByMe
+                        ? handleUnblockUserInConversation
+                        : handleBlockUserInConversation
+                    }
+                    disabled={isBlockingUser}
+                    className="px-3 py-2 rounded-xl border border-red-200 dark:border-red-800/60 text-sm text-red-600 dark:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors disabled:opacity-50"
+                  >
+                    {isBlockingUser
+                      ? isBlockedByMe
+                        ? "Đang mở chặn..."
+                        : "Đang chặn..."
+                      : isBlockedByMe
+                        ? "Mở chặn"
+                        : "Chặn"}
+                  </button>
+                )}
               </div>
             </div>
 

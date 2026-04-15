@@ -17,6 +17,7 @@ import {
   Link2,
   Clock,
   UserPlus,
+  ShieldBan,
 } from "lucide-react";
 import CreateGroupModal from "@/components/chat/CreateGroupModal";
 import LabelManagerModal from "@/components/chat/LabelManagerModal";
@@ -26,6 +27,7 @@ import {
   getLabels,
   joinGroupByInviteCode,
 } from "@/services/api";
+import { getMessagePreviewText } from "@/lib/messagePreview";
 import AddFriendModal from "@/components/friends/AddFriendModal";
 
 export default function Sidebar() {
@@ -40,6 +42,8 @@ export default function Sidebar() {
   } = useChatStore();
 
   const isContactsView = location.pathname.startsWith("/chat/contacts");
+  const contactsTab =
+    new URLSearchParams(location.search).get("tab") || "friends";
   const isAIView = location.pathname.startsWith("/chat/ai");
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState<"all" | "unread" | "groups">(
@@ -323,8 +327,8 @@ export default function Sidebar() {
           /* Contacts Menu Items */
           <div className="space-y-1">
             <Link
-              to="/chat/contacts"
-              className={`flex items-center gap-3 p-3 rounded-lg transition-colors ${location.pathname === "/chat/contacts" ? "bg-primary-50 dark:bg-primary-900/20 text-primary-600" : "hover:bg-gray-50 dark:hover:bg-dark-200 text-gray-700 dark:text-gray-300"}`}
+              to="/chat/contacts?tab=requests"
+              className={`flex items-center gap-3 p-3 rounded-lg transition-colors ${isContactsView && contactsTab === "requests" ? "bg-primary-50 dark:bg-primary-900/20 text-primary-600" : "hover:bg-gray-50 dark:hover:bg-dark-200 text-gray-700 dark:text-gray-300"}`}
             >
               <div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center text-orange-600">
                 <UserPlus className="w-5 h-5" />
@@ -332,8 +336,8 @@ export default function Sidebar() {
               <span className="font-medium">Lời mời kết bạn</span>
             </Link>
             <Link
-              to="/chat/contacts"
-              className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-dark-200 text-gray-700 dark:text-gray-300"
+              to="/chat/contacts?tab=groups"
+              className={`flex items-center gap-3 p-3 rounded-lg transition-colors ${isContactsView && contactsTab === "groups" ? "bg-primary-50 dark:bg-primary-900/20 text-primary-600" : "hover:bg-gray-50 dark:hover:bg-dark-200 text-gray-700 dark:text-gray-300"}`}
             >
               <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600">
                 <Users className="w-5 h-5" />
@@ -341,13 +345,22 @@ export default function Sidebar() {
               <span className="font-medium">Danh sách nhóm</span>
             </Link>
             <Link
-              to="/chat/contacts"
-              className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-dark-200 text-gray-700 dark:text-gray-300"
+              to="/chat/contacts?tab=friends"
+              className={`flex items-center gap-3 p-3 rounded-lg transition-colors ${isContactsView && contactsTab === "friends" ? "bg-primary-50 dark:bg-primary-900/20 text-primary-600" : "hover:bg-gray-50 dark:hover:bg-dark-200 text-gray-700 dark:text-gray-300"}`}
             >
               <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center text-green-600">
                 <UserIcon className="w-5 h-5" />
               </div>
               <span className="font-medium">Danh sách bạn bè</span>
+            </Link>
+            <Link
+              to="/chat/contacts?tab=blocked"
+              className={`flex items-center gap-3 p-3 rounded-lg transition-colors ${isContactsView && contactsTab === "blocked" ? "bg-primary-50 dark:bg-primary-900/20 text-primary-600" : "hover:bg-gray-50 dark:hover:bg-dark-200 text-gray-700 dark:text-gray-300"}`}
+            >
+              <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center text-red-600">
+                <ShieldBan className="w-5 h-5" />
+              </div>
+              <span className="font-medium">Đã chặn</span>
             </Link>
           </div>
         ) : (
@@ -469,8 +482,12 @@ export default function Sidebar() {
                       </div>
                       <div className="flex items-center justify-between">
                         <p className="text-sm text-gray-500 dark:text-gray-400 truncate">
-                          {conv.lastMessage?.content ||
-                            "Bắt đầu cuộc trò chuyện"}
+                          {conv.lastMessage
+                            ? getMessagePreviewText({
+                                type: conv.lastMessage.type,
+                                content: conv.lastMessage.content,
+                              })
+                            : "Bắt đầu cuộc trò chuyện"}
                         </p>
                         {conv.unreadCount > 0 && !isMuted && (
                           <span className="badge flex-shrink-0 ml-2">
