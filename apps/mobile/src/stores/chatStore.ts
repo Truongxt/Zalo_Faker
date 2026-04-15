@@ -70,6 +70,7 @@ interface ChatState {
     messageId: string,
     updates: Partial<Message>,
   ) => void;
+  removeMessage: (conversationId: string, messageId: string) => void;
 
   addTypingUser: (conversationId: string, userId: string) => void;
   removeTypingUser: (conversationId: string, userId: string) => void;
@@ -161,6 +162,16 @@ export const useChatStore = create<ChatState>()(
             },
           };
         }),
+
+      removeMessage: (conversationId, messageId) =>
+        set((state) => ({
+          messages: {
+            ...state.messages,
+            [conversationId]: (state.messages[conversationId] || []).filter(
+              (m) => m.id !== messageId,
+            ),
+          },
+        })),
 
       addTypingUser: (conversationId, userId) =>
         set((state) => {

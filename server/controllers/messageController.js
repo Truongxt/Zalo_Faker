@@ -2,8 +2,71 @@ const messageService = require("../services/messageService")
 const conversationService = require("../services/conversationService")
 const GroupService = require("../services/groupService")
 const conversationModel = require("../models/conversation")
+const friendService = require("../services/friendService")
+
+const normalizeCallType = (value) => {
+    const normalized = String(value || "").trim().toLowerCase()
+    if (normalized === "video") return "video"
+    if (normalized === "audio" || normalized === "voice") return "audio"
+    return ""
+}
+
+const normalizeCallStatus = (value) => {
+    const normalized = String(value || "").trim().toLowerCase()
+    if (!normalized) return ""
+    return normalized === "ended" ? "finished" : normalized
+}
+
+const parseCallPayloadFromObject = (value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return null
+    const callType = normalizeCallType(value.callType)
+    const status = normalizeCallStatus(value.status || value.callStatus)
+    if (!callType || !status) return null
+    return { callType, status }
+}
+
+const parseCallPayload = (content) => {
+    if (!content) return null
+
+    if (typeof content === "string") {
+        const trimmed = content.trim()
+        if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return null
+
+        try {
+            return parseCallPayloadFromObject(JSON.parse(trimmed))
+        } catch {
+            return null
+        }
+    }
+
+    if (typeof content !== "object" || Array.isArray(content)) return null
+
+    const direct = parseCallPayloadFromObject(content)
+    if (direct) return direct
+
+    const nestedText =
+        typeof content.text === "string"
+            ? content.text
+            : typeof content.message === "string"
+                ? content.message
+                : typeof content.content === "string"
+                    ? content.content
+                    : ""
+
+    return nestedText ? parseCallPayload(nestedText) : null
+}
+
+const getCallPreviewText = (callPayload) => {
+    const suffix = callPayload.callType === "video" ? " video" : ""
+    if (callPayload.status === "finished") return `Cuoc goi${suffix}`
+    if (callPayload.status === "missed") return `Cuoc goi nho${suffix}`
+    if (callPayload.status === "rejected") return "Cuoc goi bi tu choi"
+    if (callPayload.status === "cancelled") return "Cuoc goi da huy"
+    return callPayload.callType === "video" ? "Cuoc goi video" : "Cuoc goi"
+}
 
 const getLastMessageContent = ({ type, content, metadata }) => {
+    const callPayload = parseCallPayload(content)
     const contentText =
         typeof content === "string"
             ? content
@@ -11,7 +74,9 @@ const getLastMessageContent = ({ type, content, metadata }) => {
                 ? content.text
                 : ""
 
-    const baseText = contentText
+    const baseText = (type === "call" || callPayload)
+        ? getCallPreviewText(callPayload || { callType: "audio", status: "finished" })
+        : contentText
         || (type === "image"
             ? "[Hình ảnh]"
             : type === "video"
@@ -20,13 +85,24 @@ const getLastMessageContent = ({ type, content, metadata }) => {
                     ? "[Tin nhắn thoại]"
                     : type === "sticker"
                         ? "[Nhãn dán]"
-                        : "[File]")
+                        : type === "call"
+                            ? "[Cuoc goi]"
+                            : "[File]")
 
     const prefixes = []
     if (metadata?.isImportant) prefixes.push("[Quan trọng]")
     if (metadata?.isAnnouncement) prefixes.push("[Thông báo]")
 
     return [...prefixes, baseText].join(" ").trim()
+}
+
+const getOtherParticipantId = (conversation, userId) => {
+    if (!conversation || conversation.type !== "private") return null
+    const selfId = String(userId)
+    const otherParticipant = (conversation.participants || []).find(
+        (participant) => String(participant.userId) !== selfId
+    )
+    return otherParticipant ? Number(otherParticipant.userId) : null
 }
 
 const createMessage = async (req, res) => {
@@ -57,23 +133,15 @@ const createMessage = async (req, res) => {
                 type: payload.type,
                 metadata: payload.metadata
             })
+        } else {
+            const otherUserId = getOtherParticipantId(conversation, senderId)
+            if (otherUserId) {
+                await friendService.ensureCanMessageBetweenUsers(senderId, otherUserId)
+            }
         }
 
         const message = await messageService.createMessage(payload)
         const normalizedMessage = { ...message, id: message._id }
-
-        const lastMessageContent = payload.metadata?.isAnnouncement
-            ? `[Thông báo] ${payload.content?.text || ""}`.trim()
-            : payload.content?.text
-                || (payload.type === "image"
-                    ? "[Hình ảnh]"
-                    : payload.type === "video"
-                        ? "[Video]"
-                        : payload.type === "voice"
-                            ? "[Tin nhắn thoại]"
-                            : payload.type === "sticker"
-                                ? "[Nhãn dán]"
-                                : "[File]")
 
         await conversationModel.updateConversation(payload.conversationId, {
             lastMessage: {
@@ -97,7 +165,10 @@ const createMessage = async (req, res) => {
 
         res.json(normalizedMessage)
     } catch (error) {
-        res.status(error.statusCode || 500).json({ message: error.message })
+        res.status(error.statusCode || 500).json({
+            message: error.message,
+            code: error.code || undefined
+        })
     }
 }
 
@@ -178,3 +249,4 @@ module.exports = {
     deleteMessagesByRoom,
     getStickers
 }
+

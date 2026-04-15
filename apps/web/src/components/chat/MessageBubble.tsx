@@ -10,6 +10,8 @@ import {
   Trash2,
   Share,
   Pin,
+  Phone,
+  Video,
 } from "lucide-react";
 import VoicePlayer from "./VoicePlayer";
 
@@ -41,6 +43,8 @@ type NormalizedContent = {
   fileSize?: number;
   duration?: number;
   transcript?: string;
+  callType?: "audio" | "video";
+  callStatus?: string;
 };
 
 const normalizeContent = (rawContent: any): NormalizedContent => {
@@ -79,7 +83,90 @@ const normalizeContent = (rawContent: any): NormalizedContent => {
       typeof rawContent.fileSize === "number" ? rawContent.fileSize : undefined,
     duration:
       typeof rawContent.duration === "number" ? rawContent.duration : undefined,
+    callType:
+      rawContent.callType === "video"
+        ? "video"
+        : rawContent.callType === "audio" || rawContent.callType === "voice"
+          ? "audio"
+          : undefined,
+    callStatus:
+      typeof rawContent.callStatus === "string"
+        ? rawContent.callStatus
+        : typeof rawContent.status === "string"
+          ? rawContent.status
+          : undefined,
   };
+};
+
+type ParsedCallPayload = {
+  callType: "audio" | "video";
+  status: string;
+  duration: number;
+};
+
+const normalizeCallType = (
+  value: unknown,
+): ParsedCallPayload["callType"] | null => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "video") return "video";
+  if (normalized === "audio" || normalized === "voice") return "audio";
+  return null;
+};
+
+const normalizeCallStatus = (value: unknown): string | null => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) return null;
+  return normalized === "ended" ? "finished" : normalized;
+};
+
+const parseCallPayloadFromObject = (
+  value: Record<string, unknown>,
+): ParsedCallPayload | null => {
+  const callType = normalizeCallType(value.callType);
+  const status = normalizeCallStatus(value.status || value.callStatus);
+  if (!callType || !status) return null;
+
+  const duration =
+    typeof value.duration === "number" && Number.isFinite(value.duration)
+      ? Math.max(0, Math.floor(value.duration))
+      : 0;
+
+  return { callType, status, duration };
+};
+
+const parseCallPayload = (value: unknown): ParsedCallPayload | null => {
+  if (!value) return null;
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return null;
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        return null;
+      }
+      return parseCallPayloadFromObject(parsed as Record<string, unknown>);
+    } catch {
+      return null;
+    }
+  }
+
+  if (typeof value !== "object" || Array.isArray(value)) return null;
+  const objectValue = value as Record<string, unknown>;
+
+  const direct = parseCallPayloadFromObject(objectValue);
+  if (direct) return direct;
+
+  const nestedText =
+    typeof objectValue.text === "string"
+      ? objectValue.text
+      : typeof objectValue.message === "string"
+        ? objectValue.message
+        : typeof objectValue.content === "string"
+          ? objectValue.content
+          : "";
+
+  return nestedText ? parseCallPayload(nestedText) : null;
 };
 export default function MessageBubble({
   message,
@@ -107,6 +194,12 @@ export default function MessageBubble({
   const reactions = Array.isArray(message.reactions) ? message.reactions : [];
   const readBy = Array.isArray(message.readBy) ? message.readBy : [];
   const content = normalizeContent(message.content);
+  const parsedCallPayload =
+    parseCallPayload(content) ||
+    parseCallPayload(message.content) ||
+    (message.type === "call"
+      ? { callType: "audio" as const, status: "finished", duration: 0 }
+      : null);
   const transcriptStatus = String(
     message.metadata?.transcriptStatus || "",
   ).toLowerCase();
@@ -125,6 +218,62 @@ export default function MessageBubble({
           : transcriptStatus === "empty"
             ? "Không nhận diện được nội dung từ file ghi âm này."
             : "Đang xử lý tách text cho đoạn ghi âm...");
+
+  const formatCallDuration = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+  };
+
+  const getCallStatusText = (status: string, callType: "audio" | "video") => {
+    const suffix = callType === "video" ? " video" : "";
+    if (status === "finished") {
+      return isSent ? `Cuoc goi di${suffix}` : `Cuoc goi den${suffix}`;
+    }
+    if (status === "missed") {
+      return isSent ? "Thue bao khong nhac may" : `Cuoc goi nho${suffix}`;
+    }
+    if (status === "rejected") return "Cuoc goi bi tu choi";
+    if (status === "cancelled") return "Cuoc goi da huy";
+    return callType === "video" ? "Cuoc goi video" : "Cuoc goi";
+  };
+
+  const renderCallContent = () => {
+    const payload = parsedCallPayload;
+    if (!payload) {
+      return (
+        <p className="whitespace-pre-wrap [overflow-wrap:anywhere] [word-break:break-word]">
+          {content.text || "Cuoc goi"}
+        </p>
+      );
+    }
+
+    const isMissed = payload.status === "missed" || payload.status === "rejected";
+    const CallIcon = payload.callType === "video" ? Video : Phone;
+
+    return (
+      <div className="flex items-center gap-3 min-w-[220px]">
+        <div
+          className={`w-10 h-10 rounded-full flex items-center justify-center ${isMissed ? "bg-red-100/80 text-red-500 dark:bg-red-900/30 dark:text-red-300" : "bg-black/10 text-primary-600 dark:bg-white/10 dark:text-primary-300"}`}
+        >
+          <CallIcon className="w-5 h-5" />
+        </div>
+        <div className="min-w-0">
+          <p className="font-semibold truncate">
+            {getCallStatusText(payload.status, payload.callType)}
+          </p>
+          {payload.status === "finished" && (
+            <p className="text-xs opacity-70">{formatCallDuration(payload.duration)}</p>
+          )}
+          {isMissed && !isSent && (
+            <p className="text-xs font-medium text-red-500 dark:text-red-300">
+              Nhan de goi lai
+            </p>
+          )}
+        </div>
+      </div>
+    );
+  };
 
   // Format read receipt info for tooltip
   const getReadReceiptInfo = () => {
@@ -202,6 +351,10 @@ export default function MessageBubble({
   }, [showReactionPicker, showConfirmRecall]);
 
   const renderContent = () => {
+    if (message.type === "call" || parsedCallPayload) {
+      return renderCallContent();
+    }
+
     switch (message.type) {
       case "image":
         return (

@@ -48,6 +48,67 @@ const extractContentMediaUrl = (rawContent: unknown): string | undefined => {
   );
 };
 
+const normalizeCallType = (value: unknown): "audio" | "video" | null => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "video") return "video";
+  if (normalized === "audio" || normalized === "voice") return "audio";
+  return null;
+};
+
+const normalizeCallStatus = (value: unknown): string | null => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) return null;
+  return normalized === "ended" ? "finished" : normalized;
+};
+
+const parseCallPayloadObject = (value: Record<string, unknown>) => {
+  const callType = normalizeCallType(value.callType);
+  const status = normalizeCallStatus(value.status || value.callStatus);
+  if (!callType || !status) return null;
+
+  return {
+    callType,
+    status,
+    duration:
+      typeof value.duration === "number" && Number.isFinite(value.duration)
+        ? Math.max(0, Math.floor(value.duration))
+        : 0,
+  };
+};
+
+const parseCallPayload = (value: unknown) => {
+  if (!value) return null;
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return null;
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        return null;
+      }
+      return parseCallPayloadObject(parsed as Record<string, unknown>);
+    } catch {
+      return null;
+    }
+  }
+
+  if (typeof value !== "object" || Array.isArray(value)) return null;
+  const objectValue = value as Record<string, unknown>;
+  const direct = parseCallPayloadObject(objectValue);
+  if (direct) return direct;
+
+  const nestedText =
+    typeof objectValue.text === "string"
+      ? objectValue.text
+      : typeof objectValue.message === "string"
+        ? objectValue.message
+        : typeof objectValue.content === "string"
+          ? objectValue.content
+          : "";
+  return nestedText ? parseCallPayload(nestedText) : null;
+};
+
 const normalizeMessage = (msg: any): Message => {
   const type = (msg?.type || "text") as Message["type"];
   const rawContent = msg?.content;
@@ -112,8 +173,11 @@ const normalizeMessage = (msg: any): Message => {
         }]
       : [];
 
-  let normalizedContent = contentText;
-  if (!normalizedContent) {
+  const parsedCallPayload = parseCallPayload(rawContent);
+  let normalizedContent: any = contentText;
+  if (type === "call") {
+    normalizedContent = parsedCallPayload || rawContent || "";
+  } else if (!normalizedContent) {
     if (type === "voice") normalizedContent = "Tin nhan thoai";
     else if (contentMediaUrl) normalizedContent = contentMediaUrl;
     else normalizedContent = "";
@@ -137,6 +201,10 @@ const normalizeMessage = (msg: any): Message => {
 };
 
 const toServerContent = (type: Message["type"], content: string) => {
+  if (type === "call") {
+    return content;
+  }
+
   if (type === "text") {
     return { text: content };
   }
@@ -253,7 +321,7 @@ export const chatService = {
     },
   ) {
     const { accessToken, user } = useAuthStore.getState();
-    const { addMessage, updateMessage } = useChatStore.getState();
+    const { addMessage, updateMessage, removeMessage } = useChatStore.getState();
 
     if (!user) return;
 
@@ -286,18 +354,20 @@ export const chatService = {
     };
 
     if (canUseSocket) {
-      await new Promise<void>((resolve) => {
+      await new Promise<void>((resolve, reject) => {
         socketService.emit(
           "chat:send",
           payload,
-          (ack: { success: boolean; message?: any }) => {
+          (ack: { success: boolean; message?: any; error?: string }) => {
             if (ack?.success && ack.message) {
               const saved = normalizeMessage(ack.message);
               updateMessage(conversationId, tempMessage.id, saved);
+              resolve();
             } else {
               console.error("chat:send ack failed:", ack);
+              removeMessage(conversationId, tempMessage.id);
+              reject(new Error(ack?.error || "Failed to send message"));
             }
-            resolve();
           },
         );
       });
@@ -316,6 +386,8 @@ export const chatService = {
       updateMessage(conversationId, tempMessage.id, saved);
     } catch (error) {
       console.error("Failed to send message:", error);
+      removeMessage(conversationId, tempMessage.id);
+      throw error;
     }
   },
 

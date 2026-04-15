@@ -38,6 +38,7 @@ export default function VideoCallModal() {
   const [isVideoOff, setIsVideoOff] = useState(false);
   const [isRemoteAccepted, setIsRemoteAccepted] = useState(false);
   const isRemoteAcceptedRef = useRef(false);
+  const acceptedAtRef = useRef<number | null>(null);
   const [remoteFrame, setRemoteFrame] = useState<string | null>(null);
   const streamIntervalRef = useRef<any>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -77,6 +78,17 @@ export default function VideoCallModal() {
   };
 
 
+  const markAccepted = () => {
+    if (!acceptedAtRef.current) {
+      acceptedAtRef.current = Date.now();
+    }
+  };
+
+  const getCallDurationSeconds = () => {
+    if (!acceptedAtRef.current) return 0;
+    return Math.max(0, Math.floor((Date.now() - acceptedAtRef.current) / 1000));
+  };
+
   const endCall = (notifyRemote = true) => {
     const state = useCallStore.getState();
     state.localStream?.getTracks().forEach((track) => track.stop());
@@ -90,13 +102,23 @@ export default function VideoCallModal() {
     setLocalStream(null);
 
     if (notifyRemote && targetUserId) {
+      const status =
+        acceptedAtRef.current
+          ? 'finished'
+          : callData?.isCaller
+            ? 'cancelled'
+            : 'finished';
       socketService.getSocket()?.emit('video:end-call', {
         toUserId: targetUserId,
         fromUserId: user?.id,
         conversationId: callData?.conversationId,
+        callType: callData?.callType || 'audio',
+        status,
+        duration: getCallDurationSeconds(),
       });
     }
 
+    acceptedAtRef.current = null;
     clearCall();
   };
 
@@ -106,12 +128,14 @@ export default function VideoCallModal() {
     let mounted = true;
     setIsRemoteAccepted(false);
     isRemoteAcceptedRef.current = false;
+    acceptedAtRef.current = null;
 
     const handleCallAnswered = async (data: any) => {
       if (!mounted || !callData.isCaller) return;
       if (String(data?.toUserId || '') !== String(user.id)) return;
       setIsRemoteAccepted(true);
       isRemoteAcceptedRef.current = true;
+      markAccepted();
     };
 
     const handleCallRejected = () => {
@@ -131,6 +155,7 @@ export default function VideoCallModal() {
       if (!isRemoteAcceptedRef.current) {
         setIsRemoteAccepted(true);
         isRemoteAcceptedRef.current = true;
+        markAccepted();
       }
       if (data.frame) {
          setRemoteFrame(data.frame);
@@ -146,6 +171,7 @@ export default function VideoCallModal() {
         if (!isRemoteAcceptedRef.current) {
           setIsRemoteAccepted(true);
           isRemoteAcceptedRef.current = true;
+          markAccepted();
         }
 
         try {
@@ -257,6 +283,7 @@ export default function VideoCallModal() {
           });
           setIsRemoteAccepted(true);
           isRemoteAcceptedRef.current = true;
+          markAccepted();
         }
 
         // 2. Start fake video stream

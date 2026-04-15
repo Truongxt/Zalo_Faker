@@ -17,7 +17,7 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { useToast } from '@/contexts/ToastContext';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { chatService } from '@/services/chat';
 import { socketService } from '@/lib/socket';
 
@@ -29,12 +29,23 @@ export default function Contacts() {
   const { conversations, setActiveConversation } = useChatStore();
   const { addToast } = useToast();
 
-  const [activeTab, setActiveTab] = useState<ContactTab>('friends');
+  const [searchParams, setSearchParams] = useSearchParams();
   const [friends, setFriends] = useState<any[]>([]);
   const [requests, setRequests] = useState<FriendRequest[]>([]);
   const [blockedUsers, setBlockedUsers] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const tabParam = searchParams.get('tab');
+  const activeTab: ContactTab =
+    tabParam === 'groups' || tabParam === 'requests' || tabParam === 'blocked'
+      ? tabParam
+      : 'friends';
+
+  const setActiveTab = (tab: ContactTab) => {
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.set('tab', tab);
+    setSearchParams(nextParams, { replace: true });
+  };
 
   const loadData = async () => {
     if (!user?.id) return;
@@ -194,6 +205,11 @@ export default function Contacts() {
     navigate(`/chat/${groupId}`);
   };
 
+  const handleOpenProfile = (targetUserId?: string | number) => {
+    if (!targetUserId) return;
+    navigate(`/profile/${targetUserId}`);
+  };
+
   const groupConversations = conversations.filter((c) => c.type === 'group');
 
   const filteredFriends = friends.filter((f) => {
@@ -299,15 +315,27 @@ export default function Contacts() {
                       className="flex items-center gap-4 p-4 border border-gray-100 dark:border-gray-800 rounded-xl hover:bg-gray-50 dark:hover:bg-dark-200 transition-colors group"
                     >
                       <div className="w-12 h-12 rounded-full overflow-hidden flex-shrink-0 bg-primary-100 dark:bg-primary-900/30">
-                        {friend.avatarUrl ? (
-                          <img src={friend.avatarUrl} alt="" className="w-full h-full object-cover" />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center text-primary-600 font-bold">
-                            {friend.fullName?.charAt(0).toUpperCase() || '?'}
-                          </div>
-                        )}
+                        <button
+                          type="button"
+                          onClick={() => handleOpenProfile(friend.userId)}
+                          className="w-full h-full block"
+                          title="Xem trang cá nhân"
+                        >
+                          {friend.avatarUrl ? (
+                            <img src={friend.avatarUrl} alt="" className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-primary-600 font-bold">
+                              {friend.fullName?.charAt(0).toUpperCase() || '?'}
+                            </div>
+                          )}
+                        </button>
                       </div>
-                      <div className="flex-1 min-w-0 pointer-events-none">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenProfile(friend.userId)}
+                        className="flex-1 min-w-0 pointer-events-auto text-left"
+                        title="Xem trang cá nhân"
+                      >
                         <h3 className="font-semibold text-gray-900 dark:text-white truncate">{friend.fullName || 'Nguoi dung'}</h3>
                         <div className="flex items-center gap-1.5 mt-0.5">
                           <div
@@ -321,7 +349,7 @@ export default function Contacts() {
                             {['online', 'active'].includes(friend.status?.toLowerCase() || '') ? 'Dang hoat dong' : 'Ngoai tuyen'}
                           </p>
                         </div>
-                      </div>
+                      </button>
 
                       <button
                         onClick={(e) => {
@@ -370,19 +398,31 @@ export default function Contacts() {
                       className="flex items-center gap-4 p-4 border border-gray-200 dark:border-gray-800 rounded-xl bg-primary-50/30 dark:bg-primary-900/10"
                     >
                       <div className="w-12 h-12 rounded-full overflow-hidden flex-shrink-0">
-                        {req.fromUser?.avatarUrl ? (
-                          <img src={req.fromUser.avatarUrl} alt="" className="w-full h-full object-cover" />
-                        ) : (
-                          <div className="w-full h-full bg-gray-200 flex items-center justify-center font-bold">
-                            {req.fromUser?.fullName?.charAt(0).toUpperCase()}
-                          </div>
-                        )}
+                        <button
+                          type="button"
+                          onClick={() => handleOpenProfile(req.fromUserId)}
+                          className="w-full h-full block"
+                          title="Xem trang cá nhân"
+                        >
+                          {req.fromUser?.avatarUrl ? (
+                            <img src={req.fromUser.avatarUrl} alt="" className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="w-full h-full bg-gray-200 flex items-center justify-center font-bold">
+                              {req.fromUser?.fullName?.charAt(0).toUpperCase()}
+                            </div>
+                          )}
+                        </button>
                       </div>
-                      <div className="flex-1">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenProfile(req.fromUserId)}
+                        className="flex-1 text-left"
+                        title="Xem trang cá nhân"
+                      >
                         <h3 className="font-semibold text-gray-900 dark:text-white">{req.fromUser?.fullName}</h3>
                         <p className="text-sm text-gray-600 dark:text-gray-400">{req.message || 'Muon ket ban voi ban'}</p>
                         <p className="text-xs text-gray-400 mt-1">{new Date(req.createdAt).toLocaleDateString('vi-VN')}</p>
-                      </div>
+                      </button>
                       <div className="flex gap-2">
                         <button
                           onClick={() => handleAcceptRequest(req)}
@@ -444,18 +484,30 @@ export default function Contacts() {
                       className="flex items-center gap-4 p-4 border border-gray-100 dark:border-gray-800 rounded-xl hover:bg-gray-50 dark:hover:bg-dark-200 transition-colors"
                     >
                       <div className="w-12 h-12 rounded-full overflow-hidden flex-shrink-0 bg-primary-100 dark:bg-primary-900/30">
-                        {blockedUser.avartarUrl ? (
-                          <img src={blockedUser.avartarUrl} alt="" className="w-full h-full object-cover" />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center text-primary-600 font-bold">
-                            {blockedUser.userName?.charAt(0).toUpperCase() || '?'}
-                          </div>
-                        )}
+                        <button
+                          type="button"
+                          onClick={() => handleOpenProfile(blockedUser.userId)}
+                          className="w-full h-full block"
+                          title="Xem trang cá nhân"
+                        >
+                          {blockedUser.avartarUrl ? (
+                            <img src={blockedUser.avartarUrl} alt="" className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-primary-600 font-bold">
+                              {blockedUser.userName?.charAt(0).toUpperCase() || '?'}
+                            </div>
+                          )}
+                        </button>
                       </div>
-                      <div className="flex-1 min-w-0">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenProfile(blockedUser.userId)}
+                        className="flex-1 min-w-0 text-left"
+                        title="Xem trang cá nhân"
+                      >
                         <h3 className="font-semibold text-gray-900 dark:text-white truncate">{blockedUser.userName || 'Nguoi dung'}</h3>
                         <p className="text-xs text-gray-500 mt-0.5">Da chan</p>
-                      </div>
+                      </button>
                       <button
                         onClick={() => handleUnblockUser(String(blockedUser.userId), blockedUser.userName)}
                         className="px-3 py-2 text-sm font-medium text-primary-600 bg-primary-50 hover:bg-primary-100 dark:bg-primary-900/20 dark:hover:bg-primary-900/30 rounded-lg transition-colors"
