@@ -71,7 +71,9 @@ const getFileExtension = (nameOrUrl: string) => {
   return String(ext || "");
 };
 
-const resolveFilePreviewPayload = (message: Message): FilePreviewPayload | null => {
+const resolveFilePreviewPayload = (
+  message: Message,
+): FilePreviewPayload | null => {
   const fileAttachment = (message.attachments || []).find(
     (attachment) => attachment.type === "file" && isHttpUrl(attachment.url),
   );
@@ -83,7 +85,8 @@ const resolveFilePreviewPayload = (message: Message): FilePreviewPayload | null 
   const url = fileAttachment?.url || fallbackUrl;
   if (!url) return null;
 
-  const name = fileAttachment?.name || getFileNameFromUrl(url) || "File dinh kem";
+  const name =
+    fileAttachment?.name || getFileNameFromUrl(url) || "File dinh kem";
   const extension = getFileExtension(name || url);
 
   if (extension === "pdf") {
@@ -538,7 +541,9 @@ function MessageItem({
         );
       case "file":
         const attachmentName =
-          (msg as any).attachments?.[0]?.name || filePreviewPayload?.name || "File dinh kem";
+          (msg as any).attachments?.[0]?.name ||
+          filePreviewPayload?.name ||
+          "File dinh kem";
 
         if (filePreviewPayload) {
           return (
@@ -552,7 +557,11 @@ function MessageItem({
               }}
             >
               <Ionicons
-                name={filePreviewPayload.kind === "pdf" ? "document-text-outline" : "reader-outline"}
+                name={
+                  filePreviewPayload.kind === "pdf"
+                    ? "document-text-outline"
+                    : "reader-outline"
+                }
                 size={18}
                 color={textColor}
               />
@@ -1398,7 +1407,13 @@ export default function ChatRoomScreen() {
           }}
         >
           <TouchableOpacity
-            style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0 }}
+            style={{
+              position: "absolute",
+              top: 0,
+              right: 0,
+              bottom: 0,
+              left: 0,
+            }}
             activeOpacity={1}
             onPress={closePreviewModal}
           />
@@ -1422,7 +1437,14 @@ export default function ChatRoomScreen() {
                 justifyContent: "space-between",
               }}
             >
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flex: 1 }}>
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 8,
+                  flex: 1,
+                }}
+              >
                 <Ionicons name="document-outline" size={18} color="#1E293B" />
                 <Text
                   numberOfLines={1}
@@ -1437,7 +1459,10 @@ export default function ChatRoomScreen() {
                 </Text>
               </View>
 
-              <TouchableOpacity onPress={closePreviewModal} style={{ padding: 4 }}>
+              <TouchableOpacity
+                onPress={closePreviewModal}
+                style={{ padding: 4 }}
+              >
                 <Ionicons name="close" size={22} color="#64748B" />
               </TouchableOpacity>
             </View>
@@ -1486,7 +1511,11 @@ export default function ChatRoomScreen() {
                         paddingHorizontal: 12,
                       }}
                     >
-                      <Ionicons name="warning-outline" size={28} color="#DC2626" />
+                      <Ionicons
+                        name="warning-outline"
+                        size={28}
+                        color="#DC2626"
+                      />
                       <Text
                         style={{
                           marginTop: 10,
@@ -1510,7 +1539,8 @@ export default function ChatRoomScreen() {
                           lineHeight: 22,
                         }}
                       >
-                        {previewTextContent || "File text không có nội dung để hiển thị."}
+                        {previewTextContent ||
+                          "File text không có nội dung để hiển thị."}
                       </Text>
                     </ScrollView>
                   )}
@@ -1557,7 +1587,9 @@ export default function ChatRoomScreen() {
                   backgroundColor: "#2563EB",
                 }}
               >
-                <Text style={{ color: "#FFFFFF", fontWeight: "600" }}>Đóng</Text>
+                <Text style={{ color: "#FFFFFF", fontWeight: "600" }}>
+                  Đóng
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
