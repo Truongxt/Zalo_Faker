@@ -11,6 +11,8 @@ router.get("/", conversationController.getConversations);
 router.get("/:id", conversationController.getConversation);
 router.put("/:id", conversationController.updateConversation);
 router.patch("/:id/setting", conversationController.updateParticipantSetting);
+router.put("/:id/pin-message", conversationController.pinMessage);
+router.delete("/:id/pin-message", conversationController.unpinMessage);
 router.delete("/:id", conversationController.deleteConversation);
 
 module.exports = router;

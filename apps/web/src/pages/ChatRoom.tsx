@@ -56,7 +56,9 @@ import {
   getConversation,
   getGroupSettings,
   pinGroupMessage,
+  pinConversationMessage,
   unpinGroupMessage,
+  unpinConversationMessage,
 } from "@/services/api";
 import { socketService } from "@/lib/socket";
 import EmojiPicker, { EmojiClickData, Theme } from "emoji-picker-react";
@@ -1102,65 +1104,165 @@ export default function ChatRoom() {
     }
   };
 
-  const handleSendSticker = (stickerUrl: string) => {
+  const handleSendSticker = async (stickerUrl: string) => {
     if (!conversationId || !user) return;
+    if (isMessagingBlocked) {
+      addToast(
+        isBlockedByMe
+          ? "Bạn đã chặn người dùng này. Hãy mở chặn để gửi tin."
+          : "Bạn đã bị chặn",
+        "warning",
+        3500,
+      );
+      return;
+    }
     if (activeConversation?.type === "group" && !canSendMediaInGroup) {
       addToast("Bạn không có quyền gửi media trong nhóm này.", "error", 4000);
       return;
     }
 
+    const content = { mediaUrl: stickerUrl };
+    const tempId = `temp-sticker-${Date.now()}`;
+
     const stickerMsg: Message = {
-      id: `temp-sticker-${Date.now()}`,
+      id: tempId,
       conversationId,
       senderId: user.id,
       type: "sticker",
-      content: { mediaUrl: stickerUrl },
+      content,
+      replyTo: replyTo || undefined,
       reactions: [],
       readBy: [],
       isDeleted: false,
       createdAt: new Date().toISOString(),
     };
     addMessage(conversationId, stickerMsg);
+    setShowStickerPicker(false);
+    setReplyTo(null);
 
-    socketService.sendMessage(
-      {
-        conversationId,
-        senderId: user.id,
-        type: "sticker",
-        content: { mediaUrl: stickerUrl },
-      },
-      (res) => {
-        if (res.success) {
-          useChatStore.getState().removeMessage(conversationId, stickerMsg.id);
-          addMessage(conversationId, normalizeMessage(res.message));
-        } else {
-          useChatStore.getState().removeMessage(conversationId, stickerMsg.id);
-          console.error("Gửi sticker thất bại:", res.error);
-        }
-      },
-    );
+    if (!isOnline) {
+      try {
+        await storeOfflineMessage(
+          conversationId,
+          user.id,
+          "sticker",
+          content,
+          undefined,
+          replyTo || undefined,
+        );
+        addToast(
+          "Bạn đang offline. Sticker sẽ được gửi khi có kết nối.",
+          "info",
+          3000,
+        );
+      } catch (error) {
+        useChatStore.getState().removeMessage(conversationId, tempId);
+        console.error("Failed to store offline sticker:", error);
+        addToast("Lỗi khi lưu sticker ngoại tuyến", "error", 3000);
+        return;
+      }
+
+      updateConversation(conversationId, {
+        lastMessage: {
+          content: "[Nhãn dán]",
+          type: "sticker",
+          senderId: user.id,
+          timestamp: new Date().toISOString(),
+        },
+        updatedAt: new Date().toISOString(),
+      });
+      return;
+    }
+
+    let sentMessage: Message | null = null;
+
+    if (socketService.isConnected()) {
+      const ack = await new Promise<{
+        success: boolean;
+        message?: Message;
+        error?: string;
+      }>((resolve) => {
+        let done = false;
+        const timeout = setTimeout(() => {
+          if (done) return;
+          done = true;
+          resolve({ success: false, error: "ACK_TIMEOUT" });
+        }, 2000);
+
+        socketService.sendMessage(
+          {
+            conversationId,
+            senderId: user.id,
+            type: "sticker",
+            content,
+            replyTo: replyTo || undefined,
+          },
+          (res) => {
+            if (done) return;
+            done = true;
+            clearTimeout(timeout);
+            resolve(res);
+          },
+        );
+      });
+
+      if (ack.success && ack.message) {
+        sentMessage = normalizeMessage(ack.message);
+      }
+    }
+
+    if (!sentMessage) {
+      try {
+        sentMessage = await sendMessageApi({
+          conversationId,
+          type: "sticker",
+          content,
+          replyTo: replyTo || undefined,
+        });
+      } catch (error) {
+        useChatStore.getState().removeMessage(conversationId, tempId);
+        console.error("Gửi sticker thất bại:", error);
+        addToast("Không thể gửi sticker. Vui lòng thử lại.", "error", 3000);
+        return;
+      }
+    }
+
+    useChatStore.getState().removeMessage(conversationId, tempId);
+    addMessage(conversationId, normalizeMessage(sentMessage));
 
     updateConversation(conversationId, {
       lastMessage: {
         content: "[Nhãn dán]",
         type: "sticker",
         senderId: user.id,
-        timestamp: new Date().toISOString(),
+        timestamp: sentMessage?.createdAt || new Date().toISOString(),
       },
-      updatedAt: new Date().toISOString(),
+      updatedAt: sentMessage?.createdAt || new Date().toISOString(),
     });
-
-    setShowStickerPicker(false);
   };
 
+  const buildPinnedSettings = useCallback(
+    (nextPinned: any) => ({
+      ...(activeConversation?.groupSettings || {
+        invite: { code: "", approvalRequired: true },
+        joinRequests: [],
+        permissions: {
+          sendMedia: "all",
+          pinMessage:
+            activeConversation?.type === "group" ? "admin_deputy" : "all",
+          sendAnnouncement:
+            activeConversation?.type === "group" ? "admin_deputy" : "all",
+        },
+      }),
+      pinnedMessage: nextPinned,
+    }),
+    [activeConversation?.groupSettings, activeConversation?.type],
+  );
+
   const handlePinMessage = async (messageId: string) => {
-    if (
-      !conversationId ||
-      !activeConversation ||
-      activeConversation.type !== "group"
-    )
-      return;
-    if (!canPinInGroup) {
+    if (!conversationId || !activeConversation) return;
+
+    if (activeConversation.type === "group" && !canPinInGroup) {
       addToast(
         "Bạn không có quyền ghim tin nhắn trong nhóm này.",
         "error",
@@ -1171,26 +1273,22 @@ export default function ChatRoom() {
 
     try {
       setIsPinningMessage(true);
-      const result = await pinGroupMessage(conversationId, messageId);
+      const result =
+        activeConversation.type === "group"
+          ? await pinGroupMessage(conversationId, messageId)
+          : await pinConversationMessage(conversationId, messageId);
       const nextPinned =
         result.pinnedMessage ||
+        result.conversation?.groupSettings?.pinnedMessage ||
         result.group?.groupSettings?.pinnedMessage ||
         null;
 
       useChatStore.getState().updateConversation(conversationId, {
-        groupSettings: {
-          ...(activeConversation.groupSettings || {
-            invite: { code: "", approvalRequired: true },
-            joinRequests: [],
-            permissions: {
-              sendMedia: "all",
-              pinMessage: "admin_deputy",
-              sendAnnouncement: "admin_deputy",
-            },
-          }),
-          pinnedMessage: nextPinned,
-        },
+        groupSettings: buildPinnedSettings(nextPinned),
       });
+      socketService
+        .getSocket()
+        ?.emit("chat:sync_pinned_message", { conversationId });
       addToast("Đã ghim tin nhắn", "success", 2000);
     } catch (error: any) {
       addToast(error?.message || "Không thể ghim tin nhắn", "error", 4000);
@@ -1200,13 +1298,9 @@ export default function ChatRoom() {
   };
 
   const handleUnpinMessage = async () => {
-    if (
-      !conversationId ||
-      !activeConversation ||
-      activeConversation.type !== "group"
-    )
-      return;
-    if (!canPinInGroup) {
+    if (!conversationId || !activeConversation) return;
+
+    if (activeConversation.type === "group" && !canPinInGroup) {
       addToast(
         "Bạn không có quyền bỏ ghim tin nhắn trong nhóm này.",
         "error",
@@ -1217,21 +1311,18 @@ export default function ChatRoom() {
 
     try {
       setIsPinningMessage(true);
-      await unpinGroupMessage(conversationId);
+      if (activeConversation.type === "group") {
+        await unpinGroupMessage(conversationId);
+      } else {
+        await unpinConversationMessage(conversationId);
+      }
+
       useChatStore.getState().updateConversation(conversationId, {
-        groupSettings: {
-          ...(activeConversation.groupSettings || {
-            invite: { code: "", approvalRequired: true },
-            joinRequests: [],
-            permissions: {
-              sendMedia: "all",
-              pinMessage: "admin_deputy",
-              sendAnnouncement: "admin_deputy",
-            },
-          }),
-          pinnedMessage: null,
-        },
+        groupSettings: buildPinnedSettings(null),
       });
+      socketService
+        .getSocket()
+        ?.emit("chat:sync_pinned_message", { conversationId });
       addToast("Đã bỏ ghim tin nhắn", "success", 2000);
     } catch (error: any) {
       addToast(error?.message || "Không thể bỏ ghim tin nhắn", "error", 4000);
@@ -1410,6 +1501,10 @@ export default function ChatRoom() {
   const canPinInGroup =
     activeConversation?.type === "group" &&
     canUseGroupScope(groupPermissions?.pinMessage);
+  const canPinMessage =
+    activeConversation?.type === "group"
+      ? canPinInGroup
+      : activeConversation?.type === "private";
   const pinnedMessage =
     activeConversation?.groupSettings?.pinnedMessage || null;
 
@@ -1962,7 +2057,7 @@ export default function ChatRoom() {
         </div>
       )}
 
-      {activeConversation?.type === "group" && pinnedMessage && (
+      {pinnedMessage && (
         <div className="px-4 py-2 border-b border-amber-200 dark:border-amber-800 bg-amber-50/80 dark:bg-amber-900/20 flex items-center justify-between gap-3">
           <div className="flex items-start gap-2 min-w-0">
             <Pin className="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" />
@@ -1989,7 +2084,7 @@ export default function ChatRoom() {
             </div>
           </div>
 
-          {canPinInGroup && (
+          {canPinMessage && (
             <button
               onClick={handleUnpinMessage}
               disabled={isPinningMessage}
@@ -2107,7 +2202,7 @@ export default function ChatRoom() {
                       onReact={(emoji) => handleReact(msg.id, emoji)}
                       onForward={() => setForwardMessage(msg)}
                       onPin={() => handlePinMessage(msg.id)}
-                      canPin={Boolean(canPinInGroup && !msg.isDeleted)}
+                      canPin={Boolean(canPinMessage && !msg.isDeleted)}
                       participants={
                         activeConversation?.participants?.map((p) => ({
                           userId: p.userId,
