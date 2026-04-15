@@ -8,7 +8,6 @@ import { socketService } from "@/lib/socket";
 import IncomingCallModal from "@/components/chat/IncomingCallModal";
 import VideoCallModal from "@/components/chat/VideoCallModal";
 import { useCallStore } from "@/stores/callStore";
-import { getMessagePreviewText } from "@/lib/messagePreview";
 
 const SIDEBAR_WIDTH_STORAGE_KEY = "chat-sidebar-width";
 const DEFAULT_SIDEBAR_WIDTH = 320;
@@ -140,14 +139,11 @@ export default function ChatLayout() {
 
         updateConversation(conversationId, {
           lastMessage: {
-            content: getMessagePreviewText({
-              type: normalizedMsg.type,
-              content: normalizedMsg.content,
-              metadata: normalizedMsg.metadata,
-            }),
+            content: normalizedMsg.content,
             type: normalizedMsg.type,
             senderId: normalizedMsg.senderId,
             timestamp: normalizedMsg.createdAt,
+            metadata: normalizedMsg.metadata,
           },
           updatedAt: normalizedMsg.createdAt,
           unreadCount: newUnreadCount,

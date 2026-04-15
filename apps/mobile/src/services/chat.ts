@@ -231,6 +231,7 @@ export const chatService = {
           senderId: message.senderId,
           senderName: message.senderName,
           createdAt: message.createdAt,
+          metadata: message.metadata,
         },
       });
     });

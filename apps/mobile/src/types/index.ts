@@ -187,11 +187,12 @@ export interface Conversation {
   participants: Participant[];
   groupSettings?: GroupSettings;
   lastMessage: {
-    content: string;
+    content: any;
     senderId: string;
     senderName: string;
     type: MessageType;
     createdAt: string;
+    metadata?: any;
   } | null;
   unreadCount: number;
   isPinned: boolean;

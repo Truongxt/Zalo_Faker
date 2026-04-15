@@ -191,6 +191,7 @@ export default function MessageBubble({
   const reactionRef = useRef<HTMLDivElement>(null);
   const confirmRef = useRef<HTMLDivElement>(null);
   const isAnnouncement = Boolean(message.metadata?.isAnnouncement);
+  const isForwarded = Boolean(message.metadata?.isForwarded);
   const reactions = Array.isArray(message.reactions) ? message.reactions : [];
   const readBy = Array.isArray(message.readBy) ? message.readBy : [];
   const content = normalizeContent(message.content);
@@ -527,6 +528,12 @@ export default function MessageBubble({
           <div
             className={`message-bubble ${isSent ? "message-sent" : "message-received"} ${isAnnouncement ? "border border-amber-300 dark:border-amber-700 bg-amber-50/90 dark:bg-amber-900/20" : ""}`}
           >
+            {isForwarded && (
+              <div className="mb-1.5 inline-flex items-center gap-1 rounded-full bg-slate-100 dark:bg-slate-800/70 px-2 py-0.5 text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+                <Share className="w-3 h-3" />
+                Đã chuyển tiếp
+              </div>
+            )}
             {isAnnouncement && (
               <div className="mb-1.5 inline-flex items-center rounded-full bg-amber-100 dark:bg-amber-900/40 px-2 py-0.5 text-[11px] font-semibold text-amber-700 dark:text-amber-300">
                 Thông báo

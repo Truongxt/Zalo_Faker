@@ -74,14 +74,10 @@ export default function ChatsScreen() {
     };
   }, [user?.id, conversations]);
 
-  const hasLockedHiddenChats = conversations.some(conv => {
-      const participant = conv.participants.find(p => String(p.userId) === String(user?.id));
-      return participant?.isHidden && !unlockedHiddenChats;
-  });
-
   const filteredConversations = conversations
     .filter((conv) => {
       const p = conv.participants.find((p) => String(p.userId) === String(user?.id));
+      if (!p) return false;
 
       // If UNLOCKED: Only show hidden conversations
       if (unlockedHiddenChats) {

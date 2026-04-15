@@ -98,6 +98,7 @@ export function Message({
     : Colors.bubbleReceivedText;
   const attachments = message.attachments || [];
   const reactions = message.reactions || [];
+  const isForwarded = Boolean(message.metadata?.isForwarded);
   const content = message.isDeleted
     ? "Tin nhan da bi thu hoi"
     : message.content;
