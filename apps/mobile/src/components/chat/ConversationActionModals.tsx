@@ -69,7 +69,7 @@ export function ConversationMenuModal({
   const [loginPassword, setLoginPassword] = useState("");
 
   const currentParticipant = liveConversation?.participants?.find(
-    (p) => p.userId === user?.id,
+    (p) => String(p.userId) === String(user?.id),
   );
   const isMuted = currentParticipant?.isMuted ?? false;
   const isPinned =
@@ -106,7 +106,7 @@ export function ConversationMenuModal({
       updateConversation(liveConversation.id, {
         isPinned: !isPinned,
         participants: liveConversation.participants?.map((p) =>
-          p.userId === user.id ? ({ ...p, isPinned: !isPinned } as any) : p,
+          String(p.userId) === String(user.id) ? ({ ...p, isPinned: !isPinned } as any) : p,
         ),
       });
       onClose();
@@ -168,7 +168,7 @@ export function ConversationMenuModal({
       );
       updateConversation(liveConversation.id, {
         participants: liveConversation.participants?.map((p) =>
-          p.userId === user.id ? { ...p, isMuted: true, muteUntil } : p,
+          String(p.userId) === String(user.id) ? { ...p, isMuted: true, muteUntil } : p,
         ),
       });
       onClose();
@@ -197,7 +197,7 @@ export function ConversationMenuModal({
       );
       updateConversation(liveConversation.id, {
         participants: liveConversation.participants?.map((p) =>
-          p.userId === user.id ? { ...p, isMuted: false, muteUntil: null } : p,
+          String(p.userId) === String(user.id) ? { ...p, isMuted: false, muteUntil: null } : p,
         ),
       });
       onClose();
@@ -237,7 +237,7 @@ export function ConversationMenuModal({
       // Update local store
       updateConversation(liveConversation.id, {
         participants: liveConversation.participants?.map((p) =>
-          p.userId === user.id ? { ...p, labelIds: newIds } : p,
+          String(p.userId) === String(user.id) ? { ...p, labelIds: newIds } : p,
         ),
       });
     } catch (e: any) {
@@ -333,7 +333,7 @@ export function ConversationMenuModal({
         );
         updateConversation(liveConversation.id, {
           participants: liveConversation.participants?.map((p) =>
-            p.userId === user.id ? { ...p, isHidden: false } : p,
+            String(p.userId) === String(user.id) ? { ...p, isHidden: false } : p,
           ),
         });
         Alert.alert("Thành công", "Đã bỏ ẩn cuộc trò chuyện");
@@ -361,7 +361,7 @@ export function ConversationMenuModal({
                 );
                 updateConversation(liveConversation.id, {
                   participants: liveConversation.participants?.map((p) =>
-                    p.userId === user.id ? { ...p, isHidden: true } : p,
+                    String(p.userId) === String(user.id) ? { ...p, isHidden: true } : p,
                   ),
                 });
                 onClose();

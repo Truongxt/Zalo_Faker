@@ -77,6 +77,23 @@ export default function VideoCallModal() {
     }
   };
 
+  const playChunkWithAudioContext = async (blob: Blob) => {
+    if (!audioContextRef.current) {
+      audioContextRef.current = new AudioContext();
+    }
+    const audioContext = audioContextRef.current;
+    if (audioContext.state === "suspended") {
+      await audioContext.resume();
+    }
+
+    const buffer = await blob.arrayBuffer();
+    const decoded = await audioContext.decodeAudioData(buffer.slice(0));
+    const source = audioContext.createBufferSource();
+    source.buffer = decoded;
+    source.connect(audioContext.destination);
+    source.start();
+  };
+
 
   const markAccepted = () => {
     if (!acceptedAtRef.current) {
@@ -210,11 +227,21 @@ export default function VideoCallModal() {
           };
 
           player.onended = cleanup;
-          player.onerror = cleanup;
+          player.onerror = () => {
+            playChunkWithAudioContext(blob)
+              .catch((decodeErr) => {
+                console.warn('[WEB] Audio decode fallback failed:', decodeErr);
+              })
+              .finally(cleanup);
+          };
           
           player.play().catch(e => {
             console.warn('[WEB] Playback failed for chunk:', e);
-            cleanup();
+            playChunkWithAudioContext(blob)
+              .catch((decodeErr) => {
+                console.warn('[WEB] Audio decode fallback failed:', decodeErr);
+              })
+              .finally(cleanup);
           });
         } catch (err) {
           console.warn('[WEB] handleAudioFrame failed:', err);

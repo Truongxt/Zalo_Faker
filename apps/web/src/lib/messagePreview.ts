@@ -12,6 +12,7 @@ type PreviewMetadata =
   | {
       isAnnouncement?: boolean;
       isImportant?: boolean;
+      isForwarded?: boolean;
     }
   | null
   | undefined;
@@ -133,6 +134,7 @@ export const getMessagePreviewText = ({
   const prefixes = [
     metadata?.isImportant ? "[Quan trong]" : "",
     metadata?.isAnnouncement ? "[Thong bao]" : "",
+    metadata?.isForwarded ? "[Chuyen tiep]" : "",
   ].filter(Boolean);
 
   return [...prefixes, baseText].join(" ").trim();

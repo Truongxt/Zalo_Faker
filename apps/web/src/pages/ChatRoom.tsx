@@ -193,11 +193,11 @@ export default function ChatRoom() {
   const [showBackgroundPicker, setShowBackgroundPicker] = useState(false);
   const [announcementMode, setAnnouncementMode] = useState(false);
   const [isPinningMessage, setIsPinningMessage] = useState(false);
-  const [pendingMedia, setPendingMedia] = useState<{
+  const [pendingMediaList, setPendingMediaList] = useState<{
     file: File;
     type: "image" | "video" | "file";
     previewUrl?: string;
-  } | null>(null);
+  }[]>([]);
   const [isMutingConversation, setIsMutingConversation] = useState(false);
   const [isBlockingUser, setIsBlockingUser] = useState(false);
   const [blockStatus, setBlockStatus] = useState<
@@ -349,11 +349,11 @@ export default function ChatRoom() {
 
   useEffect(() => {
     return () => {
-      if (pendingMedia?.previewUrl) {
-        URL.revokeObjectURL(pendingMedia.previewUrl);
-      }
+      pendingMediaList.forEach((item) => {
+        if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
+      });
     };
-  }, [pendingMedia]);
+  }, [pendingMediaList]);
 
   useEffect(() => {
     if (
@@ -456,7 +456,7 @@ export default function ChatRoom() {
       );
       return;
     }
-    if (!message.trim() && !pendingMedia) return;
+    if (!message.trim() && pendingMediaList.length === 0) return;
     if (
       activeConversation?.type === "group" &&
       announcementMode &&
@@ -469,14 +469,18 @@ export default function ChatRoom() {
       );
       return;
     }
-    if (pendingMedia) {
+    if (pendingMediaList.length > 0) {
       const caption = message.trim();
-      await sendMediaMessage(
-        pendingMedia.file,
-        pendingMedia.type,
-        undefined,
-        caption || undefined,
-      );
+      for (const media of pendingMediaList) {
+        await sendMediaMessage(
+          media.file,
+          media.type,
+          undefined,
+          caption || undefined,
+        );
+        // Only attach caption to the first media
+        if (caption) caption === "";
+      }
       clearPendingMedia();
       setMessage("");
       setReplyTo(null);
@@ -629,6 +633,12 @@ export default function ChatRoom() {
     if (!forwardMessage || !user) return;
 
     targetConversationIds.forEach((targetId) => {
+      const forwardedMetadata = {
+        ...(forwardMessage.metadata || {}),
+        isForwarded: true,
+        forwardedFromMessageId: forwardMessage.id,
+        forwardedAt: new Date().toISOString(),
+      };
       const tempId = `temp-fw-${Date.now()}-${Math.random()}`;
       const optimisticMsg: Message = {
         id: tempId,
@@ -636,7 +646,7 @@ export default function ChatRoom() {
         senderId: user.id,
         type: forwardMessage.type,
         content: forwardMessage.content,
-        metadata: forwardMessage.metadata || null,
+        metadata: forwardedMetadata,
         reactions: [],
         readBy: [],
         isDeleted: false,
@@ -650,7 +660,7 @@ export default function ChatRoom() {
           senderId: user.id,
           type: forwardMessage.type,
           content: forwardMessage.content,
-          metadata: forwardMessage.metadata || undefined,
+          metadata: forwardedMetadata,
         },
         (res) => {
           const store = useChatStore.getState();
@@ -663,35 +673,13 @@ export default function ChatRoom() {
           }
         },
       );
-
-      let previewText = "[Tin nhắn]";
-      switch (forwardMessage.type) {
-        case "text":
-          previewText = forwardMessage.content.text || "";
-          break;
-        case "image":
-          previewText = "[Hình ảnh]";
-          break;
-        case "video":
-          previewText = "[Video]";
-          break;
-        case "file":
-          previewText = `[File] ${forwardMessage.content.fileName}`;
-          break;
-        case "sticker":
-          previewText = "[Nhãn dán]";
-          break;
-        case "voice":
-          previewText = "[Tin nhắn thoại]";
-          break;
-      }
-
       updateConversation(targetId, {
         lastMessage: {
-          content: previewText,
+          content: forwardMessage.content,
           type: forwardMessage.type,
           senderId: user.id,
           timestamp: new Date().toISOString(),
+          metadata: forwardedMetadata,
         },
         updatedAt: new Date().toISOString(),
       });
@@ -797,10 +785,18 @@ export default function ChatRoom() {
   };
 
   const clearPendingMedia = () => {
-    if (pendingMedia?.previewUrl) {
-      URL.revokeObjectURL(pendingMedia.previewUrl);
-    }
-    setPendingMedia(null);
+    pendingMediaList.forEach((item) => {
+      if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
+    });
+    setPendingMediaList([]);
+  };
+
+  const removePendingMediaItem = (index: number) => {
+    setPendingMediaList((prev) => {
+      const item = prev[index];
+      if (item?.previewUrl) URL.revokeObjectURL(item.previewUrl);
+      return prev.filter((_, i) => i !== index);
+    });
   };
 
   const sendMediaMessage = async (
@@ -1000,39 +996,20 @@ export default function ChatRoom() {
 
     if (!selectedFiles.length) return;
 
-    if (selectedFiles.length === 1) {
-      const file = selectedFiles[0];
-      const type = file.type.startsWith("video/") ? "video" : "image";
+    const newItems: { file: File; type: "image" | "video"; previewUrl: string }[] = [];
+    for (const file of selectedFiles) {
+      const type = file.type.startsWith("video/") ? "video" as const : "image" as const;
       const validation = validateFile(file, type);
-      if (!validation.valid) {
-        return;
-      }
-
-      if (pendingMedia?.previewUrl) {
-        URL.revokeObjectURL(pendingMedia.previewUrl);
-      }
-
-      setPendingMedia({
+      if (!validation.valid) continue;
+      newItems.push({
         file,
         type,
         previewUrl: URL.createObjectURL(file),
       });
-      return;
     }
 
-    if (pendingMedia?.previewUrl) {
-      URL.revokeObjectURL(pendingMedia.previewUrl);
-    }
-    setPendingMedia(null);
-
-    for (const file of selectedFiles) {
-      const type = file.type.startsWith("video/") ? "video" : "image";
-      const validation = validateFile(file, type);
-      if (!validation.valid) {
-        continue;
-      }
-
-      await sendMediaMessage(file, type);
+    if (newItems.length > 0) {
+      setPendingMediaList((prev) => [...prev, ...newItems]);
     }
   };
 
@@ -1045,14 +1022,7 @@ export default function ChatRoom() {
       return;
     }
 
-    if (pendingMedia?.previewUrl) {
-      URL.revokeObjectURL(pendingMedia.previewUrl);
-    }
-
-    setPendingMedia({
-      file,
-      type: "file",
-    });
+    setPendingMediaList((prev) => [...prev, { file, type: "file" as const }]);
     e.target.value = "";
   };
 
@@ -1388,14 +1358,26 @@ export default function ChatRoom() {
       addToast("Đã mở chặn người dùng", "success", 2500);
     };
 
+    const handleUnblockedBy = ({
+      unblockedByUserId,
+    }: {
+      unblockedByUserId: string;
+    }) => {
+      if (String(unblockedByUserId) !== String(otherUser.userId)) return;
+      setBlockStatus("none");
+      addToast("Người dùng đã bỏ chặn bạn", "info", 2500);
+    };
+
     socketService.on("friend:blocked", handleFriendBlocked);
     socketService.on("friend:blocked_by", handleBlockedBy);
     socketService.on("friend:unblocked", handleFriendUnblocked);
+    socketService.on("friend:unblocked_by", handleUnblockedBy);
 
     return () => {
       socketService.off("friend:blocked", handleFriendBlocked);
       socketService.off("friend:blocked_by", handleBlockedBy);
       socketService.off("friend:unblocked", handleFriendUnblocked);
+      socketService.off("friend:unblocked_by", handleUnblockedBy);
     };
   }, [addToast, otherUser?.userId, user?.id]);
 
@@ -2198,49 +2180,65 @@ export default function ChatRoom() {
             )}
           </div>
         )}
-        {pendingMedia && (
+        {pendingMediaList.length > 0 && (
           <div className="mb-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-dark-300 p-2.5">
-            <div className="flex items-start gap-3">
-              {pendingMedia.type === "image" && pendingMedia.previewUrl && (
-                <img
-                  src={pendingMedia.previewUrl}
-                  alt="Preview"
-                  className="w-16 h-16 rounded-lg object-cover border border-gray-200 dark:border-gray-700"
-                />
-              )}
-              {pendingMedia.type === "video" && pendingMedia.previewUrl && (
-                <video
-                  src={pendingMedia.previewUrl}
-                  className="w-24 h-16 rounded-lg object-cover border border-gray-200 dark:border-gray-700"
-                />
-              )}
-              {pendingMedia.type === "file" && (
-                <div className="w-16 h-16 rounded-lg bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center text-primary-600 font-semibold text-xs px-1 text-center">
-                  {pendingMedia.file.name.split(".").pop()?.toUpperCase() ||
-                    "FILE"}
-                </div>
-              )}
-
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                  {pendingMedia.file.name}
-                </p>
-                <p className="text-xs text-gray-500 mt-0.5">
-                  {(pendingMedia.file.size / 1024 / 1024).toFixed(2)} MB
-                </p>
-                <p className="text-xs text-primary-600 dark:text-primary-400 mt-1">
-                  Xem trước tệp. Nhấn gửi để gửi vào đoạn chat.
-                </p>
-              </div>
-
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs text-primary-600 dark:text-primary-400">
+                {pendingMediaList.length} tệp đã chọn — Nhấn gửi để gửi vào đoạn chat.
+              </p>
               <button
                 type="button"
                 onClick={clearPendingMedia}
-                className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg"
-                title="Hủy tệp"
+                className="text-xs text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300 flex items-center gap-1 px-1.5 py-0.5 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+                title="Xóa tất cả"
               >
-                <X className="w-4 h-4 text-gray-500" />
+                <X className="w-3 h-3" />
+                Xóa tất cả
               </button>
+            </div>
+            <div className="flex flex-wrap gap-2 max-h-40 overflow-y-auto">
+              {pendingMediaList.map((media, index) => (
+                <div key={index} className="relative group">
+                  {media.type === "image" && media.previewUrl && (
+                    <img
+                      src={media.previewUrl}
+                      alt={`Preview ${index + 1}`}
+                      className="w-20 h-20 rounded-lg object-cover border border-gray-200 dark:border-gray-700"
+                    />
+                  )}
+                  {media.type === "video" && media.previewUrl && (
+                    <div className="relative w-20 h-20">
+                      <video
+                        src={media.previewUrl}
+                        className="w-20 h-20 rounded-lg object-cover border border-gray-200 dark:border-gray-700"
+                      />
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <div className="w-6 h-6 bg-black/50 rounded-full flex items-center justify-center">
+                          <span className="text-white text-xs">▶</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  {media.type === "file" && (
+                    <div className="w-20 h-20 rounded-lg bg-primary-100 dark:bg-primary-900/30 flex flex-col items-center justify-center text-primary-600 px-1 text-center">
+                      <span className="font-semibold text-xs">
+                        {media.file.name.split(".").pop()?.toUpperCase() || "FILE"}
+                      </span>
+                      <span className="text-[10px] text-gray-500 mt-0.5 truncate w-full">
+                        {media.file.name.length > 10 ? media.file.name.slice(0, 8) + "..." : media.file.name}
+                      </span>
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => removePendingMediaItem(index)}
+                    className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
+                    title="Xóa tệp này"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              ))}
             </div>
           </div>
         )}
@@ -2459,7 +2457,7 @@ export default function ChatRoom() {
             )}
           </div>
 
-          {(message.trim() || pendingMedia) && !isRecording ? (
+          {(message.trim() || pendingMediaList.length > 0) && !isRecording ? (
             <button
               type="submit"
               disabled={isMessagingBlocked}
@@ -2895,3 +2893,4 @@ export default function ChatRoom() {
     </div>
   );
 }
+

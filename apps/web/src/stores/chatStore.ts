@@ -30,6 +30,9 @@ export interface Message {
     metadata?: {
         isAnnouncement?: boolean
         isImportant?: boolean
+        isForwarded?: boolean
+        forwardedFromMessageId?: string
+        forwardedAt?: string
         transcript?: string
         transcriptStatus?: string
         transcriptUpdatedAt?: string
@@ -168,6 +171,9 @@ const normalizeMessageMetadata = (rawMetadata: unknown): Message['metadata'] => 
     return {
         isAnnouncement: Boolean(metadata.isAnnouncement),
         isImportant: Boolean(metadata.isImportant),
+        isForwarded: Boolean(metadata.isForwarded),
+        forwardedFromMessageId: typeof metadata.forwardedFromMessageId === 'string' ? metadata.forwardedFromMessageId : undefined,
+        forwardedAt: typeof metadata.forwardedAt === 'string' ? metadata.forwardedAt : undefined,
         transcript: typeof metadata.transcript === 'string' ? metadata.transcript : undefined,
         transcriptStatus: typeof metadata.transcriptStatus === 'string' ? metadata.transcriptStatus : undefined,
         transcriptUpdatedAt: typeof metadata.transcriptUpdatedAt === 'string' ? metadata.transcriptUpdatedAt : undefined,
@@ -248,10 +254,11 @@ export interface Conversation {
     participants: Participant[]
     groupSettings?: GroupSettings
     lastMessage?: {
-        content: string
+        content: any
         type: string
         senderId: string
         timestamp: string
+        metadata?: Message['metadata']
     }
     unreadCount: number
     createdAt: string
@@ -549,5 +556,4 @@ export const useChatStore = create<ChatState>()(
     }),
 })
 )
-
 

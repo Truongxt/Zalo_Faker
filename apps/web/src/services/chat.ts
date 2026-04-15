@@ -20,10 +20,11 @@ export const chatService = {
             // Update last message in conversation
             updateConversation(message.conversationId, {
                 lastMessage: {
-                    content: message.content.text || '[Media]',
+                    content: message.content,
                     type: message.type,
                     senderId: message.senderId,
-                    timestamp: message.createdAt
+                    timestamp: message.createdAt,
+                    metadata: message.metadata || null,
                 }
             })
         })

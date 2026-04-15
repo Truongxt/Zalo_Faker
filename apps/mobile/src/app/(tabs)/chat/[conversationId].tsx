@@ -25,6 +25,7 @@ import { friendsService, userService } from "@/services";
 import { socketService } from "@/lib/socket";
 import { Avatar } from "@/components/ui/Avatar";
 import { GrayToast } from "@/components/ui";
+import { ForwardMessageModal } from "@/components/chat/ForwardMessageModal";
 import type { Message } from "@/types";
 import { API_URL } from "@/constants/config";
 
@@ -399,6 +400,7 @@ function MessageItem({
     (msg.type === "call"
       ? { callType: "audio" as const, status: "finished", duration: 0 }
       : null);
+  const isForwarded = Boolean((msg as any)?.metadata?.isForwarded);
 
   const renderContent = () => {
     if (msg.isDeleted) {
@@ -689,6 +691,31 @@ function MessageItem({
             paddingVertical: 7,
           }}
         >
+          {isForwarded && (
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 5,
+                marginBottom: 6,
+              }}
+            >
+              <Ionicons
+                name="arrow-redo-outline"
+                size={13}
+                color={isMe ? "rgba(255,255,255,0.85)" : "#6B7280"}
+              />
+              <Text
+                style={{
+                  fontSize: 11,
+                  fontWeight: "600",
+                  color: isMe ? "rgba(255,255,255,0.88)" : "#6B7280",
+                }}
+              >
+                Chuyen tiep
+              </Text>
+            </View>
+          )}
           {renderContent()}
         </View>
 
@@ -740,6 +767,7 @@ export default function ChatRoomScreen() {
   const [isSending, setIsSending] = useState(false);
   const [showReactions, setShowReactions] = useState(false);
   const [selectedMsg, setSelectedMsg] = useState<Message | null>(null);
+  const [forwardMessage, setForwardMessage] = useState<Message | null>(null);
   const [typingUsers, setTypingUsers] = useState<string[]>([]);
   const [isPartnerOnline, setIsPartnerOnline] = useState(false);
   const [partnerLastSeenAt, setPartnerLastSeenAt] = useState<string | null>(
@@ -953,14 +981,26 @@ export default function ChatRoomScreen() {
       GrayToast("Da mo chan nguoi dung");
     };
 
+    const handleUnblockedBy = ({
+      unblockedByUserId,
+    }: {
+      unblockedByUserId: string;
+    }) => {
+      if (String(unblockedByUserId) !== String(otherParticipant.userId)) return;
+      setBlockStatus("none");
+      GrayToast("Nguoi dung da bo chan ban");
+    };
+
     socketService.on("friend:blocked", handleFriendBlocked);
     socketService.on("friend:blocked_by", handleBlockedBy);
     socketService.on("friend:unblocked", handleFriendUnblocked);
+    socketService.on("friend:unblocked_by", handleUnblockedBy);
 
     return () => {
       socketService.off("friend:blocked", handleFriendBlocked);
       socketService.off("friend:blocked_by", handleBlockedBy);
       socketService.off("friend:unblocked", handleFriendUnblocked);
+      socketService.off("friend:unblocked_by", handleUnblockedBy);
     };
   }, [otherParticipant?.userId, user?.id]);
 
@@ -1282,6 +1322,13 @@ export default function ChatRoomScreen() {
           }
           void handlePinMessage(msg);
         },
+      });
+    }
+
+    if (!msg.isDeleted) {
+      options.push({
+        text: "Chuyen tiep",
+        onPress: () => setForwardMessage(msg),
       });
     }
 
@@ -1633,7 +1680,11 @@ export default function ChatRoomScreen() {
           </TouchableOpacity>
         </View>
       )}
-
+      <ForwardMessageModal
+        visible={!!forwardMessage}
+        onClose={() => setForwardMessage(null)}
+        message={forwardMessage}
+      />
       {/* Input area */}
       <View
         style={{
@@ -1779,3 +1830,4 @@ export default function ChatRoomScreen() {
     </KeyboardAvoidingView>
   );
 }
+

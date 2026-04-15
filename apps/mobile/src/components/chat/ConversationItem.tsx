@@ -14,12 +14,17 @@ interface ConversationItemProps {
   onLongPress?: (conversation: Conversation) => void;
 }
 
+type ParsedCallPayload = {
+  callType: "audio" | "video";
+  status: string;
+};
+
 const getConversationName = (conversation: Conversation, currentUserId: string) => {
-  if (conversation.type === "group") return conversation.name || "Nhóm chat";
+  if (conversation.type === "group") return conversation.name || "Nhom chat";
   const partner = conversation.participants?.find(
     (p) => String(p.userId) !== String(currentUserId),
   );
-  return partner?.fullName || "Người dùng";
+  return partner?.fullName || "Nguoi dung";
 };
 
 const getConversationAvatar = (conversation: Conversation, currentUserId: string) => {
@@ -30,36 +35,120 @@ const getConversationAvatar = (conversation: Conversation, currentUserId: string
   return partner?.avatarUrl || null;
 };
 
-const getCallPreviewFromRawText = (value: string): string | null => {
-  const trimmed = String(value || "").trim();
-  if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return null;
+const normalizeCallType = (value: unknown): ParsedCallPayload["callType"] | null => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "video") return "video";
+  if (normalized === "audio" || normalized === "voice") return "audio";
+  return null;
+};
 
-  try {
-    const parsed = JSON.parse(trimmed);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+const normalizeCallStatus = (value: unknown): string | null => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) return null;
+  return normalized === "ended" ? "finished" : normalized;
+};
 
-    const callTypeRaw = String((parsed as any).callType || "").toLowerCase();
-    const statusRaw = String((parsed as any).status || "").toLowerCase();
-    if (!callTypeRaw || !statusRaw) return null;
+const parseCallPayloadFromObject = (
+  value: Record<string, unknown>,
+): ParsedCallPayload | null => {
+  const callType = normalizeCallType(value.callType);
+  const status = normalizeCallStatus(value.status || value.callStatus);
+  if (!callType || !status) return null;
+  return { callType, status };
+};
 
-    const callType = callTypeRaw === "video" ? "video" : "audio";
-    const suffix = callType === "video" ? " video" : "";
-    const status = statusRaw === "ended" ? "finished" : statusRaw;
+const parseCallPayload = (value: unknown): ParsedCallPayload | null => {
+  if (!value) return null;
 
-    if (status === "finished") return `Cuoc goi${suffix}`;
-    if (status === "missed") return `Cuoc goi nho${suffix}`;
-    if (status === "rejected") return "Cuoc goi bi tu choi";
-    if (status === "cancelled") return "Cuoc goi da huy";
-    return callType === "video" ? "Cuoc goi video" : "Cuoc goi";
-  } catch {
-    return null;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return null;
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        return null;
+      }
+      return parseCallPayloadFromObject(parsed as Record<string, unknown>);
+    } catch {
+      return null;
+    }
   }
+
+  if (typeof value !== "object" || Array.isArray(value)) return null;
+  const objectValue = value as Record<string, unknown>;
+  const direct = parseCallPayloadFromObject(objectValue);
+  if (direct) return direct;
+
+  const nestedText =
+    typeof objectValue.text === "string"
+      ? objectValue.text
+      : typeof objectValue.message === "string"
+        ? objectValue.message
+        : typeof objectValue.content === "string"
+          ? objectValue.content
+          : "";
+
+  return nestedText ? parseCallPayload(nestedText) : null;
+};
+
+const getCallPreviewText = (payload: ParsedCallPayload) => {
+  const suffix = payload.callType === "video" ? " video" : "";
+  if (payload.status === "finished") return `Cuoc goi${suffix}`;
+  if (payload.status === "missed") return `Cuoc goi nho${suffix}`;
+  if (payload.status === "rejected") return "Cuoc goi bi tu choi";
+  if (payload.status === "cancelled") return "Cuoc goi da huy";
+  return payload.callType === "video" ? "Cuoc goi video" : "Cuoc goi";
+};
+
+const extractTextContent = (content: unknown): string => {
+  if (typeof content === "string") return content;
+  if (!content || typeof content !== "object" || Array.isArray(content)) return "";
+
+  const objectValue = content as Record<string, unknown>;
+  return typeof objectValue.text === "string"
+    ? objectValue.text
+    : typeof objectValue.message === "string"
+      ? objectValue.message
+      : typeof objectValue.content === "string"
+        ? objectValue.content
+        : "";
 };
 
 const getLastMessageText = (conversation: Conversation) => {
-  const content = conversation.lastMessage?.content;
-  if (!content) return "Chưa có tin nhắn";
-  return getCallPreviewFromRawText(content) || content;
+  const lastMessage = conversation.lastMessage;
+  if (!lastMessage) return "Chua co tin nhan";
+
+  const callPayload = parseCallPayload(lastMessage.content);
+  let baseText = "";
+
+  if (lastMessage.type === "call" || callPayload) {
+    baseText = getCallPreviewText(callPayload || { callType: "audio", status: "finished" });
+  } else {
+    const text = extractTextContent(lastMessage.content).trim();
+    if (text) {
+      baseText = text;
+    } else if (lastMessage.type === "image") {
+      baseText = "[Hinh anh]";
+    } else if (lastMessage.type === "video") {
+      baseText = "[Video]";
+    } else if (lastMessage.type === "voice") {
+      baseText = "[Tin nhan thoai]";
+    } else if (lastMessage.type === "sticker") {
+      baseText = "[Sticker]";
+    } else if (lastMessage.type === "file") {
+      const content =
+        lastMessage.content && typeof lastMessage.content === "object"
+          ? (lastMessage.content as Record<string, unknown>)
+          : null;
+      const fileName = content && typeof content.fileName === "string" ? content.fileName : "";
+      baseText = fileName ? `[File] ${fileName}` : "[Tap tin]";
+    } else {
+      baseText = "[Tin nhan]";
+    }
+  }
+
+  const isForwarded = Boolean((lastMessage as any)?.metadata?.isForwarded);
+  return isForwarded ? `Chuyen tiep: ${baseText}` : baseText;
 };
 
 const getLastMessageTime = (conversation: Conversation) => {
@@ -91,9 +180,8 @@ export function ConversationItem({
   const participant = conversation.participants?.find((p) => String(p.userId) === String(currentUserId));
   const isMuted = participant?.isMuted;
   const labelIds = participant?.labelIds || [];
-  const activeLabels = allLabels.filter(l => labelIds.includes(l._id));
+  const activeLabels = allLabels.filter((l) => labelIds.includes(l._id));
 
-  // Visuals: Revert to standard colors, remove tint
   const bgColor = conversation.isPinned ? "#EFF6FF" : "#fff";
 
   return (
@@ -112,7 +200,6 @@ export function ConversationItem({
         backgroundColor: bgColor,
       }}
     >
-      {/* Avatar Section */}
       <View style={{ position: "relative" }}>
         <Avatar name={name} uri={avatar} size={54} isGroup={conversation.type === "group"} />
         {conversation.type !== "group" && isOnline && (
@@ -132,9 +219,7 @@ export function ConversationItem({
         )}
       </View>
 
-      {/* Main Content */}
       <View style={{ flex: 1, marginLeft: 14 }}>
-        {/* Name and Label indicators Row */}
         <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 4 }}>
           <Text
             style={{
@@ -147,7 +232,6 @@ export function ConversationItem({
           >
             {name}
           </Text>
-          {/* Label icons */}
           <View style={{ flexDirection: "row", gap: 3 }}>
             {activeLabels.map((l) => (
               <Ionicons
@@ -160,7 +244,6 @@ export function ConversationItem({
           </View>
         </View>
 
-        {/* Message preview Row */}
         <Text
           style={{
             fontSize: 14,
@@ -173,7 +256,6 @@ export function ConversationItem({
         </Text>
       </View>
 
-      {/* Right Column Status indicators */}
       <View style={{ alignItems: "flex-end", marginLeft: 8, height: 48, justifyContent: "space-between" }}>
         <Text style={{ fontSize: 11, color: "#9CA3AF" }}>{lastMessageTime}</Text>
 
@@ -182,7 +264,7 @@ export function ConversationItem({
             <Ionicons name="notifications-off" size={17} color="#94A3B8" />
           )}
           {conversation.isPinned && (
-            <MaterialCommunityIcons name="pin" size={19} color="#0068FF" style={{ transform: [{ rotate: '45deg' }] }} />
+            <MaterialCommunityIcons name="pin" size={19} color="#0068FF" style={{ transform: [{ rotate: "45deg" }] }} />
           )}
 
           {unreadCount > 0 && (
@@ -191,7 +273,7 @@ export function ConversationItem({
                 minWidth: 20,
                 height: 20,
                 paddingHorizontal: 6,
-                backgroundColor: "#EF4444", // Red for unread is more prominent
+                backgroundColor: "#EF4444",
                 borderRadius: 10,
                 alignItems: "center",
                 justifyContent: "center",
