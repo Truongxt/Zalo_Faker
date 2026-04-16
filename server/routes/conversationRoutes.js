@@ -8,6 +8,7 @@ router.use(authMiddleware);
 
 router.post("/", conversationController.createConversation);
 router.get("/", conversationController.getConversations);
+router.get("/:id/daily-summary", conversationController.summarizeConversationInDay);
 router.get("/:id", conversationController.getConversation);
 router.put("/:id", conversationController.updateConversation);
 router.patch("/:id/setting", conversationController.updateParticipantSetting);

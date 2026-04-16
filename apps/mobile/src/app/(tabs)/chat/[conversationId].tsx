@@ -42,20 +42,15 @@ type FilePreviewTarget = {
   type: "pdf" | "word";
 };
 
-const WORD_EXTENSIONS = new Set([
-  "doc",
-  "docx",
-  "xls",
-  "xlsx",
-  "ppt",
-  "pptx",
-]);
+const WORD_EXTENSIONS = new Set(["doc", "docx", "xls", "xlsx", "ppt", "pptx"]);
 
 const getFileExtension = (fileName: string) => {
   const cleaned = fileName.split("?")[0].split("#")[0];
   const parts = cleaned.split(".");
   if (parts.length < 2) return "";
-  return String(parts[parts.length - 1] || "").trim().toLowerCase();
+  return String(parts[parts.length - 1] || "")
+    .trim()
+    .toLowerCase();
 };
 
 const resolveFilePreviewTarget = (msg: Message): FilePreviewTarget | null => {
@@ -137,15 +132,21 @@ type ParsedCallPayload = {
   duration: number;
 };
 
-const normalizeCallType = (value: unknown): ParsedCallPayload["callType"] | null => {
-  const normalized = String(value || "").trim().toLowerCase();
+const normalizeCallType = (
+  value: unknown,
+): ParsedCallPayload["callType"] | null => {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
   if (normalized === "video") return "video";
   if (normalized === "audio" || normalized === "voice") return "audio";
   return null;
 };
 
 const normalizeCallStatus = (value: unknown): string | null => {
-  const normalized = String(value || "").trim().toLowerCase();
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
   if (!normalized) return null;
   return normalized === "ended" ? "finished" : normalized;
 };
@@ -461,7 +462,7 @@ function MessageItem({
         ? "Tinh nang tach text dang tat tren server."
         : transcriptStatus === "missing_audio_url"
           ? "Khong tim thay file ghi am de tach text."
-        : transcriptStatus === "empty"
+          : transcriptStatus === "empty"
             ? "Khong nhan dien duoc noi dung tu file ghi am nay."
             : "Dang xu ly tach text cho doan ghi am...";
   const parsedCallPayload =
@@ -494,7 +495,8 @@ function MessageItem({
         if (parsedCallPayload.status === "missed") {
           return isMe ? "Thuê bao không bắt máy" : `Cuộc gọi nhở${suffix}`;
         }
-        if (parsedCallPayload.status === "rejected") return "Cuộc gọi bị từ chối";
+        if (parsedCallPayload.status === "rejected")
+          return "Cuộc gọi bị từ chối";
         if (parsedCallPayload.status === "cancelled") return "Cuộc gọi bị hủy";
         return parsedCallPayload.callType === "video"
           ? "Cuộc gọi video"
@@ -520,7 +522,9 @@ function MessageItem({
             }}
           >
             <Ionicons
-              name={parsedCallPayload.callType === "video" ? "videocam" : "call"}
+              name={
+                parsedCallPayload.callType === "video" ? "videocam" : "call"
+              }
               size={18}
               color={
                 isMissed
@@ -543,7 +547,9 @@ function MessageItem({
               </Text>
             )}
             {isMissed && !isMe && (
-              <Text style={{ color: "#ef4444", fontSize: 12, fontWeight: "600" }}>
+              <Text
+                style={{ color: "#ef4444", fontSize: 12, fontWeight: "600" }}
+              >
                 Nhan de goi lai
               </Text>
             )}
@@ -685,7 +691,9 @@ function MessageItem({
         const hasPreview = Boolean(previewTarget);
         return (
           <View style={{ gap: 8 }}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <View
+              style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
+            >
               <Ionicons name="document-outline" size={18} color={textColor} />
               <Text style={{ color: textColor, flex: 1 }} numberOfLines={1}>
                 {(msg as any).attachments?.[0]?.name || "File dinh kem"}
@@ -862,11 +870,7 @@ export default function ChatRoomScreen() {
   const insets = useSafeAreaInsets();
   const { user, accessToken } = useAuthStore();
 
-  const {
-    messages,
-    conversations,
-  } =
-    useChatStore();
+  const { messages, conversations } = useChatStore();
   const convId = conversationId || "";
   const convMessages: Message[] = (messages as any)[convId] || [];
   const conversation = conversations.find((c) => c.id === convId);
@@ -879,6 +883,14 @@ export default function ChatRoomScreen() {
   const [showReactions, setShowReactions] = useState(false);
   const [selectedMsg, setSelectedMsg] = useState<Message | null>(null);
   const [forwardMessage, setForwardMessage] = useState<Message | null>(null);
+  const [isSummarizingConversation, setIsSummarizingConversation] =
+    useState(false);
+  const [dailySummary, setDailySummary] = useState<{
+    conversationName: string;
+    summary: string;
+    messageCount: number;
+    date: string;
+  } | null>(null);
   const [previewTarget, setPreviewTarget] = useState<FilePreviewTarget | null>(
     null,
   );
@@ -916,10 +928,12 @@ export default function ChatRoomScreen() {
       : "";
   const isBlockedByMe = blockStatus === "blocked_by_me";
   const isBlockedByOther = blockStatus === "blocked_by_other";
-  const isMessagingBlocked = conversation?.type === "private" && (isBlockedByMe || isBlockedByOther);
+  const isMessagingBlocked =
+    conversation?.type === "private" && (isBlockedByMe || isBlockedByOther);
   const myGroupRole = String(
-    conversation?.participants?.find((p) => String(p.userId) === String(user?.id))
-      ?.role || "member",
+    conversation?.participants?.find(
+      (p) => String(p.userId) === String(user?.id),
+    )?.role || "member",
   ).toLowerCase();
   const pinScope = String(
     conversation?.groupSettings?.permissions?.pinMessage || "admin_deputy",
@@ -1047,7 +1061,11 @@ export default function ChatRoomScreen() {
   }, [conversation?.type, otherParticipant?.userId]);
 
   useEffect(() => {
-    if (!user?.id || !otherParticipant?.userId || conversation?.type !== "private") {
+    if (
+      !user?.id ||
+      !otherParticipant?.userId ||
+      conversation?.type !== "private"
+    ) {
       setBlockStatus("none");
       return;
     }
@@ -1082,19 +1100,31 @@ export default function ChatRoomScreen() {
   useEffect(() => {
     if (!otherParticipant?.userId || !user?.id) return;
 
-    const handleFriendBlocked = ({ targetUserId }: { targetUserId: string }) => {
+    const handleFriendBlocked = ({
+      targetUserId,
+    }: {
+      targetUserId: string;
+    }) => {
       if (String(targetUserId) !== String(otherParticipant.userId)) return;
       setBlockStatus("blocked_by_me");
       GrayToast("Da chan nguoi dung");
     };
 
-    const handleBlockedBy = ({ blockedByUserId }: { blockedByUserId: string }) => {
+    const handleBlockedBy = ({
+      blockedByUserId,
+    }: {
+      blockedByUserId: string;
+    }) => {
       if (String(blockedByUserId) !== String(otherParticipant.userId)) return;
       setBlockStatus("blocked_by_other");
       GrayToast("Ban da bi chan");
     };
 
-    const handleFriendUnblocked = ({ targetUserId }: { targetUserId: string }) => {
+    const handleFriendUnblocked = ({
+      targetUserId,
+    }: {
+      targetUserId: string;
+    }) => {
       if (String(targetUserId) !== String(otherParticipant.userId)) return;
       setBlockStatus("none");
       GrayToast("Da mo chan nguoi dung");
@@ -1212,6 +1242,8 @@ export default function ChatRoomScreen() {
 
   useEffect(() => {
     setShowStickerPicker(false);
+    setDailySummary(null);
+    setIsSummarizingConversation(false);
   }, [convId]);
 
   // Join socket room + listeners
@@ -1266,7 +1298,9 @@ export default function ChatRoomScreen() {
 
   const handleToggleStickerPicker = useCallback(() => {
     if (isMessagingBlocked) {
-      GrayToast(isBlockedByMe ? "Ban da chan nguoi dung nay" : "Ban da bi chan");
+      GrayToast(
+        isBlockedByMe ? "Ban da chan nguoi dung nay" : "Ban da bi chan",
+      );
       return;
     }
     setShowStickerPicker((prev) => !prev);
@@ -1276,7 +1310,9 @@ export default function ChatRoomScreen() {
     async (stickerUrl: string) => {
       if (!convId || isSending) return;
       if (isMessagingBlocked) {
-        GrayToast(isBlockedByMe ? "Ban da chan nguoi dung nay" : "Ban da bi chan");
+        GrayToast(
+          isBlockedByMe ? "Ban da chan nguoi dung nay" : "Ban da bi chan",
+        );
         return;
       }
 
@@ -1304,7 +1340,9 @@ export default function ChatRoomScreen() {
     const trimmed = text.trim();
     if (!trimmed || isSending) return;
     if (isMessagingBlocked) {
-      GrayToast(isBlockedByMe ? "Ban da chan nguoi dung nay" : "Ban da bi chan");
+      GrayToast(
+        isBlockedByMe ? "Ban da chan nguoi dung nay" : "Ban da bi chan",
+      );
       return;
     }
     setText("");
@@ -1321,9 +1359,40 @@ export default function ChatRoomScreen() {
     }
   };
 
+  const handleSummarizeConversationInDay = useCallback(async () => {
+    if (!convId || isSummarizingConversation) return;
+
+    try {
+      setIsSummarizingConversation(true);
+      const result = await conversationService.getDailySummary(convId, {
+        tzOffsetMinutes: new Date().getTimezoneOffset(),
+      });
+
+      setDailySummary({
+        conversationName: result.conversationName || convName,
+        summary: result.summary,
+        messageCount: result.messageCount,
+        date: result.date,
+      });
+
+      GrayToast(
+        result.messageCount > 0
+          ? "Da tao tom tat cuoc tro chuyen trong ngay"
+          : "Khong co tin nhan trong ngay de tom tat",
+      );
+    } catch (error) {
+      console.error("Khong the tom tat cuoc tro chuyen:", error);
+      GrayToast("Khong the tom tat cuoc tro chuyen luc nay");
+    } finally {
+      setIsSummarizingConversation(false);
+    }
+  }, [convId, convName, isSummarizingConversation]);
+
   const handlePickImage = async () => {
     if (isMessagingBlocked) {
-      GrayToast(isBlockedByMe ? "Ban da chan nguoi dung nay" : "Ban da bi chan");
+      GrayToast(
+        isBlockedByMe ? "Ban da chan nguoi dung nay" : "Ban da bi chan",
+      );
       return;
     }
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -1377,7 +1446,9 @@ export default function ChatRoomScreen() {
 
   const handlePickFile = async () => {
     if (isMessagingBlocked) {
-      GrayToast(isBlockedByMe ? "Ban da chan nguoi dung nay" : "Ban da bi chan");
+      GrayToast(
+        isBlockedByMe ? "Ban da chan nguoi dung nay" : "Ban da bi chan",
+      );
       return;
     }
     try {
@@ -1486,7 +1557,9 @@ export default function ChatRoomScreen() {
           (result as any)?.group?.groupSettings?.pinnedMessage ||
           null;
         handleUpdatePinnedMessage(nextPinned);
-        socketService.emit("chat:sync_pinned_message", { conversationId: convId });
+        socketService.emit("chat:sync_pinned_message", {
+          conversationId: convId,
+        });
         GrayToast("Da ghim tin nhan");
       } catch (error: any) {
         GrayToast(error?.message || "Khong the ghim tin nhan");
@@ -1510,7 +1583,9 @@ export default function ChatRoomScreen() {
       }
 
       handleUpdatePinnedMessage(null);
-      socketService.emit("chat:sync_pinned_message", { conversationId: convId });
+      socketService.emit("chat:sync_pinned_message", {
+        conversationId: convId,
+      });
       GrayToast("Da bo ghim tin nhan");
     } catch (error: any) {
       GrayToast(error?.message || "Khong the bo ghim tin nhan");
@@ -1986,8 +2061,18 @@ export default function ChatRoomScreen() {
                   gap: 10,
                 }}
               >
-                <Ionicons name="alert-circle-outline" size={28} color="#DC2626" />
-                <Text style={{ color: "#111827", fontSize: 15, textAlign: "center" }}>
+                <Ionicons
+                  name="alert-circle-outline"
+                  size={28}
+                  color="#DC2626"
+                />
+                <Text
+                  style={{
+                    color: "#111827",
+                    fontSize: 15,
+                    textAlign: "center",
+                  }}
+                >
                   Khong the tai noi dung xem truoc.
                 </Text>
                 <TouchableOpacity
@@ -2028,6 +2113,61 @@ export default function ChatRoomScreen() {
           borderTopColor: "#F3F4F6",
         }}
       >
+        {dailySummary && (
+          <View
+            style={{
+              marginBottom: 8,
+              borderWidth: 1,
+              borderColor: "#BFDBFE",
+              backgroundColor: "#EFF6FF",
+              borderRadius: 12,
+              paddingHorizontal: 10,
+              paddingVertical: 8,
+              flexDirection: "row",
+              alignItems: "flex-start",
+              justifyContent: "space-between",
+              gap: 8,
+            }}
+          >
+            <View style={{ flex: 1 }}>
+              <Text
+                style={{
+                  color: "#1D4ED8",
+                  fontSize: 12,
+                  fontWeight: "700",
+                }}
+              >
+                Tom tat ngay {dailySummary.date} • {dailySummary.messageCount}{" "}
+                tin nhan
+              </Text>
+              <Text
+                style={{
+                  color: "#1F2937",
+                  fontSize: 13,
+                  lineHeight: 18,
+                  marginTop: 3,
+                }}
+              >
+                {dailySummary.summary}
+              </Text>
+            </View>
+
+            <TouchableOpacity
+              onPress={() => setDailySummary(null)}
+              style={{
+                width: 22,
+                height: 22,
+                borderRadius: 11,
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor: "#DBEAFE",
+              }}
+            >
+              <Ionicons name="close" size={14} color="#1D4ED8" />
+            </TouchableOpacity>
+          </View>
+        )}
+
         <View
           style={{
             flexDirection: "row",
@@ -2057,12 +2197,25 @@ export default function ChatRoomScreen() {
                 justifyContent: "space-between",
               }}
             >
-              <Text style={{ color: "#92400E", fontSize: 12, fontWeight: "600" }}>
-                {isBlockedByMe ? "Ban da chan nguoi dung nay" : "Ban da bi chan"}
+              <Text
+                style={{ color: "#92400E", fontSize: 12, fontWeight: "600" }}
+              >
+                {isBlockedByMe
+                  ? "Ban da chan nguoi dung nay"
+                  : "Ban da bi chan"}
               </Text>
               {isBlockedByMe && (
-                <TouchableOpacity onPress={handleUnblockUser} style={{ paddingVertical: 3 }}>
-                  <Text style={{ color: "#92400E", fontSize: 12, fontWeight: "700" }}>
+                <TouchableOpacity
+                  onPress={handleUnblockUser}
+                  style={{ paddingVertical: 3 }}
+                >
+                  <Text
+                    style={{
+                      color: "#92400E",
+                      fontSize: 12,
+                      fontWeight: "700",
+                    }}
+                  >
                     Mo chan
                   </Text>
                 </TouchableOpacity>
@@ -2117,6 +2270,28 @@ export default function ChatRoomScreen() {
             }}
           >
             <Ionicons name="ellipsis-horizontal" size={23} color="#7B8088" />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={() => void handleSummarizeConversationInDay()}
+            disabled={isSummarizingConversation || !convId}
+            style={{
+              width: 36,
+              height: 36,
+              alignItems: "center",
+              justifyContent: "center",
+              opacity: isSummarizingConversation ? 0.7 : 1,
+            }}
+          >
+            {isSummarizingConversation ? (
+              <ActivityIndicator size="small" color="#0068FF" />
+            ) : (
+              <Ionicons
+                name="document-text-outline"
+                size={22}
+                color={dailySummary ? "#0068FF" : "#7B8088"}
+              />
+            )}
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -2207,4 +2382,3 @@ export default function ChatRoomScreen() {
     </KeyboardAvoidingView>
   );
 }
-

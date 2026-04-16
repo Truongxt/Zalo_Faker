@@ -55,6 +55,7 @@ import {
   getMessages,
   getConversation,
   getGroupSettings,
+  getDailyConversationSummary,
   pinGroupMessage,
   pinConversationMessage,
   unpinGroupMessage,
@@ -195,16 +196,26 @@ export default function ChatRoom() {
   const [showBackgroundPicker, setShowBackgroundPicker] = useState(false);
   const [announcementMode, setAnnouncementMode] = useState(false);
   const [isPinningMessage, setIsPinningMessage] = useState(false);
-  const [pendingMediaList, setPendingMediaList] = useState<{
-    file: File;
-    type: "image" | "video" | "file";
-    previewUrl?: string;
-  }[]>([]);
+  const [pendingMediaList, setPendingMediaList] = useState<
+    {
+      file: File;
+      type: "image" | "video" | "file";
+      previewUrl?: string;
+    }[]
+  >([]);
   const [isMutingConversation, setIsMutingConversation] = useState(false);
   const [isBlockingUser, setIsBlockingUser] = useState(false);
   const [blockStatus, setBlockStatus] = useState<
     "none" | "blocked_by_me" | "blocked_by_other"
   >("none");
+  const [isSummarizingConversation, setIsSummarizingConversation] =
+    useState(false);
+  const [dailySummary, setDailySummary] = useState<{
+    conversationName: string;
+    summary: string;
+    messageCount: number;
+    date: string;
+  } | null>(null);
 
   // Pagination state
   const pagination = useMessagePagination(conversationId);
@@ -337,6 +348,8 @@ export default function ChatRoom() {
 
   useEffect(() => {
     setAnnouncementMode(false);
+    setDailySummary(null);
+    setIsSummarizingConversation(false);
     setShowAllInfoItems({
       media: false,
       files: false,
@@ -998,9 +1011,15 @@ export default function ChatRoom() {
 
     if (!selectedFiles.length) return;
 
-    const newItems: { file: File; type: "image" | "video"; previewUrl: string }[] = [];
+    const newItems: {
+      file: File;
+      type: "image" | "video";
+      previewUrl: string;
+    }[] = [];
     for (const file of selectedFiles) {
-      const type = file.type.startsWith("video/") ? "video" as const : "image" as const;
+      const type = file.type.startsWith("video/")
+        ? ("video" as const)
+        : ("image" as const);
       const validation = validateFile(file, type);
       if (!validation.valid) continue;
       newItems.push({
@@ -1363,6 +1382,40 @@ export default function ChatRoom() {
     }
   };
 
+  const handleSummarizeConversationInDay = async () => {
+    if (!conversationId) return;
+
+    try {
+      setIsSummarizingConversation(true);
+
+      const result = await getDailyConversationSummary(
+        conversationId,
+        undefined,
+        new Date().getTimezoneOffset(),
+      );
+
+      setDailySummary({
+        conversationName: result.conversationName || "Cuộc trò chuyện",
+        summary: result.summary,
+        messageCount: result.messageCount,
+        date: result.date,
+      });
+
+      addToast(
+        result.messageCount > 0
+          ? "Đã tạo tóm tắt cuộc trò chuyện hôm nay."
+          : "Không có tin nhắn trong ngày để tóm tắt.",
+        "success",
+        2500,
+      );
+    } catch (error) {
+      console.error("Summarize conversation error:", error);
+      addToast("Không thể tóm tắt cuộc trò chuyện lúc này.", "error", 3500);
+    } finally {
+      setIsSummarizingConversation(false);
+    }
+  };
+
   const otherUser = getOtherParticipant();
   const currentP = activeConversation?.participants.find(
     (p) => String(p.userId) === String(user?.id),
@@ -1370,13 +1423,19 @@ export default function ChatRoom() {
   const isBlockedByMe = blockStatus === "blocked_by_me";
   const isBlockedByOther = blockStatus === "blocked_by_other";
   const isPrivateConversation = activeConversation?.type !== "group";
-  const isMessagingBlocked = isPrivateConversation && (isBlockedByMe || isBlockedByOther);
+  const isMessagingBlocked =
+    isPrivateConversation && (isBlockedByMe || isBlockedByOther);
   const activeNickname = currentP?.nickname;
   const isMuted = currentP?.isMuted;
   const currentGroupRole = currentP?.role;
 
   useEffect(() => {
-    if (!conversationId || !activeConversation || activeConversation.type === "group" || !user?.id) {
+    if (
+      !conversationId ||
+      !activeConversation ||
+      activeConversation.type === "group" ||
+      !user?.id
+    ) {
       setBlockStatus("none");
       return;
     }
@@ -1837,7 +1896,9 @@ export default function ChatRoom() {
             onClick={handleOpenOtherProfile}
             disabled={activeConversation.type === "group"}
             className="relative rounded-full disabled:cursor-default"
-            title={activeConversation.type === "group" ? "" : "Xem trang cá nhân"}
+            title={
+              activeConversation.type === "group" ? "" : "Xem trang cá nhân"
+            }
           >
             {conversationAvatar ? (
               <img
@@ -1862,7 +1923,9 @@ export default function ChatRoom() {
             onClick={handleOpenOtherProfile}
             disabled={activeConversation.type === "group"}
             className="text-left disabled:cursor-default"
-            title={activeConversation.type === "group" ? "" : "Xem trang cá nhân"}
+            title={
+              activeConversation.type === "group" ? "" : "Xem trang cá nhân"
+            }
           >
             <h3 className="font-semibold text-gray-900 dark:text-white flex items-center gap-2">
               {conversationName}
@@ -2259,9 +2322,7 @@ export default function ChatRoom() {
         {isMessagingBlocked && (
           <div className="mb-3 rounded-xl border border-amber-200 dark:border-amber-800/50 bg-amber-50 dark:bg-amber-900/20 px-3 py-2.5 text-sm flex items-center justify-between gap-3">
             <span className="text-amber-800 dark:text-amber-200">
-              {isBlockedByMe
-                ? "Bạn đã chặn người dùng này"
-                : "Bạn đã bị chặn"}
+              {isBlockedByMe ? "Bạn đã chặn người dùng này" : "Bạn đã bị chặn"}
             </span>
             {isBlockedByMe && (
               <button
@@ -2279,7 +2340,8 @@ export default function ChatRoom() {
           <div className="mb-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-dark-300 p-2.5">
             <div className="flex items-center justify-between mb-2">
               <p className="text-xs text-primary-600 dark:text-primary-400">
-                {pendingMediaList.length} tệp đã chọn — Nhấn gửi để gửi vào đoạn chat.
+                {pendingMediaList.length} tệp đã chọn — Nhấn gửi để gửi vào đoạn
+                chat.
               </p>
               <button
                 type="button"
@@ -2317,10 +2379,13 @@ export default function ChatRoom() {
                   {media.type === "file" && (
                     <div className="w-20 h-20 rounded-lg bg-primary-100 dark:bg-primary-900/30 flex flex-col items-center justify-center text-primary-600 px-1 text-center">
                       <span className="font-semibold text-xs">
-                        {media.file.name.split(".").pop()?.toUpperCase() || "FILE"}
+                        {media.file.name.split(".").pop()?.toUpperCase() ||
+                          "FILE"}
                       </span>
                       <span className="text-[10px] text-gray-500 mt-0.5 truncate w-full">
-                        {media.file.name.length > 10 ? media.file.name.slice(0, 8) + "..." : media.file.name}
+                        {media.file.name.length > 10
+                          ? media.file.name.slice(0, 8) + "..."
+                          : media.file.name}
                       </span>
                     </div>
                   )}
@@ -2334,6 +2399,29 @@ export default function ChatRoom() {
                   </button>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+        {dailySummary && (
+          <div className="mb-3 rounded-xl border border-primary-200 dark:border-primary-800/50 bg-primary-50 dark:bg-primary-900/20 px-3 py-2.5">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <p className="text-xs text-primary-700 dark:text-primary-300 font-medium">
+                  Tóm tắt ngày {dailySummary.date} • {dailySummary.messageCount}{" "}
+                  tin nhắn
+                </p>
+                <p className="text-sm text-gray-700 dark:text-gray-200 mt-1 max-h-20 overflow-y-auto pr-1">
+                  {dailySummary.summary}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDailySummary(null)}
+                className="p-1 rounded-md hover:bg-primary-100 dark:hover:bg-primary-900/40 text-primary-700 dark:text-primary-300"
+                title="Ẩn tóm tắt"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </div>
           </div>
         )}
@@ -2448,8 +2536,8 @@ export default function ChatRoom() {
                         ? "Bạn đã chặn người dùng này"
                         : "Bạn đã bị chặn"
                       : announcementMode
-                      ? "Nhập nội dung thông báo..."
-                      : "Nhập tin nhắn..."
+                        ? "Nhập nội dung thông báo..."
+                        : "Nhập tin nhắn..."
                   }
                   className={`w-full px-4 py-2.5 bg-gray-100 dark:bg-dark-300 rounded-full
                                         text-gray-900 dark:text-white placeholder-gray-500
@@ -2484,14 +2572,36 @@ export default function ChatRoom() {
                     </button>
                   )}
 
+                  <button
+                    type="button"
+                    onClick={handleSummarizeConversationInDay}
+                    disabled={isSummarizingConversation || !conversationId}
+                    className={`p-1 rounded-full transition-colors ${
+                      dailySummary
+                        ? "bg-primary-100 text-primary-500"
+                        : "hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500"
+                    } disabled:opacity-40 disabled:cursor-not-allowed`}
+                    title={
+                      isSummarizingConversation
+                        ? "Đang tóm tắt..."
+                        : "Tóm tắt cuộc trò chuyện trong ngày"
+                    }
+                  >
+                    {isSummarizingConversation ? (
+                      <Loader className="w-5 h-5 animate-spin-fast" />
+                    ) : (
+                      <FileText className="w-5 h-5" />
+                    )}
+                  </button>
+
                   <div ref={stickerPickerRef} className="relative">
                     <button
                       type="button"
                       onClick={() => setShowStickerPicker(!showStickerPicker)}
                       disabled={
                         isMessagingBlocked ||
-                        activeConversation?.type === "group" &&
-                        !canSendMediaInGroup
+                        (activeConversation?.type === "group" &&
+                          !canSendMediaInGroup)
                       }
                       className={`p-1 rounded-full transition-colors ${
                         showStickerPicker
@@ -2566,7 +2676,7 @@ export default function ChatRoom() {
               onClick={handleToggleRecord}
               disabled={
                 isMessagingBlocked ||
-                activeConversation?.type === "group" && !canSendMediaInGroup
+                (activeConversation?.type === "group" && !canSendMediaInGroup)
               }
               className={`p-3 text-white rounded-full transition-all flex-shrink-0
                                 ${isRecording ? "bg-red-500 hover:bg-red-600 animate-pulse" : "bg-primary-500 hover:bg-primary-600"} disabled:opacity-50 disabled:cursor-not-allowed`}
@@ -2605,7 +2715,11 @@ export default function ChatRoom() {
                     onClick={handleOpenOtherProfile}
                     disabled={activeConversation.type === "group"}
                     className="rounded-full disabled:cursor-default"
-                    title={activeConversation.type === "group" ? "" : "Xem trang cá nhân"}
+                    title={
+                      activeConversation.type === "group"
+                        ? ""
+                        : "Xem trang cá nhân"
+                    }
                   >
                     <img
                       src={conversationAvatar}
@@ -2619,7 +2733,11 @@ export default function ChatRoom() {
                     onClick={handleOpenOtherProfile}
                     disabled={activeConversation.type === "group"}
                     className="rounded-full disabled:cursor-default"
-                    title={activeConversation.type === "group" ? "" : "Xem trang cá nhân"}
+                    title={
+                      activeConversation.type === "group"
+                        ? ""
+                        : "Xem trang cá nhân"
+                    }
                   >
                     <div className="w-20 h-20 rounded-full bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center">
                       <span className="text-2xl font-semibold text-primary-600 dark:text-primary-300">
@@ -2633,7 +2751,11 @@ export default function ChatRoom() {
                   onClick={handleOpenOtherProfile}
                   disabled={activeConversation.type === "group"}
                   className="mt-3 font-semibold text-gray-900 dark:text-white disabled:cursor-default"
-                  title={activeConversation.type === "group" ? "" : "Xem trang cá nhân"}
+                  title={
+                    activeConversation.type === "group"
+                      ? ""
+                      : "Xem trang cá nhân"
+                  }
                 >
                   {conversationName}
                 </button>
@@ -2988,4 +3110,3 @@ export default function ChatRoom() {
     </div>
   );
 }
-

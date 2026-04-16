@@ -407,6 +407,47 @@ const unpinConversationMessage = async (conversationId: string) => {
     return response.json();
 }
 
+export interface DailyConversationSummary {
+    conversationId: string;
+    conversationName: string;
+    summary: string;
+    messageCount: number;
+    date: string;
+    tzOffsetMinutes: number;
+}
+
+const getDailyConversationSummary = async (
+    conversationId: string,
+    date?: string,
+    tzOffsetMinutes?: number,
+): Promise<DailyConversationSummary> => {
+    if (!conversationId || conversationId === 'undefined') {
+        throw new Error('Invalid Conversation ID');
+    }
+
+    const query = new URLSearchParams();
+    if (date) {
+        query.set('date', date);
+    }
+    if (Number.isFinite(tzOffsetMinutes)) {
+        query.set('tzOffsetMinutes', String(Math.trunc(Number(tzOffsetMinutes))));
+    }
+
+    const endpoint = `/conversations/${conversationId}/daily-summary${query.toString() ? `?${query.toString()}` : ''}`;
+    const response = await fetchWithAuth(endpoint);
+    const payload = await response.json();
+    const data = payload?.data || payload || {};
+
+    return {
+        conversationId: String(data?.conversationId || conversationId),
+        conversationName: String(data?.conversationName || ''),
+        summary: String(data?.summary || ''),
+        messageCount: Number(data?.messageCount || 0),
+        date: String(data?.date || ''),
+        tzOffsetMinutes: Number(data?.tzOffsetMinutes ?? (tzOffsetMinutes ?? 0)),
+    };
+}
+
 const getUserByPhone = async (phone: string): Promise<User> => {
     const response = await fetchWithAuth(`/users/phone/${phone}`);
     const data = await response.json();
@@ -488,6 +529,7 @@ export {
     unpinGroupMessage,
     pinConversationMessage,
     unpinConversationMessage,
+    getDailyConversationSummary,
     getStickers,
     updateConversationBackground,
     uploadMedia,

@@ -1,6 +1,7 @@
 const conversationService = require("../services/conversationService");
 const messageService = require("../services/messageService");
 const userRepository = require("../repository/userRepository");
+const { summarizeTodayConversation } = require("../services/aiService");
 
 const normalizeParticipantMuteState = (participant = {}) => {
     const normalized = { ...participant };
@@ -218,6 +219,38 @@ const getConversations = async (req, res) => {
     }
 };
 
+const summarizeConversationInDay = async (req, res) => {
+    try {
+        const userId = req.user?.userId;
+        const conversationId = req.params?.id;
+        const { date, tzOffsetMinutes } = req.query || {};
+
+        if (!userId) {
+            return res.status(401).json({
+                success: false,
+                message: "Unauthorized",
+            });
+        }
+
+        const data = await summarizeTodayConversation({
+            conversationId,
+            userId,
+            date,
+            tzOffsetMinutes,
+        });
+
+        return res.status(200).json({
+            success: true,
+            data,
+        });
+    } catch (error) {
+        return res.status(error.statusCode || 500).json({
+            success: false,
+            message: error.message || "Failed to summarize conversation",
+        });
+    }
+};
+
 const updateConversation = async (req, res) => {
     try {
         const conversation = await conversationService.updateConversation(req.params.id, req.body);
@@ -396,6 +429,7 @@ module.exports = {
     createConversation,
     getConversation,
     getConversations,
+    summarizeConversationInDay,
     updateConversation,
     deleteConversation,
     updateParticipantSetting,
