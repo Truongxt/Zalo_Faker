@@ -85,7 +85,9 @@ const getFileNameFromUrl = (url?: string) => {
 };
 
 const getFileExtension = (fileName: string) => {
-  const normalized = String(fileName || "").trim().toLowerCase();
+  const normalized = String(fileName || "")
+    .trim()
+    .toLowerCase();
   const segments = normalized.split(".");
   if (segments.length < 2) return "";
   return segments.pop() || "";
@@ -95,7 +97,9 @@ const getPreviewKind = (
   fileName?: string,
   mediaUrl?: string,
 ): FilePreviewKind | null => {
-  const resolvedFileName = String(fileName || getFileNameFromUrl(mediaUrl)).trim();
+  const resolvedFileName = String(
+    fileName || getFileNameFromUrl(mediaUrl),
+  ).trim();
   const extension = getFileExtension(resolvedFileName);
 
   if (extension === "pdf") return "pdf";
@@ -124,10 +128,12 @@ const parseCallPayload = (value: unknown) => {
   if (typeof value !== "object" || Array.isArray(value)) return null;
   const objectValue = value as Record<string, unknown>;
 
-  const callTypeRaw = String(objectValue.callType || "").trim().toLowerCase();
-  const statusRaw = String(
-    objectValue.status || objectValue.callStatus || "",
-  ).trim().toLowerCase();
+  const callTypeRaw = String(objectValue.callType || "")
+    .trim()
+    .toLowerCase();
+  const statusRaw = String(objectValue.status || objectValue.callStatus || "")
+    .trim()
+    .toLowerCase();
   if (!callTypeRaw || !statusRaw) return null;
 
   const callType =
@@ -142,7 +148,8 @@ const parseCallPayload = (value: unknown) => {
     callType,
     status: statusRaw === "ended" ? "finished" : statusRaw,
     duration:
-      typeof objectValue.duration === "number" && Number.isFinite(objectValue.duration)
+      typeof objectValue.duration === "number" &&
+      Number.isFinite(objectValue.duration)
         ? Math.max(0, Math.floor(objectValue.duration))
         : 0,
   };
@@ -165,7 +172,8 @@ export function Message({
   const content = message.isDeleted
     ? "Tin nhan da bi thu hoi"
     : message.content;
-  const [activeFilePreview, setActiveFilePreview] = useState<FilePreviewState | null>(null);
+  const [activeFilePreview, setActiveFilePreview] =
+    useState<FilePreviewState | null>(null);
   const [textPreviewContent, setTextPreviewContent] = useState("");
   const [textPreviewLoading, setTextPreviewLoading] = useState(false);
   const [textPreviewError, setTextPreviewError] = useState("");
@@ -194,7 +202,9 @@ export function Message({
       } catch (error) {
         if (controller.signal.aborted) return;
         setTextPreviewError(
-          error instanceof Error ? error.message : "Khong the tai noi dung file",
+          error instanceof Error
+            ? error.message
+            : "Khong the tai noi dung file",
         );
       } finally {
         if (!controller.signal.aborted) {
@@ -291,212 +301,51 @@ export function Message({
             {parsedCallPayload ? (
               (() => {
                 const callData: any = parsedCallPayload;
-
-                const isVideo = callData.callType === 'video';
+                const isVideo = callData.callType === "video";
                 const status = callData.status;
                 const duration = callData.duration || 0;
 
                 const formatDuration = (s: number) => {
                   const mins = Math.floor(s / 60);
                   const secs = s % 60;
-                  return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+                  return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
                 };
 
-                const getStatusText = () => {
-                  if (status === 'finished') return isSent ? 'Cuộc gọi đi' : 'Cuộc gọi đến';
-                  if (status === 'missed') return isSent ? 'Thue bao khong nhac may' : 'Cuộc gọi nhỡ';
-                  if (status === 'rejected') return 'Cuộc gọi bị từ chối';
-                  if (status === 'cancelled') return 'Cuộc gọi đã hủy';
-                  return 'Cuộc gọi';
-                };
-
-                const isMissed = status === 'missed' || status === 'rejected';
+                const isMissed = status === "missed" || status === "rejected";
 
                 return (
                   <View className="flex-row items-center gap-3 py-1">
-                    <View 
+                    <View
                       className="w-10 h-10 rounded-full items-center justify-center"
-                      style={{ backgroundColor: isMissed ? '#fee2e2' : '#dbeafe' }}
+                      style={{
+                        backgroundColor: isMissed ? "#fee2e2" : "#dbeafe",
+                      }}
                     >
-                      <Ionicons 
-                        name={isVideo ? "videocam" : "call"} 
-                        size={20} 
-                        color={isMissed ? "#ef4444" : "#3b82f6"} 
+                      <Ionicons
+                        name={isVideo ? "videocam" : "call"}
+                        size={20}
+                        color={isMissed ? "#ef4444" : "#3b82f6"}
                       />
                     </View>
                     <View>
-                      <Text className="text-[15px] font-semibold" style={{ color: bubbleTextColor }}>
-                </View>
-
-                <Modal
-                  visible={Boolean(activeFilePreview)}
-                  transparent
-                  animationType="fade"
-                  onRequestClose={closeFilePreview}
-                >
-                  <Pressable
-                    onPress={closeFilePreview}
-                    style={{
-                      flex: 1,
-                      backgroundColor: "rgba(0,0,0,0.65)",
-                      padding: 16,
-                      justifyContent: "center",
-                    }}
-                  >
-                    <Pressable
-                      onPress={() => undefined}
-                      style={{
-                        maxHeight: "88%",
-                        borderRadius: 24,
-                        backgroundColor: Colors.background,
-                        overflow: "hidden",
-                      }}
-                    >
-                      <View
-                        style={{
-                          flexDirection: "row",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                          paddingHorizontal: 16,
-                          paddingVertical: 14,
-                          borderBottomWidth: 1,
-                          borderBottomColor: "rgba(0,0,0,0.08)",
-                        }}
+                      <Text
+                        className="text-[15px] font-semibold"
+                        style={{ color: bubbleTextColor }}
                       >
-                        <View style={{ flex: 1, paddingRight: 12 }}>
-                          <Text style={{ fontSize: 15, fontWeight: "700", color: Colors.text }} numberOfLines={1}>
-                            Xem trước: {activeFilePreview?.fileName}
-                          </Text>
-                          <Text style={{ fontSize: 12, color: Colors.textMuted }} numberOfLines={1}>
-                            {activeFilePreview?.kind === "pdf"
-                              ? "PDF được mở ngoài app nếu thiết bị không hỗ trợ xem trực tiếp"
-                              : "Nội dung file văn bản"}
-                          </Text>
-                        </View>
-
-                        <TouchableOpacity
-                          onPress={closeFilePreview}
-                          style={{
-                            minWidth: 72,
-                            height: 36,
-                            borderRadius: 18,
-                            alignItems: "center",
-                            justifyContent: "center",
-                            backgroundColor: Colors.primary,
-                          }}
-                        >
-                          <Text style={{ color: "#fff", fontWeight: "700", fontSize: 13 }}>Đóng</Text>
-                        </TouchableOpacity>
-                      </View>
-
-                      <View style={{ flex: 1, minHeight: 240, padding: 16 }}>
-                        {activeFilePreview?.kind === "pdf" ? (
-                          <View
-                            style={{
-                              flex: 1,
-                              borderRadius: 18,
-                              borderWidth: 1,
-                              borderColor: "rgba(0,0,0,0.08)",
-                              backgroundColor: "rgba(0,0,0,0.03)",
-                              padding: 20,
-                              alignItems: "center",
-                              justifyContent: "center",
-                              gap: 12,
-                            }}
-                          >
-                            <Ionicons name="document-text-outline" size={44} color={Colors.textMuted} />
-                            <Text style={{ fontSize: 16, fontWeight: "700", color: Colors.text, textAlign: "center" }}>
-                              Xem trước PDF
-                            </Text>
-                            <Text style={{ fontSize: 13, color: Colors.textMuted, textAlign: "center", lineHeight: 19 }}>
-                              Thiết bị này không hiển thị PDF trực tiếp trong modal. Bạn có thể mở file ở tab hoặc ứng dụng khác.
-                            </Text>
-                            <TouchableOpacity
-                              onPress={() => {
-                                if (activeFilePreview?.mediaUrl) {
-                                  handleOpenFileExternally(activeFilePreview.mediaUrl);
-                                }
-                              }}
-                              style={{
-                                marginTop: 4,
-                                paddingHorizontal: 16,
-                                height: 40,
-                                borderRadius: 20,
-                                backgroundColor: Colors.primary,
-                                alignItems: "center",
-                                justifyContent: "center",
-                              }}
-                            >
-                              <Text style={{ color: "#fff", fontWeight: "700" }}>Mở file ở tab mới</Text>
-                            </TouchableOpacity>
-                          </View>
-                        ) : textPreviewLoading ? (
-                          <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-                            <ActivityIndicator size="large" color={Colors.primary} />
-                            <Text style={{ marginTop: 12, color: Colors.textMuted }}>Đang tải nội dung file...</Text>
-                          </View>
-                        ) : textPreviewError ? (
-                          <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 12 }}>
-                            <Text style={{ color: "#dc2626", textAlign: "center", lineHeight: 20 }}>
-                              Không thể xem trước file này: {textPreviewError}
-                            </Text>
-                            {activeFilePreview?.mediaUrl ? (
-                              <TouchableOpacity
-                                onPress={() => handleOpenFileExternally(activeFilePreview.mediaUrl)}
-                                style={{
-                                  paddingHorizontal: 16,
-                                  height: 40,
-                                  borderRadius: 20,
-                                  backgroundColor: Colors.primary,
-                                  alignItems: "center",
-                                  justifyContent: "center",
-                                }}
-                              >
-                                <Text style={{ color: "#fff", fontWeight: "700" }}>Mở file ở tab mới</Text>
-                              </TouchableOpacity>
-                            ) : null}
-                          </View>
-                        ) : (
-                          <ScrollView
-                            showsVerticalScrollIndicator={false}
-                            style={{ flex: 1 }}
-                            contentContainerStyle={{ paddingBottom: 8 }}
-                          >
-                            <View
-                              style={{
-                                borderRadius: 18,
-                                borderWidth: 1,
-                                borderColor: "rgba(0,0,0,0.08)",
-                                backgroundColor: "rgba(0,0,0,0.03)",
-                                padding: 16,
-                              }}
-                            >
-                              <Text
-                                selectable
-                                style={{
-                                  color: Colors.text,
-                                  fontSize: 13,
-                                  lineHeight: 20,
-                                }}
-                              >
-                                {textPreviewContent || "File rong"}
-                              </Text>
-                            </View>
-                          </ScrollView>
-                        )}
-                      </View>
-                    </Pressable>
-                  </Pressable>
-                </Modal>
+                        {status === "finished"
+                          ? isSent
+                            ? "Cuộc gọi đi"
+                            : "Cuộc gọi đến"
+                          : status === "missed"
+                            ? "Cuộc gọi nhỡ"
+                            : "Cuộc gọi"}
                       </Text>
-                      {status === 'finished' && (
-                        <Text className="text-xs opacity-70" style={{ color: bubbleTextColor }}>
+                      {status === "finished" && (
+                        <Text
+                          className="text-xs opacity-70"
+                          style={{ color: bubbleTextColor }}
+                        >
                           {formatDuration(duration)}
-                        </Text>
-                      )}
-                      {isMissed && !isSent && (
-                        <Text className="text-xs font-medium text-red-500">
-                          Nhấn để gọi lại
                         </Text>
                       )}
                     </View>
@@ -510,9 +359,12 @@ export function Message({
                     const fileAttachment = attachments.find(
                       (attachment) => attachment.type === "file",
                     );
-                    const mediaUrl = fileAttachment?.url || String(message.content || "");
+                    const mediaUrl =
+                      fileAttachment?.url || String(message.content || "");
                     const fileName =
-                      fileAttachment?.name || getFileNameFromUrl(mediaUrl) || "File dinh kem";
+                      fileAttachment?.name ||
+                      getFileNameFromUrl(mediaUrl) ||
+                      "File dinh kem";
                     const previewKind = getPreviewKind(fileName, mediaUrl);
 
                     return (
@@ -533,28 +385,45 @@ export function Message({
                             borderRadius: 14,
                             paddingHorizontal: 12,
                             paddingVertical: 10,
-                            backgroundColor: pressed ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.16)",
+                            backgroundColor: pressed
+                              ? "rgba(255,255,255,0.12)"
+                              : "rgba(255,255,255,0.16)",
                           })}
                         >
-                          <Ionicons name="document-outline" size={18} color={bubbleTextColor} />
+                          <Ionicons
+                            name="document-outline"
+                            size={18}
+                            color={bubbleTextColor}
+                          />
                           <View style={{ flex: 1, minWidth: 0 }}>
                             <Text
-                              style={{ color: bubbleTextColor, fontWeight: "600" }}
+                              style={{
+                                color: bubbleTextColor,
+                                fontWeight: "600",
+                              }}
                               numberOfLines={1}
                             >
                               {fileName}
                             </Text>
                             <Text
-                              style={{ color: bubbleTextColor, opacity: 0.72, fontSize: 12 }}
+                              style={{
+                                color: bubbleTextColor,
+                                opacity: 0.72,
+                                fontSize: 12,
+                              }}
                               numberOfLines={1}
                             >
-                              {previewKind ? "Chạm để xem trước" : "Chạm để mở file"}
+                              {previewKind
+                                ? "Chạm để xem trước"
+                                : "Chạm để mở file"}
                             </Text>
                           </View>
                         </Pressable>
 
                         {previewKind && mediaUrl ? (
-                          <Pressable onPress={() => handleOpenFileExternally(mediaUrl)}>
+                          <Pressable
+                            onPress={() => handleOpenFileExternally(mediaUrl)}
+                          >
                             <Text
                               style={{
                                 color: bubbleTextColor,
@@ -635,6 +504,227 @@ export function Message({
           ) : null}
         </View>
       </View>
+
+      <Modal
+        visible={Boolean(activeFilePreview)}
+        transparent
+        animationType="fade"
+        onRequestClose={closeFilePreview}
+      >
+        <Pressable
+          onPress={closeFilePreview}
+          style={{
+            flex: 1,
+            backgroundColor: "rgba(0,0,0,0.65)",
+            padding: 16,
+            justifyContent: "center",
+          }}
+        >
+          <Pressable
+            onPress={() => undefined}
+            style={{
+              maxHeight: "88%",
+              borderRadius: 24,
+              backgroundColor: Colors.background,
+              overflow: "hidden",
+            }}
+          >
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                paddingHorizontal: 16,
+                paddingVertical: 14,
+                borderBottomWidth: 1,
+                borderBottomColor: "rgba(0,0,0,0.08)",
+              }}
+            >
+              <View style={{ flex: 1, paddingRight: 12 }}>
+                <Text
+                  style={{
+                    fontSize: 15,
+                    fontWeight: "700",
+                    color: Colors.text,
+                  }}
+                  numberOfLines={1}
+                >
+                  Xem trước: {activeFilePreview?.fileName}
+                </Text>
+                <Text
+                  style={{ fontSize: 12, color: Colors.textSecondary }}
+                  numberOfLines={1}
+                >
+                  {activeFilePreview?.kind === "pdf"
+                    ? "PDF được mở ngoài app nếu thiết bị không hỗ trợ xem trực tiếp"
+                    : "Nội dung file văn bản"}
+                </Text>
+              </View>
+
+              <TouchableOpacity
+                onPress={closeFilePreview}
+                style={{
+                  minWidth: 72,
+                  height: 36,
+                  borderRadius: 18,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  backgroundColor: Colors.primary,
+                }}
+              >
+                <Text
+                  style={{ color: "#fff", fontWeight: "700", fontSize: 13 }}
+                >
+                  Đóng
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={{ flex: 1, minHeight: 240, padding: 16 }}>
+              {activeFilePreview?.kind === "pdf" ? (
+                <View
+                  style={{
+                    flex: 1,
+                    borderRadius: 18,
+                    borderWidth: 1,
+                    borderColor: "rgba(0,0,0,0.08)",
+                    backgroundColor: "rgba(0,0,0,0.03)",
+                    padding: 20,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 12,
+                  }}
+                >
+                  <Ionicons
+                    name="document-text-outline"
+                    size={44}
+                    color={Colors.textSecondary}
+                  />
+                  <Text
+                    style={{
+                      fontSize: 16,
+                      fontWeight: "700",
+                      color: Colors.text,
+                      textAlign: "center",
+                    }}
+                  >
+                    Xem trước PDF
+                  </Text>
+                  <Text
+                    style={{
+                      fontSize: 13,
+                      color: Colors.textSecondary,
+                      textAlign: "center",
+                      lineHeight: 19,
+                    }}
+                  >
+                    Thiết bị này không hiển thị PDF trực tiếp trong modal. Bạn
+                    có thể mở file ở tab hoặc ứng dụng khác.
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => {
+                      if (activeFilePreview?.mediaUrl) {
+                        handleOpenFileExternally(activeFilePreview.mediaUrl);
+                      }
+                    }}
+                    style={{
+                      marginTop: 4,
+                      paddingHorizontal: 16,
+                      height: 40,
+                      borderRadius: 20,
+                      backgroundColor: Colors.primary,
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <Text style={{ color: "#fff", fontWeight: "700" }}>
+                      Mở file ở tab mới
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              ) : textPreviewLoading ? (
+                <View
+                  style={{
+                    flex: 1,
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <ActivityIndicator size="large" color={Colors.primary} />
+                  <Text style={{ marginTop: 12, color: Colors.textSecondary }}>
+                    Đang tải nội dung file...
+                  </Text>
+                </View>
+              ) : textPreviewError ? (
+                <View
+                  style={{
+                    flex: 1,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 12,
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: "#dc2626",
+                      textAlign: "center",
+                      lineHeight: 20,
+                    }}
+                  >
+                    Không thể xem trước file này: {textPreviewError}
+                  </Text>
+                  {activeFilePreview?.mediaUrl ? (
+                    <TouchableOpacity
+                      onPress={() =>
+                        handleOpenFileExternally(activeFilePreview.mediaUrl)
+                      }
+                      style={{
+                        paddingHorizontal: 16,
+                        height: 40,
+                        borderRadius: 20,
+                        backgroundColor: Colors.primary,
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      <Text style={{ color: "#fff", fontWeight: "700" }}>
+                        Mở file ở tab mới
+                      </Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+              ) : (
+                <ScrollView
+                  showsVerticalScrollIndicator={false}
+                  style={{ flex: 1 }}
+                  contentContainerStyle={{ paddingBottom: 8 }}
+                >
+                  <View
+                    style={{
+                      borderRadius: 18,
+                      borderWidth: 1,
+                      borderColor: "rgba(0,0,0,0.08)",
+                      backgroundColor: "rgba(0,0,0,0.03)",
+                      padding: 16,
+                    }}
+                  >
+                    <Text
+                      selectable
+                      style={{
+                        color: Colors.text,
+                        fontSize: 13,
+                        lineHeight: 20,
+                      }}
+                    >
+                      {textPreviewContent || "File rong"}
+                    </Text>
+                  </View>
+                </ScrollView>
+              )}
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }

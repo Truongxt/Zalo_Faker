@@ -19,7 +19,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import { Audio, Video, ResizeMode, type AVPlaybackStatus } from "expo-av";
-import { WebView } from "react-native-webview";
 import { Ionicons } from "@expo/vector-icons";
 import { useChatStore } from "@/stores/chatStore";
 import { useAuthStore } from "@/stores/authStore";
@@ -141,15 +140,21 @@ type ParsedCallPayload = {
   duration: number;
 };
 
-const normalizeCallType = (value: unknown): ParsedCallPayload["callType"] | null => {
-  const normalized = String(value || "").trim().toLowerCase();
+const normalizeCallType = (
+  value: unknown,
+): ParsedCallPayload["callType"] | null => {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
   if (normalized === "video") return "video";
   if (normalized === "audio" || normalized === "voice") return "audio";
   return null;
 };
 
 const normalizeCallStatus = (value: unknown): string | null => {
-  const normalized = String(value || "").trim().toLowerCase();
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
   if (!normalized) return null;
   return normalized === "ended" ? "finished" : normalized;
 };
@@ -466,7 +471,7 @@ function MessageItem({
         ? "Tinh nang tach text dang tat tren server."
         : transcriptStatus === "missing_audio_url"
           ? "Khong tim thay file ghi am de tach text."
-        : transcriptStatus === "empty"
+          : transcriptStatus === "empty"
             ? "Khong nhan dien duoc noi dung tu file ghi am nay."
             : "Dang xu ly tach text cho doan ghi am...";
   const parsedCallPayload =
@@ -499,7 +504,8 @@ function MessageItem({
         if (parsedCallPayload.status === "missed") {
           return isMe ? "Thue bao khong nhac may" : `Cuoc goi nho${suffix}`;
         }
-        if (parsedCallPayload.status === "rejected") return "Cuoc goi bi tu choi";
+        if (parsedCallPayload.status === "rejected")
+          return "Cuoc goi bi tu choi";
         if (parsedCallPayload.status === "cancelled") return "Cuoc goi da huy";
         return parsedCallPayload.callType === "video"
           ? "Cuoc goi video"
@@ -525,7 +531,9 @@ function MessageItem({
             }}
           >
             <Ionicons
-              name={parsedCallPayload.callType === "video" ? "videocam" : "call"}
+              name={
+                parsedCallPayload.callType === "video" ? "videocam" : "call"
+              }
               size={18}
               color={
                 isMissed
@@ -548,7 +556,9 @@ function MessageItem({
               </Text>
             )}
             {isMissed && !isMe && (
-              <Text style={{ color: "#ef4444", fontSize: 12, fontWeight: "600" }}>
+              <Text
+                style={{ color: "#ef4444", fontSize: 12, fontWeight: "600" }}
+              >
                 Nhan de goi lai
               </Text>
             )}
@@ -869,11 +879,7 @@ export default function ChatRoomScreen() {
   const insets = useSafeAreaInsets();
   const { user, accessToken } = useAuthStore();
 
-  const {
-    messages,
-    conversations,
-  } =
-    useChatStore();
+  const { messages, conversations } = useChatStore();
   const convId = conversationId || "";
   const convMessages: Message[] = (messages as any)[convId] || [];
   const conversation = conversations.find((c) => c.id === convId);
@@ -925,10 +931,12 @@ export default function ChatRoomScreen() {
       : "";
   const isBlockedByMe = blockStatus === "blocked_by_me";
   const isBlockedByOther = blockStatus === "blocked_by_other";
-  const isMessagingBlocked = conversation?.type === "private" && (isBlockedByMe || isBlockedByOther);
+  const isMessagingBlocked =
+    conversation?.type === "private" && (isBlockedByMe || isBlockedByOther);
   const myGroupRole = String(
-    conversation?.participants?.find((p) => String(p.userId) === String(user?.id))
-      ?.role || "member",
+    conversation?.participants?.find(
+      (p) => String(p.userId) === String(user?.id),
+    )?.role || "member",
   ).toLowerCase();
   const pinScope = String(
     conversation?.groupSettings?.permissions?.pinMessage || "admin_deputy",
@@ -1052,7 +1060,11 @@ export default function ChatRoomScreen() {
   }, [conversation?.type, otherParticipant?.userId]);
 
   useEffect(() => {
-    if (!user?.id || !otherParticipant?.userId || conversation?.type !== "private") {
+    if (
+      !user?.id ||
+      !otherParticipant?.userId ||
+      conversation?.type !== "private"
+    ) {
       setBlockStatus("none");
       return;
     }
@@ -1087,19 +1099,31 @@ export default function ChatRoomScreen() {
   useEffect(() => {
     if (!otherParticipant?.userId || !user?.id) return;
 
-    const handleFriendBlocked = ({ targetUserId }: { targetUserId: string }) => {
+    const handleFriendBlocked = ({
+      targetUserId,
+    }: {
+      targetUserId: string;
+    }) => {
       if (String(targetUserId) !== String(otherParticipant.userId)) return;
       setBlockStatus("blocked_by_me");
       GrayToast("Da chan nguoi dung");
     };
 
-    const handleBlockedBy = ({ blockedByUserId }: { blockedByUserId: string }) => {
+    const handleBlockedBy = ({
+      blockedByUserId,
+    }: {
+      blockedByUserId: string;
+    }) => {
       if (String(blockedByUserId) !== String(otherParticipant.userId)) return;
       setBlockStatus("blocked_by_other");
       GrayToast("Ban da bi chan");
     };
 
-    const handleFriendUnblocked = ({ targetUserId }: { targetUserId: string }) => {
+    const handleFriendUnblocked = ({
+      targetUserId,
+    }: {
+      targetUserId: string;
+    }) => {
       if (String(targetUserId) !== String(otherParticipant.userId)) return;
       setBlockStatus("none");
       GrayToast("Da mo chan nguoi dung");
@@ -1245,7 +1269,9 @@ export default function ChatRoomScreen() {
     const trimmed = text.trim();
     if (!trimmed || isSending) return;
     if (isMessagingBlocked) {
-      GrayToast(isBlockedByMe ? "Ban da chan nguoi dung nay" : "Ban da bi chan");
+      GrayToast(
+        isBlockedByMe ? "Ban da chan nguoi dung nay" : "Ban da bi chan",
+      );
       return;
     }
     setText("");
@@ -1264,7 +1290,9 @@ export default function ChatRoomScreen() {
 
   const handlePickImage = async () => {
     if (isMessagingBlocked) {
-      GrayToast(isBlockedByMe ? "Ban da chan nguoi dung nay" : "Ban da bi chan");
+      GrayToast(
+        isBlockedByMe ? "Ban da chan nguoi dung nay" : "Ban da bi chan",
+      );
       return;
     }
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -1318,7 +1346,9 @@ export default function ChatRoomScreen() {
 
   const handlePickFile = async () => {
     if (isMessagingBlocked) {
-      GrayToast(isBlockedByMe ? "Ban da chan nguoi dung nay" : "Ban da bi chan");
+      GrayToast(
+        isBlockedByMe ? "Ban da chan nguoi dung nay" : "Ban da bi chan",
+      );
       return;
     }
     try {
@@ -1494,7 +1524,6 @@ export default function ChatRoomScreen() {
     await chatService.addReaction(convId, selectedMsg.id, emoji);
   };
 
-<<<<<<< HEAD
   const closePreviewModal = useCallback(() => {
     previewRequestIdRef.current += 1;
     setPreviewFile(null);
@@ -1541,7 +1570,7 @@ export default function ChatRoomScreen() {
         }
       });
   }, []);
-=======
+
   const handleBlockUser = () => {
     if (conversation?.type !== "private" || !otherParticipant?.userId) return;
 
@@ -1627,7 +1656,6 @@ export default function ChatRoomScreen() {
     options.push({ text: "Dong", style: "cancel" });
     Alert.alert("Tuy chon", undefined, options);
   };
->>>>>>> 07471d55fb146a645239693e2888604f9e209794
 
   const renderMessage = ({ item, index }: { item: Message; index: number }) => {
     const previousMessage = index > 0 ? convMessages[index - 1] : null;
@@ -1897,12 +1925,25 @@ export default function ChatRoomScreen() {
                 justifyContent: "space-between",
               }}
             >
-              <Text style={{ color: "#92400E", fontSize: 12, fontWeight: "600" }}>
-                {isBlockedByMe ? "Ban da chan nguoi dung nay" : "Ban da bi chan"}
+              <Text
+                style={{ color: "#92400E", fontSize: 12, fontWeight: "600" }}
+              >
+                {isBlockedByMe
+                  ? "Ban da chan nguoi dung nay"
+                  : "Ban da bi chan"}
               </Text>
               {isBlockedByMe && (
-                <TouchableOpacity onPress={handleUnblockUser} style={{ paddingVertical: 3 }}>
-                  <Text style={{ color: "#92400E", fontSize: 12, fontWeight: "700" }}>
+                <TouchableOpacity
+                  onPress={handleUnblockUser}
+                  style={{ paddingVertical: 3 }}
+                >
+                  <Text
+                    style={{
+                      color: "#92400E",
+                      fontSize: 12,
+                      fontWeight: "700",
+                    }}
+                  >
                     Mo chan
                   </Text>
                 </TouchableOpacity>
@@ -2078,24 +2119,58 @@ export default function ChatRoomScreen() {
 
             <View style={{ flex: 1, backgroundColor: "#F8FAFC" }}>
               {previewFile?.kind === "pdf" && previewFile?.url ? (
-                <WebView
-                  source={{ uri: previewFile.url }}
-                  startInLoadingState
-                  renderLoading={() => (
-                    <View
-                      style={{
-                        flex: 1,
-                        alignItems: "center",
-                        justifyContent: "center",
-                      }}
+                <View
+                  style={{
+                    flex: 1,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    paddingHorizontal: 24,
+                    gap: 12,
+                  }}
+                >
+                  <Ionicons name="document-outline" size={64} color="#94A3B8" />
+                  <Text
+                    style={{
+                      fontSize: 18,
+                      fontWeight: "700",
+                      color: "#1E293B",
+                      textAlign: "center",
+                    }}
+                  >
+                    Xem trước PDF
+                  </Text>
+                  <Text
+                    style={{
+                      fontSize: 14,
+                      color: "#64748B",
+                      textAlign: "center",
+                      lineHeight: 20,
+                    }}
+                  >
+                    Thiết bị này không hiển thị PDF trực tiếp. Vui lòng mở file
+                    ở ứng dụng khác.
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => {
+                      if (previewFile?.url) {
+                        Linking.openURL(previewFile.url);
+                      }
+                    }}
+                    style={{
+                      marginTop: 8,
+                      paddingHorizontal: 24,
+                      paddingVertical: 12,
+                      backgroundColor: "#2563EB",
+                      borderRadius: 8,
+                    }}
+                  >
+                    <Text
+                      style={{ color: "#fff", fontWeight: "700", fontSize: 14 }}
                     >
-                      <ActivityIndicator size="large" color="#2563EB" />
-                      <Text style={{ marginTop: 12, color: "#64748B" }}>
-                        Đang tải bản xem trước PDF...
-                      </Text>
-                    </View>
-                  )}
-                />
+                      Mở file ở tab mới
+                    </Text>
+                  </TouchableOpacity>
+                </View>
               ) : (
                 <View style={{ flex: 1, padding: 12 }}>
                   {isPreviewLoading ? (
@@ -2207,4 +2282,3 @@ export default function ChatRoomScreen() {
     </KeyboardAvoidingView>
   );
 }
-
