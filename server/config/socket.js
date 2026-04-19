@@ -679,29 +679,49 @@ const getOtherParticipantId = (conversation, userId) => {
     };
 
     socket.on("video:call-user", async (data) => {
-      const delivered = emitToUserRoom(data.toUserId, "video:incoming-call", data);
-      if (!delivered) {
-        socket.emit("video:user-offline", { toUserId: data.toUserId });
+      if (data.isGroupCall) {
+        socket.to(toRoomId(data.conversationId)).emit("video:incoming-call", data);
+      } else {
+        const delivered = emitToUserRoom(data.toUserId, "video:incoming-call", data);
+        if (!delivered) {
+          socket.emit("video:user-offline", { toUserId: data.toUserId });
+        }
       }
     });
 
     socket.on("video:answer-call", async (data) => {
-      emitToUserRoom(data.toUserId, "video:call-answered", data);
+      if (data.isGroupCall) {
+        socket.to(toRoomId(data.conversationId)).emit("video:call-answered", data);
+      } else {
+        emitToUserRoom(data.toUserId, "video:call-answered", data);
+      }
     });
 
     socket.on("video:reject-call", async (data) => {
-      emitToUserRoom(data.toUserId, "video:call-rejected", data);
+      if (data.isGroupCall) {
+        socket.to(toRoomId(data.conversationId)).emit("video:call-rejected", data);
+      } else {
+        emitToUserRoom(data.toUserId, "video:call-rejected", data);
+      }
       await persistCallHistory(data, "rejected");
     });
 
     socket.on("video:end-call", async (data) => {
-      emitToUserRoom(data.toUserId, "video:call-ended", data);
+      if (data.isGroupCall) {
+        socket.to(toRoomId(data.conversationId)).emit("video:call-ended", data);
+      } else {
+        emitToUserRoom(data.toUserId, "video:call-ended", data);
+      }
       await persistCallHistory(
         data,
         String(data?.status || "").toLowerCase() === "cancelled"
           ? "cancelled"
           : "finished",
       );
+    });
+
+    socket.on("video:leave-call", async (data) => {
+      socket.to(toRoomId(data.conversationId)).emit("video:user-left", data);
     });
 
     socket.on("video:signal", async (data) => {
@@ -715,7 +735,12 @@ const getOtherParticipantId = (conversation, userId) => {
 
     socket.on("video:frame", async (data) => {
       // Relay video frame (base64 JPEG) from sender to receiver
-      if (data.toUserId) {
+      if (data.isGroupCall) {
+        socket.to(toRoomId(data.conversationId)).emit("video:frame", {
+          ...data,
+          fromUserId: socket.userId,
+        });
+      } else if (data.toUserId) {
         emitToUserRoom(data.toUserId, "video:frame", {
           fromUserId: socket.userId,
           conversationId: data.conversationId,
@@ -726,7 +751,12 @@ const getOtherParticipantId = (conversation, userId) => {
 
     socket.on("video:audio-frame", async (data) => {
       // Relay audio chunk (base64) from sender to receiver
-      if (data.toUserId) {
+      if (data.isGroupCall) {
+        socket.to(toRoomId(data.conversationId)).emit("video:audio-frame", {
+          ...data,
+          fromUserId: socket.userId,
+        });
+      } else if (data.toUserId) {
         emitToUserRoom(data.toUserId, "video:audio-frame", {
           fromUserId: socket.userId,
           conversationId: data.conversationId,

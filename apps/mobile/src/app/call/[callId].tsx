@@ -62,9 +62,10 @@ export default function CallScreen() {
     return params.callerAvatar || null;
   }, [isCaller, params.callerAvatar, params.toUserAvatar]);
 
+  const isGroupCall = String(params.isGroupCall) === "true";
   const [callState, setCallState] = useState<CallState>(autoAccept ? "accepted" : "ringing");
   const [isRemoteAccepted, setIsRemoteAccepted] = useState(false);
-  const [remoteFrame, setRemoteFrame] = useState<string | null>(null);
+  const [remoteFrames, setRemoteFrames] = useState<Record<string, string>>({});
 
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const cameraRef = useRef<any>(null);
@@ -118,13 +119,22 @@ export default function CallScreen() {
     setCallState("ended");
 
     if (notifyRemote) {
-      const targetId = isCaller ? toUserId : fromUserId;
-      if (targetId) {
-        socketService.emit("video:end-call", {
-          toUserId: targetId,
+      if (isGroupCall) {
+        socketService.emit("video:leave-call", {
           fromUserId: String(user?.id || ""),
           conversationId,
+          isGroupCall: true,
         });
+      } else {
+        const targetId = isCaller ? toUserId : fromUserId;
+        if (targetId) {
+          socketService.emit("video:end-call", {
+            toUserId: targetId,
+            fromUserId: String(user?.id || ""),
+            conversationId,
+            isGroupCall: false,
+          });
+        }
       }
     }
 
@@ -143,61 +153,62 @@ export default function CallScreen() {
     if (!socket || !user?.id) return;
 
     const handleAnswered = (data: any) => {
-      if (!isCaller || String(data?.toUserId || "") !== String(user.id)) return;
+      if (!isGroupCall && (!isCaller || String(data?.toUserId || "") !== String(user.id))) return;
+      if (String(data?.conversationId || "") !== conversationId) return;
       setCallState("accepted");
       setIsRemoteAccepted(true);
     };
 
     const handleRejected = (data: any) => {
-      if (
-        String(data?.toUserId || "") !== String(user.id) ||
-        String(data?.conversationId || "") !== conversationId
-      ) {
-        return;
-      }
+      if (!isGroupCall && String(data?.toUserId || "") !== String(user.id)) return;
+      if (String(data?.conversationId || "") !== conversationId) return;
       Alert.alert("Cuộc gọi bị từ chối", "Đầu bên kia đã từ chối cuộc gọi", [
         { text: "Đóng", onPress: () => endCallLocal(false) },
       ]);
     };
 
     const handleEnded = (data: any) => {
-      if (
-        String(data?.toUserId || "") !== String(user.id) ||
-        String(data?.conversationId || "") !== conversationId
-      ) {
-        return;
-      }
+      if (!isGroupCall && String(data?.toUserId || "") !== String(user.id)) return;
+      if (String(data?.conversationId || "") !== conversationId) return;
       Alert.alert("Kết thúc", "Cuộc gọi đã kết thúc", [
         { text: "Đóng", onPress: () => endCallLocal(false) },
       ]);
+    };
+
+    const handleUserLeft = (data: any) => {
+      if (String(data?.conversationId || "") !== conversationId) return;
+      const leftUserId = String(data?.fromUserId || "");
+      if (leftUserId) {
+         setRemoteFrames((prev) => {
+            const next = { ...prev };
+            delete next[leftUserId];
+            return next;
+         });
+      }
     };
 
     const handleVideoFrame = (data: any) => {
       if (!mountedRef.current) return;
       
       const incomingConvId = String(data?.conversationId || "");
-      if (incomingConvId !== conversationId) {
-        // Log mismatch once in a while to avoid spam but show it exists
-        if (Math.random() < 0.1) {
-           console.log(`[MOBILE] MISMATCH convId: Recv=${incomingConvId} vs local=${conversationId}`);
-        }
-        return;
-      }
+      if (incomingConvId !== conversationId) return;
       
-      console.log(`[MOBILE] OK - Received frame from ${data.fromUserId}`);
       if (callState !== "accepted") {
         setCallState("accepted");
       }
       setIsRemoteAccepted(true);
-      if (data.frame) {
-        setRemoteFrame(data.frame);
+      if (data.frame && data.fromUserId) {
+        setRemoteFrames((prev) => ({
+           ...prev,
+           [data.fromUserId]: data.frame,
+        }));
       }
     };
 
     const handleAudioFrame = async (data: any) => {
       if (!mountedRef.current) return;
       if (String(data?.conversationId || "") !== conversationId) return;
-      if (String(data?.fromUserId || "") !== (isCaller ? toUserId : fromUserId)) return;
+      if (!isGroupCall && String(data?.fromUserId || "") !== (isCaller ? toUserId : fromUserId)) return;
 
       if (data.audio) {
         if (callState !== "accepted") {
@@ -264,13 +275,14 @@ export default function CallScreen() {
             quality: 0.1,
           });
 
-          if (photo?.base64 && targetId && mountedRef.current) {
-            console.log(`[MOBILE] EMITTING frame to ${targetId}`);
+          if (photo?.base64 && mountedRef.current && (isGroupCall || targetId)) {
+            console.log(`[MOBILE] EMITTING frame to ${isGroupCall ? 'group' : targetId}`);
             socketService.emit("video:frame", {
-              toUserId: targetId,
+              toUserId: isGroupCall ? undefined : targetId,
               fromUserId: String(user.id),
               conversationId,
-              frame: "data:image/jpeg;base64," + photo.base64
+              frame: "data:image/jpeg;base64," + photo.base64,
+              isGroupCall,
             });
           }
         } catch (e) {
@@ -364,17 +376,18 @@ export default function CallScreen() {
           if (mountedRef.current && audioRecordingRef.current === recording) {
             await recording.stopAndUnloadAsync();
             const uri = recording.getURI();
-            if (uri && targetId) {
+            if (uri && (isGroupCall || targetId)) {
                 const base64 = await FileSystem.readAsStringAsync(uri, {
                    encoding: FileSystem.EncodingType.Base64
                 });
                 
                 socketService.emit("video:audio-frame", {
-                  toUserId: targetId,
+                  toUserId: isGroupCall ? undefined : targetId,
                   fromUserId: String(user.id),
                   conversationId,
                   audio: "data:audio/mp4;codecs=mp4a.40.2;base64," + base64,
                   audioMimeType: "audio/mp4;codecs=mp4a.40.2",
+                  isGroupCall,
                 });
             }
             audioRecordingRef.current = null;
@@ -403,26 +416,29 @@ export default function CallScreen() {
     socket.on("video:call-answered", handleAnswered);
     socket.on("video:call-rejected", handleRejected);
     socket.on("video:call-ended", handleEnded);
+    socket.on("video:user-left", handleUserLeft);
     socket.on("video:frame", handleVideoFrame);
     socket.on("video:audio-frame", handleAudioFrame);
 
     // Emit initial signals
     if (!hasEmittedInitialSignal.current) {
       hasEmittedInitialSignal.current = true;
-      if (isCaller && toUserId) {
+      if (isCaller && (isGroupCall || toUserId)) {
         socketService.emit("video:call-user", {
           fromUserId: String(user.id),
-          toUserId,
+          toUserId: isGroupCall ? undefined : toUserId,
           conversationId,
           callerName: user.fullName || "Nguoi dung",
           callerAvatar: user.avatarUrl || null,
           callType,
+          isGroupCall,
         });
-      } else if (autoAccept && fromUserId) {
+      } else if (autoAccept && (isGroupCall || fromUserId)) {
         socketService.emit("video:answer-call", {
-          toUserId: fromUserId,
+          toUserId: isGroupCall ? undefined : fromUserId,
           fromUserId: String(user.id),
           conversationId,
+          isGroupCall,
         });
       }
     }
@@ -438,6 +454,7 @@ export default function CallScreen() {
       socket.off("video:call-answered", handleAnswered);
       socket.off("video:call-rejected", handleRejected);
       socket.off("video:call-ended", handleEnded);
+      socket.off("video:user-left", handleUserLeft);
       socket.off("video:frame", handleVideoFrame);
       socket.off("video:audio-frame", handleAudioFrame);
     };
@@ -445,22 +462,33 @@ export default function CallScreen() {
 
   const acceptCall = () => {
     socketService.emit("video:answer-call", {
-      toUserId: fromUserId,
+      toUserId: isGroupCall ? undefined : fromUserId,
       fromUserId: String(user?.id || ""),
       conversationId,
+      isGroupCall,
     });
     setCallState("accepted");
     setIsRemoteAccepted(false);
   };
 
   const rejectCall = () => {
-    const targetId = isCaller ? toUserId : fromUserId;
-    if (targetId) {
-      socketService.emit("video:reject-call", {
-        toUserId: targetId,
-        fromUserId: String(user?.id || ""),
-        conversationId,
-      });
+    if (isGroupCall) {
+       socketService.emit("video:reject-call", {
+         toUserId: undefined,
+         fromUserId: String(user?.id || ""),
+         conversationId,
+         isGroupCall: true,
+       });
+    } else {
+      const targetId = isCaller ? toUserId : fromUserId;
+      if (targetId) {
+        socketService.emit("video:reject-call", {
+          toUserId: targetId,
+          fromUserId: String(user?.id || ""),
+          conversationId,
+          isGroupCall: false,
+        });
+      }
     }
     endCallLocal(false);
   };
@@ -471,19 +499,41 @@ export default function CallScreen() {
 
       {/* RENDER VIDEO OR AVATAR */}
       {callType === "video" && callState === "accepted" ? (
-         <View style={{ flex: 1 }}>
-            {remoteFrame ? (
-               <Image source={{ uri: remoteFrame }} style={{ width: "100%", height: "100%", position: "absolute" }} resizeMode="cover" />
+         <View style={{ flex: 1, backgroundColor: "#000" }}>
+            {isGroupCall ? (
+               <View style={{ flex: 1, flexDirection: 'row', flexWrap: 'wrap', marginTop: insets.top }}>
+                 <View style={{ width: Object.keys(remoteFrames).length > 0 ? '50%' : '100%', height: Object.keys(remoteFrames).length > 1 ? '50%' : '100%', borderWidth: 1, borderColor: '#111827' }}>
+                   {permission?.granted ? (
+                     <CameraView ref={cameraRef} style={{ flex: 1 }} facing="front" />
+                   ) : (
+                     <View style={{ flex: 1, backgroundColor: '#1f2937', justifyContent: 'center', alignItems: 'center' }}><Text style={{ color: '#fff' }}>No Camera</Text></View>
+                   )}
+                   <View style={{ position: 'absolute', bottom: 8, left: 8, backgroundColor: 'rgba(0,0,0,0.5)', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
+                     <Text style={{ color: '#fff', fontSize: 12 }}>Bạn</Text>
+                   </View>
+                 </View>
+                 {Object.entries(remoteFrames).map(([uid, frame]) => (
+                   <View key={uid} style={{ width: Object.keys(remoteFrames).length > 0 ? '50%' : '100%', height: Object.keys(remoteFrames).length > 1 ? '50%' : '100%', borderWidth: 1, borderColor: '#111827' }}>
+                     <Image source={{ uri: frame }} style={{ flex: 1 }} resizeMode="cover" />
+                   </View>
+                 ))}
+               </View>
             ) : (
-               <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-                  <Text style={{ color: "#fff" }}>Đang chờ đối tác...</Text>
-               </View>
-            )}
+              <View style={{ flex: 1 }}>
+                {Object.keys(remoteFrames).length > 0 ? (
+                   <Image source={{ uri: Object.values(remoteFrames)[0] }} style={{ width: "100%", height: "100%", position: "absolute" }} resizeMode="cover" />
+                ) : (
+                   <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+                      <Text style={{ color: "#fff" }}>Đang chờ đối tác...</Text>
+                   </View>
+                )}
 
-            {permission?.granted && (
-               <View style={{ position: "absolute", top: insets.top + 20, right: 20, width: 100, height: 150, borderRadius: 12, overflow: "hidden", borderWidth: 2, borderColor: "#374151" }}>
-                  <CameraView ref={cameraRef} style={{ flex: 1 }} facing="front" />
-               </View>
+                {permission?.granted && (
+                   <View style={{ position: "absolute", top: insets.top + 20, right: 20, width: 100, height: 150, borderRadius: 12, overflow: "hidden", borderWidth: 2, borderColor: "#374151" }}>
+                      <CameraView ref={cameraRef} style={{ flex: 1 }} facing="front" />
+                   </View>
+                )}
+              </View>
             )}
          </View>
       ) : (
