@@ -39,7 +39,7 @@ export default function VideoCallModal() {
   const [isRemoteAccepted, setIsRemoteAccepted] = useState(false);
   const isRemoteAcceptedRef = useRef(false);
   const acceptedAtRef = useRef<number | null>(null);
-  const [remoteFrame, setRemoteFrame] = useState<string | null>(null);
+  const [remoteFrames, setRemoteFrames] = useState<Record<string, string>>({});
   const streamIntervalRef = useRef<any>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const activeAudioPlayersRef = useRef<Set<HTMLAudioElement>>(new Set());
@@ -118,18 +118,22 @@ export default function VideoCallModal() {
     
     setLocalStream(null);
 
-    if (notifyRemote && targetUserId) {
+    if (notifyRemote && (callData?.isGroupCall || targetUserId)) {
       const status =
         acceptedAtRef.current
           ? 'finished'
           : callData?.isCaller
             ? 'cancelled'
             : 'finished';
-      socketService.getSocket()?.emit('video:end-call', {
-        toUserId: targetUserId,
+
+      const eventName = callData?.isGroupCall && acceptedAtRef.current ? 'video:leave-call' : 'video:end-call';
+
+      socketService.getSocket()?.emit(eventName, {
+        toUserId: callData?.isGroupCall ? undefined : targetUserId,
         fromUserId: user?.id,
         conversationId: callData?.conversationId,
         callType: callData?.callType || 'audio',
+        isGroupCall: callData?.isGroupCall,
         status,
         duration: getCallDurationSeconds(),
       });
@@ -149,7 +153,7 @@ export default function VideoCallModal() {
 
     const handleCallAnswered = async (data: any) => {
       if (!mounted || !callData.isCaller) return;
-      if (String(data?.toUserId || '') !== String(user.id)) return;
+      if (!callData.isGroupCall && String(data?.toUserId || '') !== String(user.id)) return;
       setIsRemoteAccepted(true);
       isRemoteAcceptedRef.current = true;
       markAccepted();
@@ -167,7 +171,7 @@ export default function VideoCallModal() {
     const handleVideoFrame = (data: any) => {
       if (!mounted) return;
       if (String(data?.conversationId || '') !== String(callData.conversationId || '')) return;
-      if (String(data?.fromUserId || '') !== String(targetUserId || '')) return;
+      if (!callData.isGroupCall && String(data?.fromUserId || '') !== String(targetUserId || '')) return;
       
       if (!isRemoteAcceptedRef.current) {
         setIsRemoteAccepted(true);
@@ -175,14 +179,14 @@ export default function VideoCallModal() {
         markAccepted();
       }
       if (data.frame) {
-         setRemoteFrame(data.frame);
+         setRemoteFrames(prev => ({ ...prev, [data.fromUserId]: data.frame }));
       }
     };
 
     const handleAudioFrame = (data: any) => {
       if (!mounted) return;
       if (String(data?.conversationId || '') !== String(callData.conversationId || '')) return;
-      if (String(data?.fromUserId || '') !== String(targetUserId || '')) return;
+      if (!callData.isGroupCall && String(data?.fromUserId || '') !== String(targetUserId || '')) return;
 
       if (data.audio) {
         if (!isRemoteAcceptedRef.current) {
@@ -249,11 +253,20 @@ export default function VideoCallModal() {
       }
     };
 
+    const handleUserLeft = (data: any) => {
+      setRemoteFrames(prev => {
+        const next = { ...prev };
+        delete next[data.fromUserId];
+        return next;
+      });
+    };
+
     const socket = socketService.getSocket();
     // Bind listeners before any emit to avoid missing fast "answered" responses.
     socket?.on('video:call-answered', handleCallAnswered);
     socket?.on('video:call-rejected', handleCallRejected);
     socket?.on('video:call-ended', handleCallEnded);
+    socket?.on('video:user-left', handleUserLeft);
     socket?.on('video:frame', handleVideoFrame);
     socket?.on('video:audio-frame', handleAudioFrame);
 
@@ -296,17 +309,19 @@ export default function VideoCallModal() {
         if (callData.isCaller) {
           socket?.emit('video:call-user', {
             fromUserId: user.id,
-            toUserId: callData.toUserId,
+            toUserId: callData.isGroupCall ? undefined : callData.toUserId,
             conversationId: callData.conversationId,
             callerName: user.fullName,
             callerAvatar: user.avatarUrl,
             callType: callData.callType,
+            isGroupCall: callData.isGroupCall,
           });
         } else {
           socket?.emit('video:answer-call', {
-            toUserId: callData.fromUserId,
+            toUserId: callData.isGroupCall ? undefined : callData.fromUserId,
             fromUserId: user.id,
             conversationId: callData.conversationId,
+            isGroupCall: callData.isGroupCall,
           });
           setIsRemoteAccepted(true);
           isRemoteAcceptedRef.current = true;
@@ -316,7 +331,7 @@ export default function VideoCallModal() {
         // 2. Start fake video stream
         if (callData.callType === 'video') {
             streamIntervalRef.current = setInterval(() => {
-                if (!localVideoRef.current || !canvasRef.current || !socket || !targetUserId) return;
+                if (!localVideoRef.current || !canvasRef.current || !socket || (!callData.isGroupCall && !targetUserId)) return;
                 const canvas = canvasRef.current;
                 const video = localVideoRef.current;
                 const ctx = canvas.getContext('2d');
@@ -327,9 +342,10 @@ export default function VideoCallModal() {
                     
                     const frame = canvas.toDataURL('image/jpeg', 0.3); // low quality 
                     socket.emit('video:frame', {
-                       toUserId: targetUserId,
+                       toUserId: callData.isGroupCall ? undefined : targetUserId,
                        fromUserId: user.id,
                        conversationId: callData.conversationId,
+                       isGroupCall: callData.isGroupCall,
                        frame
                     });
                 }
@@ -353,15 +369,16 @@ export default function VideoCallModal() {
           mediaRecorderRef.current = recorder;
           
           recorder.ondataavailable = async (event) => {
-            if (event.data.size > 0 && socket && targetUserId && isRemoteAcceptedRef.current) {
+            if (event.data.size > 0 && socket && (callData.isGroupCall || targetUserId) && isRemoteAcceptedRef.current) {
               const chunkMimeType = event.data.type || recorder.mimeType || preferredMimeType || '';
               const reader = new FileReader();
               reader.onloadend = () => {
                 const base64Audio = reader.result as string;
                 socket.emit('video:audio-frame', {
-                  toUserId: targetUserId,
+                  toUserId: callData.isGroupCall ? undefined : targetUserId,
                   fromUserId: user.id,
                   conversationId: callData.conversationId,
+                  isGroupCall: callData.isGroupCall,
                   audio: base64Audio,
                   audioMimeType: chunkMimeType,
                 });
@@ -421,6 +438,7 @@ export default function VideoCallModal() {
       socket?.off('video:call-answered', handleCallAnswered);
       socket?.off('video:call-rejected', handleCallRejected);
       socket?.off('video:call-ended', handleCallEnded);
+      socket?.off('video:user-left', handleUserLeft);
       socket?.off('video:frame', handleVideoFrame);
       socket?.off('video:audio-frame', handleAudioFrame);
     };
@@ -466,8 +484,30 @@ export default function VideoCallModal() {
               )}
             </div>
           </div>
-        ) : remoteFrame ? (
-          <img src={remoteFrame} className="w-full h-full object-cover" alt="Remote Video Frame" />
+        ) : callData.isGroupCall ? (
+          <div className={`w-full h-full grid gap-1 bg-gray-900 ${Object.keys(remoteFrames).length > 0 ? 'grid-cols-2 sm:grid-cols-2' : 'grid-cols-1'} auto-rows-fr`}>
+             <div className="relative w-full h-full bg-gray-800">
+               <video ref={localVideoRef} autoPlay playsInline muted className={`w-full h-full object-cover ${isVideoOff ? 'hidden' : ''}`} />
+               {(isMuted || isVideoOff) && (
+                 <div className="absolute inset-0 bg-black/50 flex flex-col items-center justify-center gap-2">
+                   {isVideoOff && <VideoOff className="w-8 h-8 text-white" />}
+                   {isMuted && <MicOff className="w-8 h-8 text-white" />}
+                 </div>
+               )}
+               <div className="absolute bottom-4 left-4 bg-black/60 px-3 py-1.5 rounded-lg text-white text-sm font-medium backdrop-blur-sm">Bạn</div>
+             </div>
+             {Object.entries(remoteFrames).map(([userId, frame]) => (
+               <div key={userId} className="relative w-full h-full bg-gray-800">
+                 <img src={frame} className="w-full h-full object-cover" alt={`Remote Video ${userId}`} />
+               </div>
+             ))}
+          </div>
+        ) : Object.keys(remoteFrames).length > 0 ? (
+          <div className="w-full h-full bg-gray-900">
+             {Object.entries(remoteFrames).map(([userId, frame]) => (
+               <img key={userId} src={frame} className="w-full h-full object-cover" alt={`Remote Video ${userId}`} />
+             ))}
+          </div>
         ) : (
           <div className="w-full h-full flex flex-col items-center justify-center bg-gray-900">
             <div className={`w-24 h-24 rounded-full border-4 border-primary-500 mb-6 ${isRemoteAccepted ? 'border-t-primary-500' : 'border-t-transparent animate-spin'}`}></div>
@@ -478,9 +518,9 @@ export default function VideoCallModal() {
         )}
       </div>
 
-      {!isAudioCall && (
+      {!isAudioCall && !callData.isGroupCall && (
         <div className="absolute top-6 right-6 w-32 h-48 sm:w-48 sm:h-72 bg-gray-800 rounded-2xl overflow-hidden shadow-2xl border-2 border-white/10 z-10 transition-transform hover:scale-105">
-          <video ref={localVideoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
+          <video ref={localVideoRef} autoPlay playsInline muted className={`w-full h-full object-cover ${isVideoOff ? 'hidden' : ''}`} />
           {(isMuted || isVideoOff) && (
             <div className="absolute inset-0 bg-black/50 flex flex-col items-center justify-center gap-2">
               {isVideoOff && <VideoOff className="w-6 h-6 text-white" />}
@@ -495,7 +535,9 @@ export default function VideoCallModal() {
           {callData?.callerName || (isAudioCall ? 'Cuoc goi thoai' : 'Cuoc goi video')}
         </h2>
         <p className="text-white/80 mt-1 shadow-black drop-shadow-md">
-           {isRemoteAccepted ? 'Dau ben kia da nhan cuoc goi (Fake Video Call)' : 'Dang cho may...'}
+           {callData.isGroupCall 
+             ? (Object.keys(remoteFrames).length > 0 ? `${Object.keys(remoteFrames).length + 1} nguoi tham gia` : 'Dang cho moi nguoi tham gia...')
+             : (isRemoteAccepted ? 'Dau ben kia da nhan cuoc goi (Fake Video Call)' : 'Dang cho may...')}
         </p>
       </div>
 

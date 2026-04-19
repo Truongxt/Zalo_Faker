@@ -59,18 +59,20 @@ export default function TabsLayout() {
 
       const callerName = data?.callerName || "Nguoi dung";
       const callTypeLabel = data?.callType === "video" ? "video" : "thoai";
+      const isGroupCall = data?.isGroupCall === true;
 
       Alert.alert(
         "Cuoc goi den",
-        `${callerName} dang goi ${callTypeLabel} cho ban`,
+        `${callerName} dang goi ${callTypeLabel} cho ban${isGroupCall ? " trong nhom" : ""}`,
         [
           {
             text: "Tu choi",
             style: "cancel",
             onPress: () => {
               socketService.emit("video:reject-call", {
-                toUserId: data?.fromUserId,
+                toUserId: isGroupCall ? undefined : data?.fromUserId,
                 conversationId: data?.conversationId,
+                isGroupCall,
               });
               incomingHandledRef.current = null;
             },
@@ -93,6 +95,7 @@ export default function TabsLayout() {
                   callerAvatar: data?.callerAvatar || "",
                   isCaller: "false",
                   autoAccept: "true",
+                  isGroupCall: isGroupCall ? "true" : "false",
                 },
               });
               incomingHandledRef.current = null;
