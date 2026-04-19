@@ -109,6 +109,80 @@ const parseCallPayload = (value: unknown) => {
   return nestedText ? parseCallPayload(nestedText) : null;
 };
 
+const getReplyPreviewText = (message: Message | null | undefined): string => {
+  if (!message) return "Tin nhan";
+  if (message.isDeleted) return "Tin nhan da thu hoi";
+
+  switch (message.type) {
+    case "image":
+      return "[Hinh anh]";
+    case "video":
+      return "[Video]";
+    case "voice":
+      return "[Tin nhan thoai]";
+    case "sticker":
+      return "[Sticker]";
+    case "file":
+      return String(message.attachments?.[0]?.name || "").trim() || "[Tap tin]";
+    default: {
+      if (typeof message.content === "string" && message.content.trim()) {
+        return message.content.trim();
+      }
+
+      if (message.content && typeof message.content === "object") {
+        const nestedText = String(
+          (message.content as any).text
+            || (message.content as any).message
+            || (message.content as any).content
+            || "",
+        ).trim();
+        if (nestedText) return nestedText;
+      }
+
+      return "Tin nhan";
+    }
+  }
+};
+
+const normalizeReplyTo = (
+  replyTo: unknown,
+  conversationId: string,
+): Message["replyTo"] => {
+  if (!replyTo) return null;
+
+  if (typeof replyTo === "object" && !Array.isArray(replyTo)) {
+    const replyObject = replyTo as Record<string, unknown>;
+    const replyId = String(
+      replyObject.id || replyObject._id || replyObject.messageId || "",
+    ).trim();
+    const replyContent = String(replyObject.content || "").trim();
+    const replySenderName = String(
+      replyObject.senderName || replyObject.fullName || "",
+    ).trim();
+
+    if (replyId || replyContent || replySenderName) {
+      return {
+        id: replyId || `reply-${Date.now()}`,
+        content: replyContent || "Tin nhan",
+        senderName: replySenderName || "Nguoi dung",
+      };
+    }
+  }
+
+  const replyId = String(replyTo).trim();
+  if (!replyId) return null;
+
+  const repliedMessage = (
+    useChatStore.getState().messages[conversationId] || []
+  ).find((message) => String(message.id) === replyId);
+
+  return {
+    id: replyId,
+    content: getReplyPreviewText(repliedMessage),
+    senderName: repliedMessage?.senderName || "Nguoi dung",
+  };
+};
+
 const normalizeMessage = (msg: any): Message => {
   const type = (msg?.type || "text") as Message["type"];
   const rawContent = msg?.content;
@@ -195,6 +269,10 @@ const normalizeMessage = (msg: any): Message => {
     readBy: Array.isArray(msg?.readBy) ? msg.readBy : [],
     isDeleted: Boolean(msg?.isDeleted),
     isEdited: Boolean(msg?.isEdited),
+    replyTo: normalizeReplyTo(
+      msg?.replyTo,
+      String(msg?.conversationId || msg?.conversation?.id || ""),
+    ),
     senderName: msg?.senderName || "",
     senderAvatar: msg?.senderAvatar || null,
   };
@@ -322,9 +400,16 @@ export const chatService = {
     },
   ) {
     const { accessToken, user } = useAuthStore.getState();
-    const { addMessage, updateMessage, removeMessage } = useChatStore.getState();
+    const { addMessage, updateMessage, removeMessage, messages } = useChatStore.getState();
 
     if (!user) return;
+
+    const replyToMessage =
+      data.replyTo && conversationId
+        ? (messages[conversationId] || []).find(
+            (message) => String(message.id) === String(data.replyTo),
+          )
+        : null;
 
     const tempMessage: Message = {
       id: `temp-${Date.now()}`,
@@ -335,6 +420,13 @@ export const chatService = {
       type: data.type,
       content: data.content,
       metadata: data.metadata,
+      replyTo: data.replyTo
+        ? {
+            id: String(data.replyTo),
+            content: getReplyPreviewText(replyToMessage),
+            senderName: replyToMessage?.senderName || "Nguoi dung",
+          }
+        : null,
       reactions: [],
       readBy: [],
       isDeleted: false,

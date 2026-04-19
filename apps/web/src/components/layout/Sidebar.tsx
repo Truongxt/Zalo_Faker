@@ -25,6 +25,7 @@ import {
 import CreateGroupModal from "@/components/chat/CreateGroupModal";
 import LabelManagerModal from "@/components/chat/LabelManagerModal";
 import LabelPickerModal from "@/components/chat/LabelPickerModal";
+import HiddenPinModal from "@/components/chat/HiddenPinModal";
 import {
   updateParticipantSetting,
   getLabels,
@@ -56,6 +57,7 @@ export default function Sidebar() {
   const [showCreateGroup, setShowCreateGroup] = useState(false);
   const [showAddFriend, setShowAddFriend] = useState(false);
   const [showLabelManager, setShowLabelManager] = useState(false);
+  const [showHiddenPin, setShowHiddenPin] = useState(false);
   const [labelPickerConv, setLabelPickerConv] = useState<Conversation | null>(
     null,
   );
@@ -257,16 +259,8 @@ export default function Sidebar() {
 
     try {
       if (nextHidden && !user.hasHiddenPin) {
-        const setupPin = window
-          .prompt("Nhap ma PIN 6 so de kich hoat an tro chuyen:")
-          ?.trim();
-        if (!setupPin) return;
-        if (!/^\d{6}$/.test(setupPin)) {
-          window.alert("PIN phai gom dung 6 chu so.");
-          return;
-        }
-        await authService.updateHiddenPin(user.id, setupPin);
-        useAuthStore.getState().updateProfile({ hasHiddenPin: true });
+        setShowHiddenPin(true);
+        return;
       }
 
       await updateParticipantSetting(conv.id, user.id, { isHidden: nextHidden });
@@ -322,6 +316,13 @@ export default function Sidebar() {
           </h1>
           {!isContactsView && (
             <div className="flex items-center gap-1">
+              <button
+                onClick={() => setShowHiddenPin(true)}
+                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-600 dark:text-gray-400"
+                title="Mã PIN trò chuyện ẩn"
+              >
+                <Lock className="w-5 h-5" />
+              </button>
               <button
                 onClick={() => setShowAddFriend(true)}
                 className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-600 dark:text-gray-400"
@@ -726,6 +727,10 @@ export default function Sidebar() {
       <AddFriendModal
         isOpen={showAddFriend}
         onClose={() => setShowAddFriend(false)}
+      />
+      <HiddenPinModal
+        isOpen={showHiddenPin}
+        onClose={() => setShowHiddenPin(false)}
       />
     </div>
   );

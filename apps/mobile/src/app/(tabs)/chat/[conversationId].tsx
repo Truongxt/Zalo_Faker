@@ -11,6 +11,7 @@ import {
   Alert,
   ActivityIndicator,
   Image,
+  ImageBackground,
   Modal,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -19,6 +20,7 @@ import * as Linking from "expo-linking";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import { Audio, Video, ResizeMode, type AVPlaybackStatus } from "expo-av";
+import Svg, { Path, Line } from "react-native-svg";
 import { WebView } from "react-native-webview";
 import { Ionicons } from "@expo/vector-icons";
 import { useChatStore } from "@/stores/chatStore";
@@ -29,6 +31,8 @@ import { conversationService, friendsService, userService } from "@/services";
 import { socketService } from "@/lib/socket";
 import { Avatar } from "@/components/ui/Avatar";
 import { GrayToast } from "@/components/ui";
+
+import { ChatOptionsModal } from "@/components/chat/ChatOptionsModal";
 import { ForwardMessageModal } from "@/components/chat/ForwardMessageModal";
 import type { Message } from "@/types";
 import { API_URL } from "@/constants/config";
@@ -63,6 +67,7 @@ const resolveFilePreviewTarget = (msg: Message): FilePreviewTarget | null => {
     typeof msg.content === "string" && /^https?:\/\//i.test(msg.content)
       ? msg.content
       : "";
+
   const url = String(primaryAttachment?.url || fallbackUrl || "").trim();
   if (!url || !/^https?:\/\//i.test(url)) return null;
 
@@ -72,7 +77,7 @@ const resolveFilePreviewTarget = (msg: Message): FilePreviewTarget | null => {
   if (ext === "pdf") {
     return {
       url,
-      name: primaryAttachment?.name || "Tai lieu PDF",
+      name: primaryAttachment?.name || "Tài liệu PDF",
       type: "pdf",
     };
   }
@@ -80,7 +85,7 @@ const resolveFilePreviewTarget = (msg: Message): FilePreviewTarget | null => {
   if (WORD_EXTENSIONS.has(ext)) {
     return {
       url,
-      name: primaryAttachment?.name || "Tai lieu Word",
+      name: primaryAttachment?.name || "Tài liệu Word",
       type: "word",
     };
   }
@@ -91,6 +96,168 @@ const resolveFilePreviewTarget = (msg: Message): FilePreviewTarget | null => {
 const getPreviewWebUri = (target: FilePreviewTarget) => {
   if (target.type === "pdf") return target.url;
   return `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(target.url)}`;
+};
+
+const formatRecordingTime = (seconds: number) => {
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${mins < 10 ? "0" : ""}${mins}:${secs < 10 ? "0" : ""}${secs}`;
+};
+
+const isImageBackground = (value?: string | null) =>
+  Boolean(value && /^(https?:\/\/|data:|blob:|\/)/i.test(value.trim()));
+
+const getFullMediaUrl = (url?: string) => {
+  if (!url) return undefined;
+  const trimmed = url.trim();
+  if (!trimmed) return undefined;
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  if (trimmed.startsWith("/")) {
+    const base = API_URL.replace(/\/+$/, "");
+    return `${base}${trimmed}`;
+  }
+  return trimmed;
+};
+
+const getSolidBackgroundColor = (value?: string | null) => {
+  const normalized = String(value || "").trim();
+  if (!normalized) return "#F9FAFB";
+
+  if (/^linear-gradient/i.test(normalized)) {
+    const colors = normalized.match(/#(?:[0-9a-fA-F]{3}){1,2}/g);
+    return colors?.[0] || "#F9FAFB";
+  }
+
+  if (/^(#|rgb)/i.test(normalized)) {
+    return normalized;
+  }
+
+  return "#F9FAFB";
+};
+
+const getPinnedMessagePreview = (message: any) => {
+  if (!message) return "Tin nhắn đã ghim";
+
+  if (message.metadata?.isAnnouncement) {
+    const announceText = String(message.content?.text || "").trim();
+    return announceText ? `[Thông báo] ${announceText}` : "[Thông báo]";
+  }
+
+  const content = message.content;
+  if (typeof content === "string" && content.trim()) {
+    return content.trim();
+  }
+
+  if (content && typeof content === "object") {
+    const text = String(
+      content.text || content.message || content.content || "",
+    ).trim();
+    if (text) return text;
+
+    if (typeof content.fileName === "string" && content.fileName.trim()) {
+      return `[File] ${content.fileName.trim()}`;
+    }
+  }
+
+  if (message.type === "image") return "[Hình ảnh]";
+  if (message.type === "video") return "[Video]";
+  if (message.type === "voice") return "[Tin nhắn thoại]";
+  if (message.type === "sticker") return "[Sticker]";
+  if (message.type === "file") return "[Tập tin]";
+  return "Tin nhắn đã ghim";
+};
+
+type ReplyPreview = {
+  senderName: string;
+  content: string;
+};
+
+const getReplyMessageId = (
+  replyTo: Message["replyTo"] | string | null | undefined,
+) => {
+  if (!replyTo) return null;
+  if (typeof replyTo === "string") return replyTo;
+  if (typeof replyTo === "object" && "id" in replyTo && replyTo.id) {
+    return String(replyTo.id);
+  }
+  return null;
+};
+
+const getMessagePreviewText = (message: Message | null | undefined) => {
+  if (!message) return "Tin nhắn";
+  if (message.isDeleted) return "Tin nhắn đã thu hồi";
+
+  switch (message.type) {
+    case "image":
+      return "[Hình ảnh]";
+    case "video":
+      return "[Video]";
+    case "voice":
+      return "[Tin nhắn thoại]";
+    case "sticker":
+      return "[Sticker]";
+    case "file":
+      return String((message as any).attachments?.[0]?.name || "").trim() || "[Tập tin]";
+    default: {
+      if (typeof message.content === "string" && message.content.trim()) {
+        return message.content.trim();
+      }
+
+      const nestedText = String(
+        (message.content as any)?.text
+          || (message.content as any)?.message
+          || (message.content as any)?.content
+          || "",
+      ).trim();
+
+      return nestedText || "Tin nhắn";
+    }
+  }
+};
+
+const resolveReplyPreview = (
+  replyTo: Message["replyTo"] | string | null | undefined,
+  messages: Message[],
+): ReplyPreview | null => {
+  if (!replyTo) return null;
+
+  if (
+    typeof replyTo === "object"
+    && "content" in replyTo
+    && "senderName" in replyTo
+    && typeof replyTo.content === "string"
+    && replyTo.content.trim()
+  ) {
+    return {
+      senderName: replyTo.senderName || "Người dùng",
+      content: replyTo.content.trim(),
+    };
+  }
+
+  const replyMessageId = getReplyMessageId(replyTo);
+  if (!replyMessageId) return null;
+
+  const targetMessage = messages.find(
+    (message) => String(message.id) === String(replyMessageId),
+  );
+
+  if (!targetMessage) {
+    return {
+      senderName:
+        typeof replyTo === "object" && "senderName" in replyTo && replyTo.senderName
+          ? replyTo.senderName
+          : "Người dùng",
+      content:
+        typeof replyTo === "object" && "content" in replyTo && replyTo.content
+          ? replyTo.content
+          : "Tin nhắn",
+    };
+  }
+
+  return {
+    senderName: targetMessage.senderName || "Người dùng",
+    content: getMessagePreviewText(targetMessage),
+  };
 };
 
 /** Upload a single file (image / document / voice) to server */
@@ -409,6 +576,7 @@ type MessageItemProps = {
   isGroupedWithPrevious?: boolean;
   onLongPress: (msg: Message) => void;
   onOpenFilePreview: (target: FilePreviewTarget) => void;
+  replyPreview?: ReplyPreview | null;
 };
 
 function MessageItem({
@@ -417,6 +585,7 @@ function MessageItem({
   isGroupedWithPrevious = false,
   onLongPress,
   onOpenFilePreview,
+  replyPreview = null,
 }: MessageItemProps) {
   const [showVoiceTranscript, setShowVoiceTranscript] = useState(false);
   const bg = isMe ? "#0068FF" : "#F3F4F6";
@@ -429,21 +598,43 @@ function MessageItem({
     (attachment) => attachment.type === "video",
   );
   const fallbackVoiceUrl =
-    typeof msg.content === "string" && /^https?:\/\//i.test(msg.content)
+    typeof msg.content === "string" &&
+    (/^https?:\/\//i.test(msg.content) || msg.content.startsWith("/"))
       ? msg.content
+      : undefined;
+  const contentVoiceUrl =
+    msg.content && typeof msg.content === "object"
+      ? String(
+          (msg.content as any).mediaUrl ||
+          (msg.content as any).url ||
+          (msg.content as any).fileUrl ||
+          "",
+        ).trim() || undefined
       : undefined;
   const fallbackVideoUrl =
-    typeof msg.content === "string" && /^https?:\/\//i.test(msg.content)
+    typeof msg.content === "string" &&
+    (/^https?:\/\//i.test(msg.content) || msg.content.startsWith("/"))
       ? msg.content
-      : undefined;
-  const voiceUrl = voiceAttachment?.url || fallbackVoiceUrl;
-  const videoUrl = videoAttachment?.url || fallbackVideoUrl;
-  const voiceDuration = voiceAttachment?.duration;
+      : typeof msg.content === "object"
+        ? String((msg.content as any).mediaUrl || (msg.content as any).url || "").trim() || undefined
+        : undefined;
+
+  const voiceUrl = getFullMediaUrl(
+    voiceAttachment?.url || contentVoiceUrl || fallbackVoiceUrl,
+  );
+  const videoUrl = getFullMediaUrl(
+    videoAttachment?.url || fallbackVideoUrl,
+  );
+  const voiceDuration =
+    voiceAttachment?.duration ||
+    (typeof (msg.content as any)?.duration === "number"
+      ? (msg.content as any).duration
+      : undefined);
   const transcriptFromContent =
     typeof msg.content === "string" &&
     msg.content.trim() &&
     !/^https?:\/\//i.test(msg.content) &&
-    msg.content !== "Tin nhan thoai"
+    msg.content !== "Tin nhắn thoại"
       ? msg.content.trim()
       : "";
   const voiceTranscript =
@@ -457,14 +648,14 @@ function MessageItem({
   const transcriptLabel = resolvedTranscript
     ? resolvedTranscript
     : transcriptStatus === "failed"
-      ? "He thong chua tach duoc text. Dang thu lai o lan tai tiep theo."
+      ? "Hệ thống chưa tách được text. Đang thử lại ở lần tải tiếp theo."
       : transcriptStatus === "disabled"
-        ? "Tinh nang tach text dang tat tren server."
+        ? "Tính năng tách text đang tắt trên server."
         : transcriptStatus === "missing_audio_url"
-          ? "Khong tim thay file ghi am de tach text."
+          ? "Không tìm thấy file ghi âm để tách text."
           : transcriptStatus === "empty"
-            ? "Khong nhan dien duoc noi dung tu file ghi am nay."
-            : "Dang xu ly tach text cho doan ghi am...";
+            ? "Không nhận diện được nội dung từ file ghi âm này."
+            : "Đang xử lý tách text cho đoạn ghi âm...";
   const parsedCallPayload =
     parseCallPayload(msg.content) ||
     (msg.type === "call"
@@ -478,7 +669,7 @@ function MessageItem({
         <Text
           style={{ color: isMe ? "#cce4ff" : "#9CA3AF", fontStyle: "italic" }}
         >
-          Tin nhan da bi thu hoi
+          Tin nhắn đã bị thu hồi
         </Text>
       );
     }
@@ -490,10 +681,10 @@ function MessageItem({
       const callStatusText = (() => {
         const suffix = parsedCallPayload.callType === "video" ? " video" : "";
         if (parsedCallPayload.status === "finished") {
-          return isMe ? `Cuộc gọi di${suffix}` : `Cuộc gọi đến${suffix}`;
+          return isMe ? `Cuộc gọi đi${suffix}` : `Cuộc gọi đến${suffix}`;
         }
         if (parsedCallPayload.status === "missed") {
-          return isMe ? "Thuê bao không bắt máy" : `Cuộc gọi nhở${suffix}`;
+          return isMe ? "Thuê bao không bắt máy" : `Cuộc gọi nhỡ${suffix}`;
         }
         if (parsedCallPayload.status === "rejected")
           return "Cuộc gọi bị từ chối";
@@ -550,7 +741,7 @@ function MessageItem({
               <Text
                 style={{ color: "#ef4444", fontSize: 12, fontWeight: "600" }}
               >
-                Nhan de goi lai
+                Nhấn để gọi lại
               </Text>
             )}
           </View>
@@ -579,7 +770,7 @@ function MessageItem({
                 color={textColor}
               />
               <Text style={{ color: textColor }}>
-                Video (khong co duong dan)
+                Video (không có đường dẫn)
               </Text>
             </View>
           );
@@ -599,7 +790,7 @@ function MessageItem({
             isLooping
             resizeMode={ResizeMode.CONTAIN}
             onError={(error) => {
-              console.error("Khong the phat video:", error);
+              console.error("Không thể phát video:", error);
             }}
           />
         );
@@ -682,7 +873,7 @@ function MessageItem({
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
             <Ionicons name="mic-off" size={18} color={textColor} />
             <Text style={{ color: textColor }}>
-              Tin nhan thoai (khong co duong dan)
+              Tin nhắn thoại (không có đường dẫn)
             </Text>
           </View>
         );
@@ -696,7 +887,7 @@ function MessageItem({
             >
               <Ionicons name="document-outline" size={18} color={textColor} />
               <Text style={{ color: textColor, flex: 1 }} numberOfLines={1}>
-                {(msg as any).attachments?.[0]?.name || "File dinh kem"}
+                {(msg as any).attachments?.[0]?.name || "File đính kèm"}
               </Text>
             </View>
 
@@ -733,7 +924,7 @@ function MessageItem({
                   fontSize: 11,
                 }}
               >
-                File nay chua ho tro xem truoc
+                File này chưa hỗ trợ xem trước
               </Text>
             )}
           </View>
@@ -809,6 +1000,40 @@ function MessageItem({
             paddingVertical: 7,
           }}
         >
+          {replyPreview && !msg.isDeleted && (
+            <View
+              style={{
+                marginBottom: 8,
+                paddingHorizontal: 11,
+                paddingVertical: 9,
+                borderRadius: 14,
+                backgroundColor: isMe ? "#EAF2FF" : "#FFFFFF",
+                borderWidth: 1,
+                borderColor: isMe ? "#9DBDFF" : "#D8E6FF",
+              }}
+            >
+              <Text
+                style={{
+                  color: "#2563EB",
+                  fontSize: 11,
+                  fontWeight: "700",
+                }}
+              >
+                {replyPreview.senderName}
+              </Text>
+              <Text
+                numberOfLines={2}
+                style={{
+                  marginTop: 3,
+                  color: "#64748B",
+                  fontSize: 12,
+                  lineHeight: 17,
+                }}
+              >
+                {replyPreview.content}
+              </Text>
+            </View>
+          )}
           {isForwarded && (
             <View
               style={{
@@ -830,7 +1055,7 @@ function MessageItem({
                   color: isMe ? "rgba(255,255,255,0.88)" : "#6B7280",
                 }}
               >
-                Chuyen tiep
+                Chuyển tiếp
               </Text>
             </View>
           )}
@@ -868,6 +1093,8 @@ export default function ChatRoomScreen() {
   const { conversationId } = useLocalSearchParams<{ conversationId: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const headerTopPadding =
+    Platform.OS === "ios" ? insets.top + 6 : Math.max(insets.top, 10);
   const { user, accessToken } = useAuthStore();
 
   const { messages, conversations } = useChatStore();
@@ -883,6 +1110,10 @@ export default function ChatRoomScreen() {
   const [showReactions, setShowReactions] = useState(false);
   const [selectedMsg, setSelectedMsg] = useState<Message | null>(null);
   const [forwardMessage, setForwardMessage] = useState<Message | null>(null);
+  const [showChatOptions, setShowChatOptions] = useState(false);
+  const [replyToMessageId, setReplyToMessageId] = useState<string | null>(null);
+  const [isRecordingVoice, setIsRecordingVoice] = useState(false);
+  const [voiceRecordingSeconds, setVoiceRecordingSeconds] = useState(0);
   const [isSummarizingConversation, setIsSummarizingConversation] =
     useState(false);
   const [dailySummary, setDailySummary] = useState<{
@@ -907,6 +1138,10 @@ export default function ChatRoomScreen() {
   const flatListRef = useRef<FlatList>(null);
   const typingTimeout = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
+  );
+  const voiceRecordingRef = useRef<Audio.Recording | null>(null);
+  const voiceRecordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(
+    null,
   );
 
   // Determine conversation name
@@ -961,12 +1196,18 @@ export default function ChatRoomScreen() {
       ? canPinInGroup
       : conversation?.type === "private";
   const pinnedMessage = conversation?.groupSettings?.pinnedMessage || null;
+  const activeReplyPreview = replyToMessageId
+    ? resolveReplyPreview(replyToMessageId, convMessages)
+    : null;
+  const conversationBackground = String(conversation?.background || "").trim();
+  const usesImageBackground = isImageBackground(conversationBackground);
+  const chatAreaBackgroundColor = getSolidBackgroundColor(conversationBackground);
 
   const getPinnedMessagePreview = useCallback((message: any) => {
-    if (!message) return "Tin nhan da ghim";
+    if (!message) return "Tin nhắn đã ghim";
     if (message.metadata?.isAnnouncement) {
       const announceText = String(message.content?.text || "").trim();
-      return announceText ? `[Thong bao] ${announceText}` : "[Thong bao]";
+      return announceText ? `[Thông báo] ${announceText}` : "[Thông báo]";
     }
 
     const content = message.content;
@@ -983,12 +1224,12 @@ export default function ChatRoomScreen() {
       }
     }
 
-    if (message.type === "image") return "[Hinh anh]";
+    if (message.type === "image") return "[Hình ảnh]";
     if (message.type === "video") return "[Video]";
-    if (message.type === "voice") return "[Tin nhan thoai]";
+    if (message.type === "voice") return "[Tin nhắn thoại]";
     if (message.type === "sticker") return "[Sticker]";
-    if (message.type === "file") return "[Tap tin]";
-    return "Tin nhan da ghim";
+    if (message.type === "file") return "[Tập tin]";
+    return "Tin nhắn đã ghim";
   }, []);
 
   // Re-render presence label every minute so "X phút trước" updates naturally.
@@ -1010,7 +1251,7 @@ export default function ChatRoomScreen() {
         const profile = await userService.getUserById(partnerId);
         setPartnerLastSeenAt(profile?.lastSeen || null);
       } catch (error) {
-        console.warn("Khong the tai thong tin online cua doi phuong:", error);
+        console.warn("Không thể tải thông tin online của đối phương:", error);
       }
     };
 
@@ -1107,7 +1348,7 @@ export default function ChatRoomScreen() {
     }) => {
       if (String(targetUserId) !== String(otherParticipant.userId)) return;
       setBlockStatus("blocked_by_me");
-      GrayToast("Da chan nguoi dung");
+      GrayToast("Đã chặn người dùng");
     };
 
     const handleBlockedBy = ({
@@ -1117,7 +1358,7 @@ export default function ChatRoomScreen() {
     }) => {
       if (String(blockedByUserId) !== String(otherParticipant.userId)) return;
       setBlockStatus("blocked_by_other");
-      GrayToast("Ban da bi chan");
+      GrayToast("Bạn đã bị chặn");
     };
 
     const handleFriendUnblocked = ({
@@ -1127,7 +1368,7 @@ export default function ChatRoomScreen() {
     }) => {
       if (String(targetUserId) !== String(otherParticipant.userId)) return;
       setBlockStatus("none");
-      GrayToast("Da mo chan nguoi dung");
+      GrayToast("Đã mở chặn người dùng");
     };
 
     const handleUnblockedBy = ({
@@ -1137,7 +1378,7 @@ export default function ChatRoomScreen() {
     }) => {
       if (String(unblockedByUserId) !== String(otherParticipant.userId)) return;
       setBlockStatus("none");
-      GrayToast("Nguoi dung da bo chan ban");
+      GrayToast("Người dùng đã bỏ chặn bạn");
     };
 
     socketService.on("friend:blocked", handleFriendBlocked);
@@ -1156,12 +1397,12 @@ export default function ChatRoomScreen() {
   const startCall = useCallback(
     (callType: "audio" | "video") => {
       if (!user?.id || !convId) {
-        GrayToast("Khong the bat dau cuoc goi");
+        GrayToast("Không thể bắt đầu cuộc gọi");
         return;
       }
       
       if (conversation?.type !== "group" && !otherParticipant?.userId) {
-        GrayToast("Khong the bat dau cuoc goi");
+        GrayToast("Không thể bắt đầu cuộc gọi");
         return;
       }
 
@@ -1176,9 +1417,9 @@ export default function ChatRoomScreen() {
           conversationId: convId,
           fromUserId: String(user.id),
           toUserId: isGroup ? "" : String(otherParticipant?.userId),
-          toUserName: isGroup ? (conversation.name || "Nhóm") : (otherParticipant?.fullName || "Nguoi dung"),
-          toUserAvatar: isGroup ? (conversation.avatar || "") : (otherParticipant?.avatarUrl || ""),
-          callerName: user.fullName || "Nguoi dung",
+          toUserName: isGroup ? (conversation.name || "Nhóm") : (otherParticipant?.fullName || "Người dùng"),
+          toUserAvatar: isGroup ? (conversation.avatarUrl || "") : (otherParticipant?.avatarUrl || ""),
+          callerName: user.fullName || "Người dùng",
           callerAvatar: user.avatarUrl || "",
           isCaller: "true",
           isGroupCall: isGroup ? "true" : "false",
@@ -1196,7 +1437,7 @@ export default function ChatRoomScreen() {
       user?.id,
       conversation?.type,
       conversation?.name,
-      conversation?.avatar,
+      conversation?.avatarUrl,
     ],
   );
 
@@ -1215,12 +1456,12 @@ export default function ChatRoomScreen() {
     try {
       const canOpen = await Linking.canOpenURL(previewTarget.url);
       if (!canOpen) {
-        GrayToast("Khong mo duoc file");
+        GrayToast("Không mở được file");
         return;
       }
       await Linking.openURL(previewTarget.url);
     } catch {
-      GrayToast("Khong mo duoc file");
+      GrayToast("Không mở được file");
     }
   }, [previewTarget?.url]);
 
@@ -1299,6 +1540,21 @@ export default function ChatRoomScreen() {
     }
   }, [convMessages.length]);
 
+  useEffect(() => {
+    return () => {
+      if (voiceRecordingTimerRef.current) {
+        clearInterval(voiceRecordingTimerRef.current);
+        voiceRecordingTimerRef.current = null;
+      }
+
+      const recording = voiceRecordingRef.current;
+      voiceRecordingRef.current = null;
+      if (recording) {
+        recording.stopAndUnloadAsync().catch(() => null);
+      }
+    };
+  }, []);
+
   const handleTextChange = (val: string) => {
     if (isMessagingBlocked) return;
     setText(val);
@@ -1310,7 +1566,7 @@ export default function ChatRoomScreen() {
   const handleToggleStickerPicker = useCallback(() => {
     if (isMessagingBlocked) {
       GrayToast(
-        isBlockedByMe ? "Ban da chan nguoi dung nay" : "Ban da bi chan",
+        isBlockedByMe ? "Bạn đã chặn người dùng này" : "Bạn đã bị chặn",
       );
       return;
     }
@@ -1322,7 +1578,7 @@ export default function ChatRoomScreen() {
       if (!convId || isSending) return;
       if (isMessagingBlocked) {
         GrayToast(
-          isBlockedByMe ? "Ban da chan nguoi dung nay" : "Ban da bi chan",
+          isBlockedByMe ? "Bạn đã chặn người dùng này" : "Bạn đã bị chặn",
         );
         return;
       }
@@ -1337,22 +1593,182 @@ export default function ChatRoomScreen() {
         await chatService.sendMessage(convId, {
           type: "sticker",
           content: stickerUrl,
+          replyTo: replyToMessageId || undefined,
         });
+        setReplyToMessageId(null);
       } catch {
-        GrayToast("Khong the gui sticker");
+        GrayToast("Không thể gửi sticker");
       } finally {
         setIsSending(false);
       }
     },
-    [convId, isSending, isMessagingBlocked, isBlockedByMe, user],
+    [convId, isSending, isMessagingBlocked, isBlockedByMe, replyToMessageId, user],
   );
+
+  const handleToggleVoiceRecording = useCallback(async () => {
+    if (!convId || isSending) return;
+    if (isMessagingBlocked) {
+      GrayToast(
+        isBlockedByMe ? "Bạn đã chặn người dùng này" : "Bạn đã bị chặn",
+      );
+      return;
+    }
+
+    if (isRecordingVoice) {
+      const recording = voiceRecordingRef.current;
+      voiceRecordingRef.current = null;
+      setIsRecordingVoice(false);
+      if (voiceRecordingTimerRef.current) {
+        clearInterval(voiceRecordingTimerRef.current);
+        voiceRecordingTimerRef.current = null;
+      }
+      if (!recording) {
+        setVoiceRecordingSeconds(0);
+        return;
+      }
+
+      setIsSending(true);
+      if (convId && user) {
+        socketService.emit("chat:stop_typing", { conversationId: convId });
+      }
+
+      try {
+        const statusBeforeStop = await recording.getStatusAsync().catch(() => null);
+        await recording.stopAndUnloadAsync();
+        const uri = recording.getURI();
+        await Audio.setAudioModeAsync({
+          allowsRecordingIOS: false,
+          playsInSilentModeIOS: true,
+          shouldDuckAndroid: true,
+          playThroughEarpieceAndroid: false,
+          staysActiveInBackground: false,
+        });
+
+        const durationMillis =
+          typeof statusBeforeStop?.durationMillis === "number" &&
+          Number.isFinite(statusBeforeStop.durationMillis)
+            ? statusBeforeStop.durationMillis
+            : voiceRecordingSeconds * 1000;
+
+        if (!uri) {
+          throw new Error("Missing recorded audio URI");
+        }
+
+        const mimeType = Platform.OS === "ios" ? "audio/m4a" : "audio/mp4";
+        const url = await uploadFile(
+          uri,
+          `voice_${Date.now()}.m4a`,
+          mimeType,
+          accessToken,
+        );
+
+        await chatService.sendMessage(convId, {
+          type: "voice",
+          content: {
+            mediaUrl: url,
+            duration: Math.max(1, Math.round(durationMillis / 1000)),
+          },
+          replyTo: replyToMessageId || undefined,
+        });
+        setReplyToMessageId(null);
+      } catch (error) {
+        console.error("Không thể gửi voice:", error);
+        GrayToast("Không thể gửi voice");
+      } finally {
+        setIsSending(false);
+        setVoiceRecordingSeconds(0);
+      }
+      return;
+    }
+
+    try {
+      const permission = await Audio.requestPermissionsAsync();
+      if (!permission.granted) {
+        GrayToast("Cần cấp quyền micro");
+        return;
+      }
+
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+        shouldDuckAndroid: true,
+        playThroughEarpieceAndroid: false,
+        staysActiveInBackground: false,
+      });
+
+      const recording = new Audio.Recording();
+      await recording.prepareToRecordAsync(
+        Audio.RecordingOptionsPresets.HIGH_QUALITY,
+      );
+      await recording.startAsync();
+
+      voiceRecordingRef.current = recording;
+      setVoiceRecordingSeconds(0);
+      setIsRecordingVoice(true);
+
+      if (voiceRecordingTimerRef.current) {
+        clearInterval(voiceRecordingTimerRef.current);
+      }
+      voiceRecordingTimerRef.current = setInterval(() => {
+        setVoiceRecordingSeconds((prev) => prev + 1);
+      }, 1000);
+    } catch (error) {
+      console.error("Không thể bật voice:", error);
+      voiceRecordingRef.current = null;
+      setIsRecordingVoice(false);
+      setVoiceRecordingSeconds(0);
+      if (voiceRecordingTimerRef.current) {
+        clearInterval(voiceRecordingTimerRef.current);
+        voiceRecordingTimerRef.current = null;
+      }
+    }
+  }, [
+    accessToken,
+    convId,
+    isBlockedByMe,
+    isMessagingBlocked,
+    isRecordingVoice,
+    isSending,
+    replyToMessageId,
+    user,
+    voiceRecordingSeconds,
+  ]);
+
+  const handleCancelVoiceRecording = useCallback(async () => {
+    if (!isRecordingVoice) return;
+
+    const recording = voiceRecordingRef.current;
+    voiceRecordingRef.current = null;
+    setIsRecordingVoice(false);
+    setVoiceRecordingSeconds(0);
+
+    if (voiceRecordingTimerRef.current) {
+      clearInterval(voiceRecordingTimerRef.current);
+      voiceRecordingTimerRef.current = null;
+    }
+
+    try {
+      if (recording) {
+        await recording.stopAndUnloadAsync();
+      }
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        playsInSilentModeIOS: true,
+        shouldDuckAndroid: true,
+        playThroughEarpieceAndroid: false,
+        staysActiveInBackground: false,
+      });
+    } catch (error) {
+      console.error("Lỗi khi hủy voice:", error);
+    }
+  }, [isRecordingVoice]);
 
   const handleSend = async () => {
     const trimmed = text.trim();
     if (!trimmed || isSending) return;
     if (isMessagingBlocked) {
       GrayToast(
-        isBlockedByMe ? "Ban da chan nguoi dung nay" : "Ban da bi chan",
+        isBlockedByMe ? "Bạn đã chặn người dùng này" : "Bạn đã bị chặn",
       );
       return;
     }
@@ -1362,9 +1778,110 @@ export default function ChatRoomScreen() {
       socketService.emit("chat:stop_typing", { conversationId: convId });
     }
     try {
-      await chatService.sendMessage(convId, { type: "text", content: trimmed });
+      await chatService.sendMessage(convId, {
+        type: "text",
+        content: trimmed,
+        replyTo: replyToMessageId || undefined,
+      });
+      setReplyToMessageId(null);
     } catch {
       GrayToast("Không thể gửi tin nhắn");
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  const handlePickImage = async () => {
+    if (isMessagingBlocked) {
+      GrayToast(
+        isBlockedByMe ? "Bạn đã chặn người dùng này" : "Bạn đã bị chặn",
+      );
+      return;
+    }
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert("Cần quyền", "Hãy cấp quyền truy cập ảnh");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images", "videos"],
+      allowsMultipleSelection: true,
+      quality: 0.85,
+    });
+    if (result.canceled || !result.assets?.length) return;
+
+    setIsSending(true);
+    let failedCount = 0;
+    let sentCount = 0;
+
+    try {
+      for (const [index, asset] of result.assets.entries()) {
+        const isVideo = asset.type === "video";
+        const name =
+          asset.fileName ||
+          `media-${Date.now()}-${index}.${isVideo ? "mp4" : "jpg"}`;
+        const mimeType =
+          asset.mimeType || (isVideo ? "video/mp4" : "image/jpeg");
+
+        try {
+          const url = await uploadFile(asset.uri, name, mimeType, accessToken);
+          await chatService.sendMessage(convId, {
+            type: isVideo ? "video" : "image",
+            content: url,
+            replyTo: replyToMessageId || undefined,
+          });
+          sentCount += 1;
+        } catch {
+          failedCount += 1;
+        }
+      }
+
+      if (sentCount > 0) {
+        setReplyToMessageId(null);
+      }
+
+      if (failedCount > 0) {
+        if (failedCount === result.assets.length) {
+          GrayToast("Không thể gửi ảnh/video");
+        } else {
+          GrayToast(
+            `Đã gửi ${result.assets.length - failedCount}/${result.assets.length} ảnh/video`,
+          );
+        }
+      }
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  const handlePickFile = async () => {
+    if (isMessagingBlocked) {
+      GrayToast(
+        isBlockedByMe ? "Bạn đã chặn người dùng này" : "Bạn đã bị chặn",
+      );
+      return;
+    }
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        copyToCacheDirectory: true,
+      });
+      if (result.canceled || !result.assets?.length) return;
+      const asset = result.assets[0];
+      setIsSending(true);
+      const url = await uploadFile(
+        asset.uri,
+        asset.name,
+        asset.mimeType || "application/octet-stream",
+        accessToken,
+      );
+      await chatService.sendMessage(convId, {
+        type: "file",
+        content: url,
+        replyTo: replyToMessageId || undefined,
+      });
+      setReplyToMessageId(null);
+    } catch {
+      GrayToast("Không thể gửi file");
     } finally {
       setIsSending(false);
     }
@@ -1388,100 +1905,17 @@ export default function ChatRoomScreen() {
 
       GrayToast(
         result.messageCount > 0
-          ? "Da tao tom tat cuoc tro chuyen trong ngay"
-          : "Khong co tin nhan trong ngay de tom tat",
+          ? "Đã tạo tóm tắt cuộc trò chuyện trong ngày"
+          : "Không có tin nhắn trong ngày để tóm tắt",
       );
     } catch (error) {
-      console.error("Khong the tom tat cuoc tro chuyen:", error);
-      GrayToast("Khong the tom tat cuoc tro chuyen luc nay");
+      console.error("Không thể tóm tắt cuộc trò chuyện:", error);
+      GrayToast("Không thể tóm tắt cuộc trò chuyện lúc này");
     } finally {
       setIsSummarizingConversation(false);
     }
   }, [convId, convName, isSummarizingConversation]);
 
-  const handlePickImage = async () => {
-    if (isMessagingBlocked) {
-      GrayToast(
-        isBlockedByMe ? "Ban da chan nguoi dung nay" : "Ban da bi chan",
-      );
-      return;
-    }
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) {
-      Alert.alert("Cần quyền", "Hãy cấp quyền truy cập ảnh");
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images", "videos"],
-      allowsMultipleSelection: true,
-      quality: 0.85,
-    });
-    if (result.canceled || !result.assets?.length) return;
-
-    setIsSending(true);
-    let failedCount = 0;
-
-    try {
-      for (const [index, asset] of result.assets.entries()) {
-        const isVideo = asset.type === "video";
-        const name =
-          asset.fileName ||
-          `media-${Date.now()}-${index}.${isVideo ? "mp4" : "jpg"}`;
-        const mimeType =
-          asset.mimeType || (isVideo ? "video/mp4" : "image/jpeg");
-
-        try {
-          const url = await uploadFile(asset.uri, name, mimeType, accessToken);
-          await chatService.sendMessage(convId, {
-            type: isVideo ? "video" : "image",
-            content: url,
-          });
-        } catch {
-          failedCount += 1;
-        }
-      }
-
-      if (failedCount > 0) {
-        if (failedCount === result.assets.length) {
-          GrayToast("Không thể gửi ảnh/video");
-        } else {
-          GrayToast(
-            `Đã gửi ${result.assets.length - failedCount}/${result.assets.length} ảnh/video`,
-          );
-        }
-      }
-    } finally {
-      setIsSending(false);
-    }
-  };
-
-  const handlePickFile = async () => {
-    if (isMessagingBlocked) {
-      GrayToast(
-        isBlockedByMe ? "Ban da chan nguoi dung nay" : "Ban da bi chan",
-      );
-      return;
-    }
-    try {
-      const result = await DocumentPicker.getDocumentAsync({
-        copyToCacheDirectory: true,
-      });
-      if (result.canceled || !result.assets?.length) return;
-      const asset = result.assets[0];
-      setIsSending(true);
-      const url = await uploadFile(
-        asset.uri,
-        asset.name,
-        asset.mimeType || "application/octet-stream",
-        accessToken,
-      );
-      await chatService.sendMessage(convId, { type: "file", content: url });
-    } catch {
-      GrayToast("Không thể gửi file");
-    } finally {
-      setIsSending(false);
-    }
-  };
 
   const handleUpdatePinnedMessage = useCallback(
     (nextPinnedMessage: any | null) => {
@@ -1545,14 +1979,14 @@ export default function ChatRoomScreen() {
       if (!convId || !conversation) return;
 
       if (message.isDeleted) {
-        GrayToast("Khong the ghim tin nhan da thu hoi");
+        GrayToast("Không thể ghim tin nhắn đã thu hồi");
         return;
       }
 
       try {
         if (conversation.type === "group") {
           if (!canPinInGroup) {
-            GrayToast("Ban khong co quyen ghim tin nhan trong nhom nay");
+            GrayToast("Bạn không có quyền ghim tin nhắn trong nhóm này");
             return;
           }
         }
@@ -1571,9 +2005,9 @@ export default function ChatRoomScreen() {
         socketService.emit("chat:sync_pinned_message", {
           conversationId: convId,
         });
-        GrayToast("Da ghim tin nhan");
+        GrayToast("Đã ghim tin nhắn");
       } catch (error: any) {
-        GrayToast(error?.message || "Khong the ghim tin nhan");
+        GrayToast(error?.message || "Không thể ghim tin nhắn");
       }
     },
     [canPinInGroup, convId, conversation, handleUpdatePinnedMessage],
@@ -1585,7 +2019,7 @@ export default function ChatRoomScreen() {
     try {
       if (conversation.type === "group") {
         if (!canPinInGroup) {
-          GrayToast("Ban khong co quyen bo ghim tin nhan trong nhom nay");
+          GrayToast("Bạn không có quyền bỏ ghim tin nhắn trong nhóm này");
           return;
         }
         await unpinGroupMessage(convId);
@@ -1597,9 +2031,9 @@ export default function ChatRoomScreen() {
       socketService.emit("chat:sync_pinned_message", {
         conversationId: convId,
       });
-      GrayToast("Da bo ghim tin nhan");
+      GrayToast("Đã bỏ ghim tin nhắn");
     } catch (error: any) {
-      GrayToast(error?.message || "Khong the bo ghim tin nhan");
+      GrayToast(error?.message || "Không thể bỏ ghim tin nhắn");
     }
   }, [canPinInGroup, convId, conversation, handleUpdatePinnedMessage]);
 
@@ -1620,26 +2054,6 @@ export default function ChatRoomScreen() {
         onPress: () => setShowReactions(true),
       },
     ];
-
-    if (!msg.isDeleted && canPinMessage) {
-      options.push({
-        text: isPinnedMessage ? "Bo ghim tin nhan" : "Ghim tin nhan",
-        onPress: () => {
-          if (isPinnedMessage) {
-            void handleUnpinMessage();
-            return;
-          }
-          void handlePinMessage(msg);
-        },
-      });
-    }
-
-    if (!msg.isDeleted) {
-      options.push({
-        text: "Chuyen tiep",
-        onPress: () => setForwardMessage(msg),
-      });
-    }
 
     if (isMe && !msg.isDeleted) {
       options.push({
@@ -1669,6 +2083,31 @@ export default function ChatRoomScreen() {
       });
     }
 
+    if (!msg.isDeleted && canPinMessage) {
+      options.push({
+        text: isPinnedMessage ? "Bỏ ghim tin nhắn" : "Ghim tin nhắn",
+        onPress: () => {
+          if (isPinnedMessage) {
+            void handleUnpinMessage();
+            return;
+          }
+          void handlePinMessage(msg);
+        },
+      });
+    }
+
+    if (!msg.isDeleted) {
+      options.push({
+        text: "Trả lời",
+        onPress: () => setReplyToMessageId(msg.id),
+      });
+      options.push({
+        text: "Chuyển tiếp",
+        onPress: () => setForwardMessage(msg),
+      });
+    }
+
+
     options.push({ text: "Hủy", style: "cancel" });
     Alert.alert("Tùy chọn", undefined, options);
   };
@@ -1683,23 +2122,23 @@ export default function ChatRoomScreen() {
     if (conversation?.type !== "private" || !otherParticipant?.userId) return;
 
     const partnerId = String(otherParticipant.userId);
-    const partnerName = otherParticipant.fullName || "nguoi dung";
+    const partnerName = otherParticipant.fullName || "người dùng";
 
     Alert.alert(
-      "Chan nguoi dung",
-      `Ban co chac muon chan ${partnerName}?`,
+      "Chặn người dùng",
+      `Bạn có chắc muốn chặn ${partnerName}?`,
       [
-        { text: "Huy", style: "cancel" },
+        { text: "Hủy", style: "cancel" },
         {
-          text: "Chan",
+          text: "Chặn",
           style: "destructive",
           onPress: async () => {
             try {
               await friendsService.blockUser(partnerId);
               setBlockStatus("blocked_by_me");
-              GrayToast("Da chan nguoi dung");
+              GrayToast("Đã chặn người dùng");
             } catch {
-              GrayToast("Khong the chan nguoi dung");
+              GrayToast("Không thể chặn người dùng");
             }
           },
         },
@@ -1712,23 +2151,23 @@ export default function ChatRoomScreen() {
     if (conversation?.type !== "private" || !otherParticipant?.userId) return;
 
     const partnerId = String(otherParticipant.userId);
-    const partnerName = otherParticipant.fullName || "nguoi dung";
+    const partnerName = otherParticipant.fullName || "người dùng";
 
     Alert.alert(
-      "Mo chan nguoi dung",
-      `Ban co chac muon mo chan ${partnerName}?`,
+      "Mở chặn người dùng",
+      `Bạn có chắc muốn mở chặn ${partnerName}?`,
       [
-        { text: "Huy", style: "cancel" },
+        { text: "Hủy", style: "cancel" },
         {
-          text: "Mo chan",
+          text: "Mở chặn",
           style: "default",
           onPress: async () => {
             try {
               await friendsService.unblockUser(partnerId);
               setBlockStatus("none");
-              GrayToast("Da mo chan nguoi dung");
+              GrayToast("Đã mở chặn người dùng");
             } catch {
-              GrayToast("Khong the mo chan nguoi dung");
+              GrayToast("Không thể mở chặn người dùng");
             }
           },
         },
@@ -1744,7 +2183,11 @@ export default function ChatRoomScreen() {
       onPress?: () => void;
     }> = [
       {
-        text: "Thong tin hoi thoai",
+        text: "Đổi hình nền",
+        onPress: () => setShowChatOptions(true),
+      },
+      {
+        text: "Thông tin hội thoại",
         onPress: () =>
           router.push({
             pathname: "/(tabs)/chat/conversation-info",
@@ -1755,14 +2198,14 @@ export default function ChatRoomScreen() {
 
     if (conversation?.type === "private") {
       options.push({
-        text: isBlockedByMe ? "Mo chan nguoi dung" : "Chan nguoi dung",
+        text: isBlockedByMe ? "Mở chặn người dùng" : "Chặn người dùng",
         style: isBlockedByMe ? "default" : "destructive",
         onPress: isBlockedByMe ? handleUnblockUser : handleBlockUser,
       });
     }
 
-    options.push({ text: "Dong", style: "cancel" });
-    Alert.alert("Tuy chon", undefined, options);
+    options.push({ text: "Đóng", style: "cancel" });
+    Alert.alert("Tùy chọn", undefined, options);
   };
 
   const renderMessage = ({ item, index }: { item: Message; index: number }) => {
@@ -1780,6 +2223,7 @@ export default function ChatRoomScreen() {
         isGroupedWithPrevious={isGroupedWithPrevious}
         onLongPress={handleLongPress}
         onOpenFilePreview={handleOpenFilePreview}
+        replyPreview={resolveReplyPreview((item as any).replyTo, convMessages)}
       />
     );
   };
@@ -1794,17 +2238,18 @@ export default function ChatRoomScreen() {
       <View
         style={{
           backgroundColor: "#fff",
-          paddingTop: 5,
+          paddingTop: headerTopPadding,
           flexDirection: "row",
           alignItems: "center",
-          paddingHorizontal: 10,
-          paddingBottom: 6,
+          paddingHorizontal: 12,
+          paddingBottom: 10,
           borderBottomWidth: 1,
           borderBottomColor: "#F3F4F6",
         }}
       >
         <TouchableOpacity
           onPress={() => router.back()}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
           style={{ padding: 4, marginRight: 8 }}
         >
           <Ionicons name="arrow-back" size={24} color="#111827" />
@@ -1842,53 +2287,62 @@ export default function ChatRoomScreen() {
         <TouchableOpacity
           style={{ padding: 4 }}
           onPress={() => startCall("audio")}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
         >
           <Ionicons name="call-outline" size={22} color="#6B7280" />
         </TouchableOpacity>
         <TouchableOpacity
           style={{ padding: 4 }}
           onPress={() => startCall("video")}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
         >
           <Ionicons name="videocam-outline" size={22} color="#6B7280" />
         </TouchableOpacity>
         <TouchableOpacity
           style={{ padding: 4 }}
           onPress={handleHeaderMenuPress}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
         >
           <Ionicons name="ellipsis-vertical" size={20} color="#6B7280" />
         </TouchableOpacity>
       </View>
 
-      {/* Messages */}
+      {/* Pinned Message */}
       {pinnedMessage && (
         <View
           style={{
             backgroundColor: "#FFFBEB",
+            borderTopWidth: 1,
             borderBottomWidth: 1,
-            borderBottomColor: "#FDE68A",
-            paddingHorizontal: 12,
-            paddingVertical: 8,
+            borderColor: "#FDE68A",
+            paddingHorizontal: 16,
+            paddingVertical: 10,
             flexDirection: "row",
             alignItems: "center",
             justifyContent: "space-between",
-            gap: 8,
+            gap: 12,
+            zIndex: 10,
           }}
         >
-          <View style={{ flexDirection: "row", alignItems: "center", flex: 1 }}>
-            <Ionicons name="pin" size={14} color="#B45309" />
-            <View style={{ marginLeft: 6, flex: 1 }}>
+          <View style={{ flexDirection: "row", alignItems: "flex-start", flex: 1, gap: 10 }}>
+            <Svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="#F59E0B" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginTop: 2 }}>
+              <Line x1="12" x2="12" y1="17" y2="22" />
+              <Path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.68V6a3 3 0 0 0-3-3 3 3 0 0 0-3 3v4.68a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z" />
+            </Svg>
+            <View style={{ flex: 1 }}>
               <Text
                 style={{
-                  color: "#92400E",
-                  fontSize: 11,
+                  color: "#D97706",
+                  fontSize: 13,
                   fontWeight: "700",
+                  marginBottom: 2,
                 }}
               >
-                Tin nhan da ghim
+                Tin nhắn đã ghim
               </Text>
               <Text
                 numberOfLines={1}
-                style={{ color: "#92400E", fontSize: 12 }}
+                style={{ color: "#D97706", fontSize: 13 }}
               >
                 {getPinnedMessagePreview(pinnedMessage)}
               </Text>
@@ -1897,27 +2351,54 @@ export default function ChatRoomScreen() {
 
           {canPinMessage && (
             <TouchableOpacity
-              onPress={() => void handleUnpinMessage()}
+              onPress={() => void handleUpdatePinnedMessage(null)}
               style={{
-                paddingHorizontal: 8,
-                paddingVertical: 4,
-                borderRadius: 999,
+                paddingHorizontal: 12,
+                paddingVertical: 6,
+                borderRadius: 6,
                 backgroundColor: "#FEF3C7",
-                borderWidth: 1,
-                borderColor: "#F59E0B",
               }}
             >
               <Text
-                style={{ color: "#92400E", fontSize: 11, fontWeight: "700" }}
+                style={{ color: "#D97706", fontSize: 13, fontWeight: "500" }}
               >
-                Bo ghim
+                Bỏ ghim
               </Text>
             </TouchableOpacity>
           )}
         </View>
       )}
 
-      {isLoading ? (
+      {/* Messages */}
+      <View
+        style={{
+          flex: 1,
+          position: "relative",
+          backgroundColor: chatAreaBackgroundColor,
+          overflow: "hidden",
+        }}
+      >
+        {usesImageBackground && (
+          <ImageBackground
+            source={{ uri: conversationBackground }}
+            style={{
+              position: "absolute",
+              top: 0,
+              right: 0,
+              bottom: 0,
+              left: 0,
+            }}
+            imageStyle={{ resizeMode: "cover" }}
+          >
+            <View
+              style={{
+                flex: 1,
+                backgroundColor: "rgba(255,255,255,0.72)",
+              }}
+            />
+          </ImageBackground>
+        )}
+        {isLoading ? (
         <View
           style={{ flex: 1, alignItems: "center", justifyContent: "center" }}
         >
@@ -1932,7 +2413,8 @@ export default function ChatRoomScreen() {
           data={convMessages}
           keyExtractor={(item) => item.id}
           renderItem={renderMessage}
-          contentContainerStyle={{ paddingVertical: 4, paddingBottom: 2 }}
+          style={{ flex: 1 }}
+          contentContainerStyle={{ paddingVertical: 4, paddingBottom: 2, flexGrow: 1 }}
           ListEmptyComponent={
             <View
               style={{
@@ -1953,6 +2435,7 @@ export default function ChatRoomScreen() {
           }
         />
       )}
+      </View>
 
       {/* Reaction picker */}
       {showReactions && (
@@ -1993,122 +2476,111 @@ export default function ChatRoomScreen() {
         onClose={() => setForwardMessage(null)}
         message={forwardMessage}
       />
+      {conversation && (
+        <ChatOptionsModal
+          visible={showChatOptions}
+          onClose={() => setShowChatOptions(false)}
+          conversation={conversation}
+        />
+      )}
 
-      <Modal
-        visible={Boolean(previewTarget)}
-        animationType="slide"
-        transparent={false}
-        onRequestClose={handleCloseFilePreview}
-      >
-        <View style={{ flex: 1, backgroundColor: "#fff" }}>
-          <View
-            style={{
-              paddingTop: insets.top + 6,
-              paddingHorizontal: 12,
-              paddingBottom: 10,
-              borderBottomWidth: 1,
-              borderBottomColor: "#E5E7EB",
-              flexDirection: "row",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: 10,
-            }}
-          >
-            <TouchableOpacity
-              onPress={handleCloseFilePreview}
+      {/* Modals & Input area */}
+      {previewTarget && (
+        <Modal
+          visible={Boolean(previewTarget)}
+          animationType="slide"
+          onRequestClose={() => setPreviewTarget(null)}
+        >
+          <View style={{ flex: 1, backgroundColor: "#fff" }}>
+            <View
               style={{
-                width: 34,
-                height: 34,
-                borderRadius: 17,
+                paddingTop: headerTopPadding,
+                height: headerTopPadding + 50,
+                flexDirection: "row",
                 alignItems: "center",
-                justifyContent: "center",
-                backgroundColor: "#F3F4F6",
+                paddingHorizontal: 16,
+                borderBottomWidth: 1,
+                borderBottomColor: "#F3F4F6",
+                backgroundColor: "#fff",
               }}
             >
-              <Ionicons name="close" size={20} color="#111827" />
-            </TouchableOpacity>
-
-            <Text
-              numberOfLines={1}
-              style={{
-                flex: 1,
-                fontSize: 15,
-                fontWeight: "700",
-                color: "#111827",
-              }}
-            >
-              {previewTarget?.name || "Xem truoc tap tin"}
-            </Text>
-
-            <TouchableOpacity
-              onPress={() => void handleOpenFileExternally()}
-              style={{
-                height: 34,
-                paddingHorizontal: 10,
-                borderRadius: 17,
-                alignItems: "center",
-                justifyContent: "center",
-                backgroundColor: "#EEF2FF",
-              }}
-            >
-              <Text
-                style={{ color: "#1D4ED8", fontSize: 12, fontWeight: "700" }}
+              <TouchableOpacity
+                onPress={() => setPreviewTarget(null)}
+                style={{ padding: 4, marginRight: 12 }}
               >
-                Mo ngoai
+                <Ionicons name="close" size={26} color="#111827" />
+              </TouchableOpacity>
+              <Text
+                numberOfLines={1}
+                style={{
+                  flex: 1,
+                  fontSize: 16,
+                  fontWeight: "700",
+                  color: "#111827",
+                }}
+              >
+                {previewTarget.name}
               </Text>
-            </TouchableOpacity>
-          </View>
+              <TouchableOpacity
+                onPress={() => void Linking.openURL(previewTarget.url)}
+                style={{ padding: 4 }}
+              >
+                <Ionicons name="open-outline" size={22} color="#0068FF" />
+              </TouchableOpacity>
+            </View>
 
-          {previewTarget ? (
-            previewError ? (
+            {previewError ? (
               <View
                 style={{
                   flex: 1,
                   alignItems: "center",
                   justifyContent: "center",
-                  paddingHorizontal: 20,
-                  gap: 10,
+                  padding: 40,
                 }}
               >
-                <Ionicons
-                  name="alert-circle-outline"
-                  size={28}
-                  color="#DC2626"
-                />
+                <Ionicons name="warning-outline" size={64} color="#9CA3AF" />
                 <Text
                   style={{
-                    color: "#111827",
-                    fontSize: 15,
+                    marginTop: 16,
+                    fontSize: 16,
+                    color: "#4B5563",
                     textAlign: "center",
                   }}
                 >
-                  Khong the tai noi dung xem truoc.
+                  Không thể mở bản xem trước cho tài liệu này. Hãy thử mở trong
+                  trình duyệt.
                 </Text>
                 <TouchableOpacity
-                  onPress={() => void handleOpenFileExternally()}
+                  onPress={() => void Linking.openURL(previewTarget.url)}
                   style={{
+                    marginTop: 20,
+                    paddingHorizontal: 24,
+                    paddingVertical: 12,
                     backgroundColor: "#0068FF",
-                    borderRadius: 8,
-                    paddingHorizontal: 14,
-                    paddingVertical: 10,
+                    borderRadius: 12,
                   }}
                 >
-                  <Text style={{ color: "#fff", fontWeight: "700" }}>
-                    Mo bang ung dung ngoai
+                  <Text
+                    style={{ color: "#fff", fontWeight: "700", fontSize: 15 }}
+                  >
+                    Mở ngoài
                   </Text>
                 </TouchableOpacity>
               </View>
             ) : (
               <WebView
                 source={{ uri: getPreviewWebUri(previewTarget) }}
-                startInLoadingState
+                style={{ flex: 1 }}
+                onLoadStart={() => setPreviewError(false)}
                 onError={() => setPreviewError(true)}
-                originWhitelist={["*"]}
+                javaScriptEnabled
+                domStorageEnabled
+                startInLoadingState
               />
-            )
-          ) : null}
-        </View>
-      </Modal>
+            )}
+          </View>
+        </Modal>
+      )}
 
       {/* Input area */}
       <View
@@ -2117,63 +2589,93 @@ export default function ChatRoomScreen() {
           paddingHorizontal: 8,
           paddingTop: 6,
           paddingBottom: Math.max(insets.bottom, 6),
-          marginBottom: Platform.OS === "android" ? 0 : 4,
           borderTopWidth: 1,
           borderTopColor: "#F3F4F6",
         }}
       >
-        {dailySummary && (
+        {activeReplyPreview && (
           <View
             style={{
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
               marginBottom: 8,
+              paddingHorizontal: 12,
+              paddingVertical: 9,
+              borderRadius: 14,
+              backgroundColor: "#EFF6FF",
               borderWidth: 1,
               borderColor: "#BFDBFE",
-              backgroundColor: "#EFF6FF",
-              borderRadius: 12,
-              paddingHorizontal: 10,
-              paddingVertical: 8,
-              flexDirection: "row",
-              alignItems: "flex-start",
-              justifyContent: "space-between",
-              gap: 8,
             }}
           >
-            <View style={{ flex: 1 }}>
-              <Text
-                style={{
-                  color: "#1D4ED8",
-                  fontSize: 12,
-                  fontWeight: "700",
-                }}
-              >
-                Tom tat ngay {dailySummary.date} • {dailySummary.messageCount}{" "}
-                tin nhan
-              </Text>
-              <Text
-                style={{
-                  color: "#1F2937",
-                  fontSize: 13,
-                  lineHeight: 18,
-                  marginTop: 3,
-                }}
-              >
-                {dailySummary.summary}
-              </Text>
+            <View style={{ flexDirection: "row", alignItems: "center", flex: 1 }}>
+              <Ionicons
+                name="return-up-back-outline"
+                size={18}
+                color="#2563EB"
+              />
+              <View style={{ marginLeft: 8, flex: 1 }}>
+                <Text
+                  style={{ color: "#2563EB", fontSize: 12, fontWeight: "700" }}
+                >
+                  Trả lời {activeReplyPreview.senderName}
+                </Text>
+                <Text
+                  numberOfLines={1}
+                  style={{ marginTop: 2, color: "#475569", fontSize: 12 }}
+                >
+                  {activeReplyPreview.content}
+                </Text>
+              </View>
             </View>
 
             <TouchableOpacity
-              onPress={() => setDailySummary(null)}
+              onPress={() => setReplyToMessageId(null)}
               style={{
-                width: 22,
-                height: 22,
-                borderRadius: 11,
+                width: 28,
+                height: 28,
+                borderRadius: 14,
                 alignItems: "center",
                 justifyContent: "center",
                 backgroundColor: "#DBEAFE",
               }}
             >
-              <Ionicons name="close" size={14} color="#1D4ED8" />
+              <Ionicons name="close" size={16} color="#2563EB" />
             </TouchableOpacity>
+          </View>
+        )}
+
+        {isMessagingBlocked && (
+          <View
+            style={{
+              marginBottom: 10,
+              borderRadius: 12,
+              borderWidth: 1,
+              borderColor: "#FCD34D",
+              backgroundColor: "#FEF3C7",
+              paddingHorizontal: 10,
+              paddingVertical: 8,
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+            }}
+          >
+            <Text style={{ color: "#92400E", fontSize: 12, fontWeight: "600" }}>
+              {isBlockedByMe ? "Bạn đã chặn người dùng này" : "Bạn đã bị chặn"}
+            </Text>
+            {isBlockedByMe && (
+              <TouchableOpacity
+                onPress={handleUnblockUser}
+                style={{ paddingVertical: 3 }}
+              >
+                <Text
+                  style={{ color: "#92400E", fontSize: 12, fontWeight: "700" }}
+                >
+                  Mở chặn
+                </Text>
+              </TouchableOpacity>
+            )}
           </View>
         )}
 
@@ -2186,51 +2688,9 @@ export default function ChatRoomScreen() {
             minHeight: 50,
             paddingLeft: 6,
             paddingRight: 8,
+            opacity: isMessagingBlocked ? 0.6 : 1,
           }}
         >
-          {isMessagingBlocked && (
-            <View
-              style={{
-                position: "absolute",
-                top: -42,
-                left: 8,
-                right: 8,
-                minHeight: 34,
-                borderRadius: 10,
-                borderWidth: 1,
-                borderColor: "#FCD34D",
-                backgroundColor: "#FEF3C7",
-                paddingHorizontal: 10,
-                flexDirection: "row",
-                alignItems: "center",
-                justifyContent: "space-between",
-              }}
-            >
-              <Text
-                style={{ color: "#92400E", fontSize: 12, fontWeight: "600" }}
-              >
-                {isBlockedByMe
-                  ? "Ban da chan nguoi dung nay"
-                  : "Ban da bi chan"}
-              </Text>
-              {isBlockedByMe && (
-                <TouchableOpacity
-                  onPress={handleUnblockUser}
-                  style={{ paddingVertical: 3 }}
-                >
-                  <Text
-                    style={{
-                      color: "#92400E",
-                      fontSize: 12,
-                      fontWeight: "700",
-                    }}
-                  >
-                    Mo chan
-                  </Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          )}
           <TouchableOpacity
             onPress={handleToggleStickerPicker}
             disabled={Boolean(isMessagingBlocked)}
@@ -2246,17 +2706,11 @@ export default function ChatRoomScreen() {
 
           <TextInput
             value={text}
-            onChangeText={handleTextChange}
-            placeholder={
-              isMessagingBlocked
-                ? isBlockedByMe
-                  ? "Ban da chan nguoi dung nay"
-                  : "Ban da bi chan"
-                : "Tin nhắn"
-            }
+            onChangeText={setText}
+            placeholder="Tin nhắn"
             placeholderTextColor="#8A8F98"
-            multiline
             editable={!isMessagingBlocked}
+            multiline
             style={{
               flex: 1,
               marginLeft: 4,
@@ -2281,52 +2735,97 @@ export default function ChatRoomScreen() {
             <Ionicons name="ellipsis-horizontal" size={23} color="#7B8088" />
           </TouchableOpacity>
 
-          <TouchableOpacity
-            onPress={() => void handleSummarizeConversationInDay()}
-            disabled={isSummarizingConversation || !convId}
-            style={{
-              width: 36,
-              height: 36,
-              alignItems: "center",
-              justifyContent: "center",
-              opacity: isSummarizingConversation ? 0.7 : 1,
-            }}
-          >
-            {isSummarizingConversation ? (
-              <ActivityIndicator size="small" color="#0068FF" />
-            ) : (
+          {!text.trim() ? (
+            <TouchableOpacity
+              onPress={handleToggleVoiceRecording}
+              disabled={Boolean(isMessagingBlocked)}
+              style={{
+                width: 36,
+                height: 36,
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
               <Ionicons
-                name="document-text-outline"
-                size={22}
-                color={dailySummary ? "#0068FF" : "#7B8088"}
-              />
-            )}
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            onPress={
-              text.trim()
-                ? handleSend
-                : () => GrayToast("Tính năng ghi âm đang phát triển")
-            }
-            disabled={isSending || Boolean(isMessagingBlocked)}
-            style={{
-              width: 36,
-              height: 36,
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            {isSending ? (
-              <ActivityIndicator size="small" color="#7B8088" />
-            ) : (
-              <Ionicons
-                name={text.trim() ? "send" : "mic-outline"}
+                name={isRecordingVoice ? "send" : "mic-outline"}
                 size={24}
-                color="#7B8088"
+                color={isRecordingVoice ? "#0068FF" : "#7B8088"}
               />
-            )}
-          </TouchableOpacity>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              onPress={handleSend}
+              disabled={isSending || Boolean(isMessagingBlocked)}
+              style={{
+                width: 36,
+                height: 36,
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              {isSending ? (
+                <ActivityIndicator size="small" color="#0068FF" />
+              ) : (
+                <Ionicons name="send" size={24} color="#0068FF" />
+              )}
+            </TouchableOpacity>
+          )}
+
+          {isRecordingVoice && (
+            <View
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                backgroundColor: "#ECEDEF",
+                borderRadius: 26,
+                flexDirection: "row",
+                alignItems: "center",
+                paddingHorizontal: 12,
+                zIndex: 10,
+              }}
+            >
+              <View
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: 4,
+                  backgroundColor: "#EF4444",
+                  marginRight: 8,
+                }}
+              />
+              <Text style={{ flex: 1, fontSize: 16, color: "#EF4444", fontWeight: "600" }}>
+                Đang ghi âm {formatRecordingTime(voiceRecordingSeconds)}
+              </Text>
+              
+              <TouchableOpacity
+                onPress={handleCancelVoiceRecording}
+                style={{
+                  width: 36,
+                  height: 36,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  marginRight: 4,
+                }}
+              >
+                <Ionicons name="trash-outline" size={22} color="#6B7280" />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={handleToggleVoiceRecording}
+                style={{
+                  width: 36,
+                  height: 36,
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Ionicons name="send" size={24} color="#0068FF" />
+              </TouchableOpacity>
+            </View>
+          )}
 
           <TouchableOpacity
             onPress={handlePickImage}
@@ -2362,8 +2861,8 @@ export default function ChatRoomScreen() {
               {STICKER_URLS.map((url, index) => (
                 <TouchableOpacity
                   key={`${url}-${index}`}
-                  onPress={() => void handleSendSticker(url)}
-                  disabled={isSending || Boolean(isMessagingBlocked)}
+                  onPress={() => handleSendSticker(url)}
+                  disabled={isSending}
                   style={{
                     width: 64,
                     height: 64,

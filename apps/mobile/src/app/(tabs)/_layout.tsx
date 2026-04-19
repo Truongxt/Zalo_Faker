@@ -113,7 +113,9 @@ export default function TabsLayout() {
 
   const segments = useSegments() as string[];
   const isDetailScreen =
-    segments.includes("[conversationId]") || segments.includes("[callId]");
+    segments.includes("[conversationId]") ||
+    segments.includes("[callId]") ||
+    segments.includes("conversation-info");
 
   return (
     <View style={{ flex: 1 }}>
@@ -127,13 +129,15 @@ export default function TabsLayout() {
           tabBarActiveTintColor: Colors.primary,
           tabBarInactiveTintColor: "#9CA3AF",
           tabBarHideOnKeyboard: true,
-          tabBarStyle: {
-            borderTopWidth: 0.5,
-            borderTopColor: "#E5E7EB",
-            paddingTop: 4,
-            paddingBottom: Math.max(insets.bottom, 4),
-            height: 60 + Math.max(insets.bottom, 4),
-          },
+          tabBarStyle: isDetailScreen
+            ? { display: "none" }
+            : {
+                borderTopWidth: 0.5,
+                borderTopColor: "#E5E7EB",
+                paddingTop: 4,
+                paddingBottom: Math.max(insets.bottom, 4),
+                height: 60 + Math.max(insets.bottom, 4),
+              },
           tabBarLabelStyle: {
             fontSize: 10,
             fontWeight: "600",
