@@ -205,17 +205,20 @@ const getMessagePreviewText = (message: Message | null | undefined) => {
     case "sticker":
       return "[Sticker]";
     case "file":
-      return String((message as any).attachments?.[0]?.name || "").trim() || "[Tập tin]";
+      return (
+        String((message as any).attachments?.[0]?.name || "").trim() ||
+        "[Tập tin]"
+      );
     default: {
       if (typeof message.content === "string" && message.content.trim()) {
         return message.content.trim();
       }
 
       const nestedText = String(
-        (message.content as any)?.text
-        || (message.content as any)?.message
-        || (message.content as any)?.content
-        || "",
+        (message.content as any)?.text ||
+          (message.content as any)?.message ||
+          (message.content as any)?.content ||
+          "",
       ).trim();
 
       return nestedText || "Tin nhắn";
@@ -230,11 +233,11 @@ const resolveReplyPreview = (
   if (!replyTo) return null;
 
   if (
-    typeof replyTo === "object"
-    && "content" in replyTo
-    && "senderName" in replyTo
-    && typeof replyTo.content === "string"
-    && replyTo.content.trim()
+    typeof replyTo === "object" &&
+    "content" in replyTo &&
+    "senderName" in replyTo &&
+    typeof replyTo.content === "string" &&
+    replyTo.content.trim()
   ) {
     return {
       senderName: replyTo.senderName || "Người dùng",
@@ -252,7 +255,9 @@ const resolveReplyPreview = (
   if (!targetMessage) {
     return {
       senderName:
-        typeof replyTo === "object" && "senderName" in replyTo && replyTo.senderName
+        typeof replyTo === "object" &&
+        "senderName" in replyTo &&
+        replyTo.senderName
           ? replyTo.senderName
           : "Người dùng",
       content:
@@ -608,32 +613,32 @@ function MessageItem({
   );
   const fallbackVoiceUrl =
     typeof msg.content === "string" &&
-      (/^https?:\/\//i.test(msg.content) || msg.content.startsWith("/"))
+    (/^https?:\/\//i.test(msg.content) || msg.content.startsWith("/"))
       ? msg.content
       : undefined;
   const contentVoiceUrl =
     msg.content && typeof msg.content === "object"
       ? String(
-        (msg.content as any).mediaUrl ||
-        (msg.content as any).url ||
-        (msg.content as any).fileUrl ||
-        "",
-      ).trim() || undefined
+          (msg.content as any).mediaUrl ||
+            (msg.content as any).url ||
+            (msg.content as any).fileUrl ||
+            "",
+        ).trim() || undefined
       : undefined;
   const fallbackVideoUrl =
     typeof msg.content === "string" &&
-      (/^https?:\/\//i.test(msg.content) || msg.content.startsWith("/"))
+    (/^https?:\/\//i.test(msg.content) || msg.content.startsWith("/"))
       ? msg.content
       : typeof msg.content === "object"
-        ? String((msg.content as any).mediaUrl || (msg.content as any).url || "").trim() || undefined
+        ? String(
+            (msg.content as any).mediaUrl || (msg.content as any).url || "",
+          ).trim() || undefined
         : undefined;
 
   const voiceUrl = getFullMediaUrl(
     voiceAttachment?.url || contentVoiceUrl || fallbackVoiceUrl,
   );
-  const videoUrl = getFullMediaUrl(
-    videoAttachment?.url || fallbackVideoUrl,
-  );
+  const videoUrl = getFullMediaUrl(videoAttachment?.url || fallbackVideoUrl);
   const voiceDuration =
     voiceAttachment?.duration ||
     (typeof (msg.content as any)?.duration === "number"
@@ -641,9 +646,9 @@ function MessageItem({
       : undefined);
   const transcriptFromContent =
     typeof msg.content === "string" &&
-      msg.content.trim() &&
-      !/^https?:\/\//i.test(msg.content) &&
-      msg.content !== "Tin nhắn thoại"
+    msg.content.trim() &&
+    !/^https?:\/\//i.test(msg.content) &&
+    msg.content !== "Tin nhắn thoại"
       ? msg.content.trim()
       : "";
   const voiceTranscript =
@@ -895,7 +900,10 @@ function MessageItem({
               style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
             >
               <Ionicons name="document-outline" size={20} color={textColor} />
-              <Text style={{ color: textColor, flex: 1, fontSize: 14 }} numberOfLines={1}>
+              <Text
+                style={{ color: textColor, flex: 1, fontSize: 14 }}
+                numberOfLines={1}
+              >
                 {(msg as any).attachments?.[0]?.name || "File đính kèm"}
               </Text>
             </View>
@@ -1190,6 +1198,10 @@ export default function ChatRoomScreen() {
   );
   const pinnedMessageRef = useRef<any>(null);
 
+  useEffect(() => {
+    pinnedMessageRef.current = conversation?.groupSettings?.pinnedMessage || null;
+  }, [conversation?.groupSettings?.pinnedMessage]);
+
   // Determine conversation name
   const otherParticipant = conversation?.participants?.find(
     (p) => p.userId !== user?.id,
@@ -1222,42 +1234,43 @@ export default function ChatRoomScreen() {
   const canPinInGroup =
     conversation?.type === "group"
       ? (() => {
-        const roleRank: Record<string, number> = {
-          member: 1,
-          deputy: 2,
-          admin: 3,
-        };
-        const scopeRank: Record<string, number> = {
-          all: 1,
-          admin_deputy: 2,
-          admin: 3,
-        };
-        const currentRank = roleRank[myGroupRole] || 0;
-        const requiredRank = scopeRank[pinScope] || Number.MAX_SAFE_INTEGER;
-        return currentRank >= requiredRank;
-      })()
+          const roleRank: Record<string, number> = {
+            member: 1,
+            deputy: 2,
+            admin: 3,
+          };
+          const scopeRank: Record<string, number> = {
+            all: 1,
+            admin_deputy: 2,
+            admin: 3,
+          };
+          const currentRank = roleRank[myGroupRole] || 0;
+          const requiredRank = scopeRank[pinScope] || Number.MAX_SAFE_INTEGER;
+          return currentRank >= requiredRank;
+        })()
       : false;
   const announcementScope = String(
-    conversation?.groupSettings?.permissions?.sendAnnouncement || "admin_deputy",
+    conversation?.groupSettings?.permissions?.sendAnnouncement ||
+      "admin_deputy",
   ).toLowerCase();
   const canSendAnnouncementInGroup =
     conversation?.type === "group"
       ? (() => {
-        const roleRank: Record<string, number> = {
-          member: 1,
-          deputy: 2,
-          admin: 3,
-        };
-        const scopeRank: Record<string, number> = {
-          all: 1,
-          admin_deputy: 2,
-          admin: 3,
-        };
-        const currentRank = roleRank[myGroupRole] || 0;
-        const requiredRank =
-          scopeRank[announcementScope] || Number.MAX_SAFE_INTEGER;
-        return currentRank >= requiredRank;
-      })()
+          const roleRank: Record<string, number> = {
+            member: 1,
+            deputy: 2,
+            admin: 3,
+          };
+          const scopeRank: Record<string, number> = {
+            all: 1,
+            admin_deputy: 2,
+            admin: 3,
+          };
+          const currentRank = roleRank[myGroupRole] || 0;
+          const requiredRank =
+            scopeRank[announcementScope] || Number.MAX_SAFE_INTEGER;
+          return currentRank >= requiredRank;
+        })()
       : false;
   const canPinMessage =
     conversation?.type === "group"
@@ -1273,7 +1286,9 @@ export default function ChatRoomScreen() {
     : null;
   const conversationBackground = String(conversation?.background || "").trim();
   const usesImageBackground = isImageBackground(conversationBackground);
-  const chatAreaBackgroundColor = getSolidBackgroundColor(conversationBackground);
+  const chatAreaBackgroundColor = getSolidBackgroundColor(
+    conversationBackground,
+  );
 
   const getPinnedMessagePreview = useCallback((message: any) => {
     if (!message) return "Tin nhắn đã ghim";
@@ -1576,8 +1591,12 @@ export default function ChatRoomScreen() {
           conversationId: convId,
           fromUserId: String(user.id),
           toUserId: isGroup ? "" : String(otherParticipant?.userId),
-          toUserName: isGroup ? (conversation.name || "Nhóm") : (otherParticipant?.fullName || "Người dùng"),
-          toUserAvatar: isGroup ? (conversation.avatarUrl || "") : (otherParticipant?.avatarUrl || ""),
+          toUserName: isGroup
+            ? conversation.name || "Nhóm"
+            : otherParticipant?.fullName || "Người dùng",
+          toUserAvatar: isGroup
+            ? conversation.avatarUrl || ""
+            : otherParticipant?.avatarUrl || "",
           callerName: user.fullName || "Người dùng",
           callerAvatar: user.avatarUrl || "",
           isCaller: "true",
@@ -1770,7 +1789,14 @@ export default function ChatRoomScreen() {
         setIsSending(false);
       }
     },
-    [convId, isSending, isMessagingBlocked, isBlockedByMe, replyToMessageId, user],
+    [
+      convId,
+      isSending,
+      isMessagingBlocked,
+      isBlockedByMe,
+      replyToMessageId,
+      user,
+    ],
   );
 
   const handleToggleVoiceRecording = useCallback(async () => {
@@ -1801,7 +1827,9 @@ export default function ChatRoomScreen() {
       }
 
       try {
-        const statusBeforeStop = await recording.getStatusAsync().catch(() => null);
+        const statusBeforeStop = await recording
+          .getStatusAsync()
+          .catch(() => null);
         await recording.stopAndUnloadAsync();
         const uri = recording.getURI();
         await Audio.setAudioModeAsync({
@@ -1814,7 +1842,7 @@ export default function ChatRoomScreen() {
 
         const durationMillis =
           typeof statusBeforeStop?.durationMillis === "number" &&
-            Number.isFinite(statusBeforeStop.durationMillis)
+          Number.isFinite(statusBeforeStop.durationMillis)
             ? statusBeforeStop.durationMillis
             : voiceRecordingSeconds * 1000;
 
@@ -1935,9 +1963,9 @@ export default function ChatRoomScreen() {
     const trimmed = text.trim();
     if (!trimmed || isSending) return;
     if (
-      conversation?.type === "group"
-      && announcementMode
-      && !canSendAnnouncementInGroup
+      conversation?.type === "group" &&
+      announcementMode &&
+      !canSendAnnouncementInGroup
     ) {
       GrayToast("Bạn không có quyền gửi thông báo trong nhóm này");
       return;
@@ -2098,7 +2126,6 @@ export default function ChatRoomScreen() {
     }
   }, [convId, convName, isSummarizingConversation]);
 
-
   const handleUpdatePinnedMessage = useCallback(
     (nextPinnedMessage: any | null) => {
       if (!conversation) return;
@@ -2188,9 +2215,7 @@ export default function ChatRoomScreen() {
           null;
         await appendPinnedHistory(nextPinned, user?.id);
         handleUpdatePinnedMessage(nextPinned);
-        socketService.emit("chat:sync_pinned_message", {
-          conversationId: convId,
-        });
+
         GrayToast("Đã ghim tin nhắn");
       } catch (error: any) {
         GrayToast(error?.message || "Không thể ghim tin nhắn");
@@ -2220,11 +2245,13 @@ export default function ChatRoomScreen() {
         await conversationService.unpinMessage(convId);
       }
 
+      // Record history BEFORE state update so previousPinnedMessage is still available
       await appendPinnedHistory(null, user?.id);
-      handleUpdatePinnedMessage(null);
-      socketService.emit("chat:sync_pinned_message", {
-        conversationId: convId,
-      });
+      // Delay state update to allow socket listener to use old pinnedMessageRef
+      setTimeout(() => {
+        handleUpdatePinnedMessage(null);
+      }, 100);
+      
       GrayToast("Đã bỏ ghim tin nhắn");
     } catch (error: any) {
       GrayToast(error?.message || "Không thể bỏ ghim tin nhắn");
@@ -2250,11 +2277,11 @@ export default function ChatRoomScreen() {
       onPress?: () => void;
       style?: "default" | "destructive" | "cancel";
     }> = [
-        {
-          text: "Thả cảm xúc",
-          onPress: () => setShowReactions(true),
-        },
-      ];
+      {
+        text: "Thả cảm xúc",
+        onPress: () => setShowReactions(true),
+      },
+    ];
 
     if (isMe && !msg.isDeleted) {
       options.push({
@@ -2307,7 +2334,6 @@ export default function ChatRoomScreen() {
         onPress: () => setForwardMessage(msg),
       });
     }
-
 
     options.push({ text: "Hủy", style: "cancel" });
     Alert.alert("Tùy chọn", undefined, options);
@@ -2383,19 +2409,19 @@ export default function ChatRoomScreen() {
       style?: "default" | "cancel" | "destructive";
       onPress?: () => void;
     }> = [
-        {
-          text: "Đổi hình nền",
-          onPress: () => setShowChatOptions(true),
-        },
-        {
-          text: "Thông tin hội thoại",
-          onPress: () =>
-            router.push({
-              pathname: "/(tabs)/chat/conversation-info",
-              params: { conversationId: String(convId) },
-            }),
-        },
-      ];
+      {
+        text: "Đổi hình nền",
+        onPress: () => setShowChatOptions(true),
+      },
+      {
+        text: "Thông tin hội thoại",
+        onPress: () =>
+          router.push({
+            pathname: "/(tabs)/chat/conversation-info",
+            params: { conversationId: String(convId) },
+          }),
+      },
+    ];
 
     if (conversation?.type === "private") {
       options.push({
@@ -2530,8 +2556,25 @@ export default function ChatRoomScreen() {
             zIndex: 10,
           }}
         >
-          <View style={{ flexDirection: "row", alignItems: "flex-start", flex: 1, gap: 10 }}>
-            <Svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="#F59E0B" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginTop: 2 }}>
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "flex-start",
+              flex: 1,
+              gap: 10,
+            }}
+          >
+            <Svg
+              width={18}
+              height={18}
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="#F59E0B"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              style={{ marginTop: 2 }}
+            >
               <Line x1="12" x2="12" y1="17" y2="22" />
               <Path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.68V6a3 3 0 0 0-3-3 3 3 0 0 0-3 3v4.68a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z" />
             </Svg>
@@ -2557,7 +2600,7 @@ export default function ChatRoomScreen() {
 
           {canPinMessage && (
             <TouchableOpacity
-              onPress={() => void handleUpdatePinnedMessage(null)}
+              onPress={handleUnpinMessage}
               style={{
                 paddingHorizontal: 12,
                 paddingVertical: 6,
@@ -2620,7 +2663,11 @@ export default function ChatRoomScreen() {
             keyExtractor={(item) => item.id}
             renderItem={renderMessage}
             style={{ flex: 1 }}
-            contentContainerStyle={{ paddingVertical: 4, paddingBottom: 2, flexGrow: 1 }}
+            contentContainerStyle={{
+              paddingVertical: 4,
+              paddingBottom: 2,
+              flexGrow: 1,
+            }}
             ListEmptyComponent={
               <View
                 style={{
@@ -2815,7 +2862,9 @@ export default function ChatRoomScreen() {
               borderColor: "#BFDBFE",
             }}
           >
-            <View style={{ flexDirection: "row", alignItems: "center", flex: 1 }}>
+            <View
+              style={{ flexDirection: "row", alignItems: "center", flex: 1 }}
+            >
               <Ionicons
                 name="return-up-back-outline"
                 size={18}
@@ -3032,7 +3081,14 @@ export default function ChatRoomScreen() {
                   marginRight: 8,
                 }}
               />
-              <Text style={{ flex: 1, fontSize: 16, color: "#EF4444", fontWeight: "600" }}>
+              <Text
+                style={{
+                  flex: 1,
+                  fontSize: 16,
+                  color: "#EF4444",
+                  fontWeight: "600",
+                }}
+              >
                 Đang ghi âm {formatRecordingTime(voiceRecordingSeconds)}
               </Text>
 

@@ -172,6 +172,15 @@ const GroupController = {
         userId: getRequesterId(req)
       });
 
+      const io = req.app.get("io");
+      if (io) {
+        io.to(`conv:${req.params.id}`).emit("chat:pinned_message", {
+          conversationId: req.params.id,
+          pinnedMessage: result.pinnedMessage,
+          updatedBy: getRequesterId(req)
+        });
+      }
+
       return res.json(result);
     } catch (error) {
       return handleError(res, error);
@@ -183,6 +192,15 @@ const GroupController = {
       const result = await GroupService.unpinMessage(req.params.id, {
         userId: getRequesterId(req)
       });
+
+      const io = req.app.get("io");
+      if (io) {
+        io.to(`conv:${req.params.id}`).emit("chat:pinned_message", {
+          conversationId: req.params.id,
+          pinnedMessage: null,
+          updatedBy: getRequesterId(req)
+        });
+      }
 
       return res.json(result);
     } catch (error) {

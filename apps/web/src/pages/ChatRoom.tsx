@@ -1327,10 +1327,10 @@ export default function ChatRoom() {
   );
 
   const getPinnedMessagePreview = useCallback((message: any) => {
-    if (!message) return "Tin nhan da ghim";
+    if (!message) return "Tin nhắn đã ghim";
     if (message.metadata?.isAnnouncement) {
       const announceText = String(message.content?.text || "").trim();
-      return announceText ? `[Thong bao] ${announceText}` : "[Thong bao]";
+      return announceText ? `[Thông báo] ${announceText}` : "[Thông báo]";
     }
 
     if (typeof message.content?.text === "string" && message.content.text.trim()) {
@@ -1454,9 +1454,6 @@ export default function ChatRoom() {
       useChatStore.getState().updateConversation(conversationId, {
         groupSettings: buildPinnedSettings(nextPinned),
       });
-      socketService
-        .getSocket()
-        ?.emit("chat:sync_pinned_message", { conversationId });
       addToast("Đã ghim tin nhắn", "success", 2000);
     } catch (error: any) {
       addToast(error?.message || "Không thể ghim tin nhắn", "error", 4000);
@@ -1489,9 +1486,6 @@ export default function ChatRoom() {
       useChatStore.getState().updateConversation(conversationId, {
         groupSettings: buildPinnedSettings(null),
       });
-      socketService
-        .getSocket()
-        ?.emit("chat:sync_pinned_message", { conversationId });
       addToast("Đã bỏ ghim tin nhắn", "success", 2000);
     } catch (error: any) {
       addToast(error?.message || "Không thể bỏ ghim tin nhắn", "error", 4000);
@@ -1517,6 +1511,10 @@ export default function ChatRoom() {
     }) => {
       if (String(incomingConversationId) !== String(conversationId)) return;
       appendPinnedHistory(nextPinnedMessage || null, updatedBy);
+      // Update conversation state to reflect pin/unpin changes from other users
+      useChatStore.getState().updateConversation(conversationId, {
+        groupSettings: buildPinnedSettings(nextPinnedMessage || null),
+      });
     };
 
     socket.on("chat:pinned_message", onPinnedMessage);

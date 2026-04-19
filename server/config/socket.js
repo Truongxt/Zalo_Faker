@@ -134,7 +134,7 @@ const getLastMessageText = ({ type, content, metadata }) => {
       : "";
 
   if (metadata?.isAnnouncement) {
-    return `[Thong bao] ${contentText}`.trim();
+    return `[Thông báo] ${contentText}`.trim();
   }
 
   if (type === "call" || callPayload) {
@@ -142,7 +142,7 @@ const getLastMessageText = ({ type, content, metadata }) => {
   }
 
   if (contentText) return contentText;
-  return MEDIA_FALLBACK_BY_TYPE[type] || "[Tin nhan]";
+  return MEDIA_FALLBACK_BY_TYPE[type] || "[Tin nhắn]";
 };
 
 module.exports = (socketConfig) => {

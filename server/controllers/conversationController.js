@@ -371,6 +371,15 @@ const pinMessage = async (req, res) => {
             groupSettings: nextSettings,
         });
 
+        const io = req.app.get("io");
+        if (io) {
+            io.to(`conv:${conversationId}`).emit("chat:pinned_message", {
+                conversationId,
+                pinnedMessage,
+                updatedBy: requesterId
+            });
+        }
+
         return res.json({
             message: "Message pinned successfully",
             pinnedMessage,
@@ -415,6 +424,15 @@ const unpinMessage = async (req, res) => {
         const updatedConversation = await conversationService.updateConversation(conversationId, {
             groupSettings: nextSettings,
         });
+
+        const io = req.app.get("io");
+        if (io) {
+            io.to(`conv:${conversationId}`).emit("chat:pinned_message", {
+                conversationId,
+                pinnedMessage: null,
+                updatedBy: requesterId
+            });
+        }
 
         return res.json({
             message: "Pinned message cleared",
