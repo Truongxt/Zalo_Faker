@@ -124,17 +124,20 @@ const getMessagePreviewText = (message: Message | null | undefined) => {
     case "sticker":
       return "[Sticker]";
     case "file":
-      return String((message as any).attachments?.[0]?.name || "").trim() || "[Tập tin]";
+      return (
+        String((message as any).attachments?.[0]?.name || "").trim() ||
+        "[Tập tin]"
+      );
     default: {
       if (typeof message.content === "string" && message.content.trim()) {
         return message.content.trim();
       }
 
       const nestedText = String(
-        (message.content as any)?.text
-          || (message.content as any)?.message
-          || (message.content as any)?.content
-          || "",
+        (message.content as any)?.text ||
+          (message.content as any)?.message ||
+          (message.content as any)?.content ||
+          "",
       ).trim();
 
       return nestedText || "Tin nhắn";
@@ -149,11 +152,11 @@ const resolveReplyPreview = (
   if (!replyTo) return null;
 
   if (
-    typeof replyTo === "object"
-    && "content" in replyTo
-    && "senderName" in replyTo
-    && typeof replyTo.content === "string"
-    && replyTo.content.trim()
+    typeof replyTo === "object" &&
+    "content" in replyTo &&
+    "senderName" in replyTo &&
+    typeof replyTo.content === "string" &&
+    replyTo.content.trim()
   ) {
     return {
       senderName: replyTo.senderName || "Người dùng",
@@ -171,7 +174,9 @@ const resolveReplyPreview = (
   if (!targetMessage) {
     return {
       senderName:
-        typeof replyTo === "object" && "senderName" in replyTo && replyTo.senderName
+        typeof replyTo === "object" &&
+        "senderName" in replyTo &&
+        replyTo.senderName
           ? replyTo.senderName
           : "Người dùng",
       content:
@@ -262,9 +267,9 @@ export default function GroupChatScreen() {
     return currentRank >= requiredRank;
   })();
   const announcementScope = String(
-    conversation?.groupSettings?.permissions?.sendAnnouncement
-      || (group as any)?.groupSettings?.permissions?.sendAnnouncement
-      || "admin_deputy",
+    conversation?.groupSettings?.permissions?.sendAnnouncement ||
+      (group as any)?.groupSettings?.permissions?.sendAnnouncement ||
+      "admin_deputy",
   ).toLowerCase();
   const canSendAnnouncementInGroup = (() => {
     const roleRank: Record<string, number> = {
@@ -294,7 +299,9 @@ export default function GroupChatScreen() {
     : null;
   const conversationBackground = String(conversation?.background || "").trim();
   const usesImageBackground = isImageBackground(conversationBackground);
-  const chatAreaBackgroundColor = getSolidBackgroundColor(conversationBackground);
+  const chatAreaBackgroundColor = getSolidBackgroundColor(
+    conversationBackground,
+  );
 
   const getPinnedMessagePreview = useCallback((message: any) => {
     if (!message) return "Tin nhắn đã ghim";
@@ -593,7 +600,9 @@ export default function GroupChatScreen() {
           null;
         await appendPinnedHistory(nextPinned, user?.id);
         handleUpdatePinnedMessage(nextPinned);
-        socketService.emit("chat:sync_pinned_message", { conversationId: convId });
+        socketService.emit("chat:sync_pinned_message", {
+          conversationId: convId,
+        });
         GrayToast("Đã ghim tin nhắn");
       } catch (error: any) {
         GrayToast(error?.message || "Không thể ghim tin nhắn");
@@ -620,9 +629,16 @@ export default function GroupChatScreen() {
 
     try {
       await unpinGroupMessage(targetGroupId);
+      // Record history BEFORE state update so previousPinnedMessage is still available
       await appendPinnedHistory(null, user?.id);
-      handleUpdatePinnedMessage(null);
-      socketService.emit("chat:sync_pinned_message", { conversationId: convId });
+      // Delay state update to allow socket listener to use old pinnedMessageRef
+      setTimeout(() => {
+        handleUpdatePinnedMessage(null);
+      }, 100);
+      
+      socketService.emit("chat:sync_pinned_message", {
+        conversationId: convId,
+      });
       GrayToast("Đã bỏ ghim tin nhắn");
     } catch (error: any) {
       GrayToast(error?.message || "Không thể bỏ ghim tin nhắn");
@@ -640,10 +656,12 @@ export default function GroupChatScreen() {
     const trimmed = text.trim();
     if (!trimmed || isSending || !convId) return;
     if (announcementMode && !canSendAnnouncementInGroup) {
-      GrayToast("Ban khong co quyen gui thong bao trong nhom nay");
+      GrayToast("Bạn không có quyền gửi thông báo trong nhóm này");
       return;
     }
-    const nextMetadata = announcementMode ? { isAnnouncement: true } : undefined;
+    const nextMetadata = announcementMode
+      ? { isAnnouncement: true }
+      : undefined;
     setText("");
     setIsSending(true);
     try {
@@ -797,7 +815,9 @@ export default function GroupChatScreen() {
 
       setIsSending(true);
       try {
-        const statusBeforeStop = await recording.getStatusAsync().catch(() => null);
+        const statusBeforeStop = await recording
+          .getStatusAsync()
+          .catch(() => null);
         await recording.stopAndUnloadAsync();
         const uri = recording.getURI();
         await Audio.setAudioModeAsync({
@@ -888,7 +908,13 @@ export default function GroupChatScreen() {
       }
       GrayToast("Không thể bật voice");
     }
-  }, [convId, isRecordingVoice, isSending, replyToMessageId, voiceRecordingSeconds]);
+  }, [
+    convId,
+    isRecordingVoice,
+    isSending,
+    replyToMessageId,
+    voiceRecordingSeconds,
+  ]);
 
   const handleCancelVoiceRecording = useCallback(async () => {
     if (!isRecordingVoice) return;
@@ -986,7 +1012,10 @@ export default function GroupChatScreen() {
 
     const isMe = item.senderId === user?.id;
     const isAnnouncement = Boolean(item.metadata?.isAnnouncement);
-    const replyPreview = resolveReplyPreview((item as any).replyTo, convMessages);
+    const replyPreview = resolveReplyPreview(
+      (item as any).replyTo,
+      convMessages,
+    );
     const reactions = (item.reactions || []).reduce<Record<string, number>>(
       (acc, r) => {
         acc[r.emoji] = (acc[r.emoji] || 0) + 1;
@@ -1096,8 +1125,9 @@ export default function GroupChatScreen() {
                 audioUrl={
                   getFullMediaUrl(
                     typeof item.content === "object"
-                      ? (item.content as any).mediaUrl || (item.content as any).url
-                      : String(item.content || "")
+                      ? (item.content as any).mediaUrl ||
+                          (item.content as any).url
+                      : String(item.content || ""),
                   ) || ""
                 }
                 durationSeconds={
@@ -1105,7 +1135,9 @@ export default function GroupChatScreen() {
                     ? (item.content as any).duration || 0
                     : 0
                 }
-                textColor={isAnnouncement ? "#111827" : isMe ? "#fff" : "#111827"}
+                textColor={
+                  isAnnouncement ? "#111827" : isMe ? "#fff" : "#111827"
+                }
               />
             ) : (
               <View>
@@ -1127,13 +1159,17 @@ export default function GroupChatScreen() {
                         fontWeight: "700",
                       }}
                     >
-                      Thong bao
+                      Thông báo
                     </Text>
                   </View>
                 )}
                 <Text
                   style={{
-                    color: isAnnouncement ? "#111827" : isMe ? "#fff" : "#111827",
+                    color: isAnnouncement
+                      ? "#111827"
+                      : isMe
+                        ? "#fff"
+                        : "#111827",
                     fontSize: 16,
                     lineHeight: 22,
                   }}
@@ -1218,7 +1254,11 @@ export default function GroupChatScreen() {
               {conversation?.name || group?.name || "Nhóm"}
             </Text>
             <Text style={{ fontSize: 13, color: "#6B7280", marginTop: 1 }}>
-              {group?.membersCount || group?.members?.length || conversation?.participants?.length || 0} thành viên
+              {group?.membersCount ||
+                group?.members?.length ||
+                conversation?.participants?.length ||
+                0}{" "}
+              thành viên
             </Text>
           </View>
         </View>
@@ -1267,94 +1307,111 @@ export default function GroupChatScreen() {
             />
           </ImageBackground>
         )}
-      {pinnedMessage && (
-        <View
-          style={{
-            backgroundColor: "#FFFBEB",
-            borderTopWidth: 1,
-            borderBottomWidth: 1,
-            borderColor: "#FDE68A",
-            paddingHorizontal: 16,
-            paddingVertical: 10,
-            flexDirection: "row",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: 12,
-            zIndex: 10,
-          }}
-        >
-          <View style={{ flexDirection: "row", alignItems: "flex-start", flex: 1, gap: 10 }}>
-            <Svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="#F59E0B" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginTop: 2 }}>
-              <Line x1="12" x2="12" y1="17" y2="22" />
-              <Path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.68V6a3 3 0 0 0-3-3 3 3 0 0 0-3 3v4.68a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z" />
-            </Svg>
-            <View style={{ flex: 1 }}>
-              <Text
-                style={{
-                  color: "#D97706",
-                  fontSize: 13,
-                  fontWeight: "700",
-                  marginBottom: 2,
-                }}
-              >
-                Tin nhắn đã ghim
-              </Text>
-              <Text
-                numberOfLines={1}
-                style={{ color: "#D97706", fontSize: 13 }}
-              >
-                {getPinnedMessagePreview(pinnedMessage)}
-              </Text>
-            </View>
-          </View>
-
-          {canPinInGroup && (
-            <TouchableOpacity
-              onPress={() => void handleUnpinMessage()}
+        {pinnedMessage && (
+          <View
+            style={{
+              backgroundColor: "#FFFBEB",
+              borderTopWidth: 1,
+              borderBottomWidth: 1,
+              borderColor: "#FDE68A",
+              paddingHorizontal: 16,
+              paddingVertical: 10,
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+              zIndex: 10,
+            }}
+          >
+            <View
               style={{
-                paddingHorizontal: 12,
-                paddingVertical: 6,
-                borderRadius: 6,
-                backgroundColor: "#FEF3C7",
+                flexDirection: "row",
+                alignItems: "flex-start",
+                flex: 1,
+                gap: 10,
               }}
             >
-              <Text
-                style={{ color: "#D97706", fontSize: 13, fontWeight: "500" }}
+              <Svg
+                width={18}
+                height={18}
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="#F59E0B"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                style={{ marginTop: 2 }}
               >
-                Bỏ ghim
-              </Text>
-            </TouchableOpacity>
-          )}
-        </View>
-      )}
-
-      {isLoading ? (
-        <View
-          style={{ flex: 1, alignItems: "center", justifyContent: "center" }}
-        >
-          <ActivityIndicator size="large" color="#0068FF" />
-        </View>
-      ) : (
-        <FlatList
-          ref={flatListRef}
-          data={displayMessages}
-          keyExtractor={(item) => item.id}
-          renderItem={renderItem}
-          style={{ flex: 1 }}
-          contentContainerStyle={{ paddingVertical: 10, flexGrow: 1 }}
-          ListEmptyComponent={
-            <View style={{ alignItems: "center", paddingTop: 80 }}>
-              <Text style={{ fontSize: 36 }}>💬</Text>
-              <Text style={{ color: "#9CA3AF", marginTop: 8 }}>
-                Không có tin nhắn
-              </Text>
+                <Line x1="12" x2="12" y1="17" y2="22" />
+                <Path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.68V6a3 3 0 0 0-3-3 3 3 0 0 0-3 3v4.68a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z" />
+              </Svg>
+              <View style={{ flex: 1 }}>
+                <Text
+                  style={{
+                    color: "#D97706",
+                    fontSize: 13,
+                    fontWeight: "700",
+                    marginBottom: 2,
+                  }}
+                >
+                  Tin nhắn đã ghim
+                </Text>
+                <Text
+                  numberOfLines={1}
+                  style={{ color: "#D97706", fontSize: 13 }}
+                >
+                  {getPinnedMessagePreview(pinnedMessage)}
+                </Text>
+              </View>
             </View>
-          }
-          onContentSizeChange={() =>
-            flatListRef.current?.scrollToEnd({ animated: false })
-          }
-        />
-      )}
+
+            {canPinInGroup && (
+              <TouchableOpacity
+                onPress={() => void handleUnpinMessage()}
+                style={{
+                  paddingHorizontal: 12,
+                  paddingVertical: 6,
+                  borderRadius: 6,
+                  backgroundColor: "#FEF3C7",
+                }}
+              >
+                <Text
+                  style={{ color: "#D97706", fontSize: 13, fontWeight: "500" }}
+                >
+                  Bỏ ghim
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
+
+        {isLoading ? (
+          <View
+            style={{ flex: 1, alignItems: "center", justifyContent: "center" }}
+          >
+            <ActivityIndicator size="large" color="#0068FF" />
+          </View>
+        ) : (
+          <FlatList
+            ref={flatListRef}
+            data={displayMessages}
+            keyExtractor={(item) => item.id}
+            renderItem={renderItem}
+            style={{ flex: 1 }}
+            contentContainerStyle={{ paddingVertical: 10, flexGrow: 1 }}
+            ListEmptyComponent={
+              <View style={{ alignItems: "center", paddingTop: 80 }}>
+                <Text style={{ fontSize: 36 }}>💬</Text>
+                <Text style={{ color: "#9CA3AF", marginTop: 8 }}>
+                  Không có tin nhắn
+                </Text>
+              </View>
+            }
+            onContentSizeChange={() =>
+              flatListRef.current?.scrollToEnd({ animated: false })
+            }
+          />
+        )}
       </View>
 
       {/* Reaction picker */}
@@ -1429,7 +1486,9 @@ export default function GroupChatScreen() {
               borderColor: "#BFDBFE",
             }}
           >
-            <View style={{ flexDirection: "row", alignItems: "center", flex: 1 }}>
+            <View
+              style={{ flexDirection: "row", alignItems: "center", flex: 1 }}
+            >
               <Ionicons
                 name="return-up-back-outline"
                 size={18}
@@ -1494,7 +1553,7 @@ export default function GroupChatScreen() {
           <TouchableOpacity
             onPress={() => {
               if (!canSendAnnouncementInGroup) {
-                GrayToast("Ban khong co quyen gui thong bao trong nhom nay");
+                GrayToast("Bạn không có quyền gửi thông báo trong nhóm này");
                 return;
               }
               setAnnouncementMode((prev) => !prev);
@@ -1546,11 +1605,7 @@ export default function GroupChatScreen() {
           </TouchableOpacity>
 
           <TouchableOpacity
-            onPress={
-              text.trim()
-                ? handleSend
-                : handleToggleVoiceRecording
-            }
+            onPress={text.trim() ? handleSend : handleToggleVoiceRecording}
             disabled={isSending}
             style={{
               width: 40,
@@ -1563,7 +1618,13 @@ export default function GroupChatScreen() {
               <ActivityIndicator size="small" color="#7B8088" />
             ) : (
               <Ionicons
-                name={text.trim() ? "send" : isRecordingVoice ? "send" : "mic-outline"}
+                name={
+                  text.trim()
+                    ? "send"
+                    : isRecordingVoice
+                      ? "send"
+                      : "mic-outline"
+                }
                 size={25}
                 color={text.trim() || isRecordingVoice ? "#0068FF" : "#7B8088"}
               />
@@ -1595,10 +1656,17 @@ export default function GroupChatScreen() {
                   marginRight: 8,
                 }}
               />
-              <Text style={{ flex: 1, fontSize: 16, color: "#EF4444", fontWeight: "600" }}>
+              <Text
+                style={{
+                  flex: 1,
+                  fontSize: 16,
+                  color: "#EF4444",
+                  fontWeight: "600",
+                }}
+              >
                 Đang ghi âm {formatRecordingTime(voiceRecordingSeconds)}
               </Text>
-              
+
               <TouchableOpacity
                 onPress={handleCancelVoiceRecording}
                 style={{

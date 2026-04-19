@@ -132,9 +132,9 @@ export const getMessagePreviewText = ({
               : "[Tin nhan]");
 
   const prefixes = [
-    metadata?.isImportant ? "[Quan trong]" : "",
-    metadata?.isAnnouncement ? "[Thong bao]" : "",
-    metadata?.isForwarded ? "[Chuyen tiep]" : "",
+    metadata?.isImportant ? "[Quan trọng]" : "",
+    metadata?.isAnnouncement ? "[Thông báo]" : "",
+    metadata?.isForwarded ? "[Chuyển tiếp]" : "",
   ].filter(Boolean);
 
   return [...prefixes, baseText].join(" ").trim();
