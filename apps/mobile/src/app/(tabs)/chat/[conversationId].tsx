@@ -1155,12 +1155,19 @@ export default function ChatRoomScreen() {
 
   const startCall = useCallback(
     (callType: "audio" | "video") => {
-      if (!user?.id || !convId || !otherParticipant?.userId) {
+      if (!user?.id || !convId) {
+        GrayToast("Khong the bat dau cuoc goi");
+        return;
+      }
+      
+      if (conversation?.type !== "group" && !otherParticipant?.userId) {
         GrayToast("Khong the bat dau cuoc goi");
         return;
       }
 
+      const isGroup = conversation?.type === "group";
       const callId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      
       router.push({
         pathname: "/call/[callId]",
         params: {
@@ -1168,12 +1175,13 @@ export default function ChatRoomScreen() {
           callType,
           conversationId: convId,
           fromUserId: String(user.id),
-          toUserId: String(otherParticipant.userId),
-          toUserName: otherParticipant.fullName || "Nguoi dung",
-          toUserAvatar: otherParticipant.avatarUrl || "",
+          toUserId: isGroup ? "" : String(otherParticipant?.userId),
+          toUserName: isGroup ? (conversation.name || "Nhóm") : (otherParticipant?.fullName || "Nguoi dung"),
+          toUserAvatar: isGroup ? (conversation.avatar || "") : (otherParticipant?.avatarUrl || ""),
           callerName: user.fullName || "Nguoi dung",
           callerAvatar: user.avatarUrl || "",
           isCaller: "true",
+          isGroupCall: isGroup ? "true" : "false",
         },
       });
     },
@@ -1186,6 +1194,9 @@ export default function ChatRoomScreen() {
       user?.avatarUrl,
       user?.fullName,
       user?.id,
+      conversation?.type,
+      conversation?.name,
+      conversation?.avatar,
     ],
   );
 
@@ -1831,14 +1842,12 @@ export default function ChatRoomScreen() {
         <TouchableOpacity
           style={{ padding: 4 }}
           onPress={() => startCall("audio")}
-          disabled={conversation?.type === "group"}
         >
           <Ionicons name="call-outline" size={22} color="#6B7280" />
         </TouchableOpacity>
         <TouchableOpacity
           style={{ padding: 4 }}
           onPress={() => startCall("video")}
-          disabled={conversation?.type === "group"}
         >
           <Ionicons name="videocam-outline" size={22} color="#6B7280" />
         </TouchableOpacity>

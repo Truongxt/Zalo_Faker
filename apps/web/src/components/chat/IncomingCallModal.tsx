@@ -16,9 +16,10 @@ export default function IncomingCallModal() {
         // Báo cho người gọi biết
         const socket = socketService.getSocket();
         socket?.emit('video:reject-call', {
-            toUserId: callData.fromUserId,
+            toUserId: callData.isGroupCall ? undefined : callData.fromUserId,
             fromUserId: callData.toUserId,
             conversationId: callData.conversationId,
+            isGroupCall: callData.isGroupCall,
         });
         clearCall();
     };
