@@ -8,6 +8,7 @@ export interface CallData {
     callerName?: string;
     callerAvatar?: string;
     callType: 'audio' | 'video';
+    isGroupCall?: boolean;
 }
 
 interface CallState {

@@ -1833,7 +1833,14 @@ export default function ChatRoom() {
   const handleStartVideoCall = () => {
     if (!conversationId || !user) return;
     if (activeConversation?.type === "group") {
-      alert("Tính năng gọi video nhóm đang được phát triển!");
+      useCallStore.getState().setOutgoingCall({
+        isCaller: true,
+        conversationId: conversationId,
+        callerName: activeConversation.name || "Nhóm",
+        callerAvatar: activeConversation.avatar || undefined,
+        callType: "video",
+        isGroupCall: true,
+      });
       return;
     }
     if (!otherUser) return;
@@ -1850,7 +1857,14 @@ export default function ChatRoom() {
   const handleStartVoiceCall = () => {
     if (!conversationId || !user) return;
     if (activeConversation?.type === "group") {
-      alert("Tính năng gọi thoại nhóm đang được phát triển!");
+      useCallStore.getState().setOutgoingCall({
+        isCaller: true,
+        conversationId: conversationId,
+        callerName: activeConversation.name || "Nhóm",
+        callerAvatar: activeConversation.avatar || undefined,
+        callType: "audio",
+        isGroupCall: true,
+      });
       return;
     }
     if (!otherUser) return;
