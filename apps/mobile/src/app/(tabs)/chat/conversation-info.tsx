@@ -94,7 +94,7 @@ const isHttpUrl = (value: unknown): value is string =>
 
 const parseFileName = (url: string) => {
   const clean = String(url || "").split("?")[0];
-  const last = clean.split("/").pop() || "Tep tin";
+  const last = clean.split("/").pop() || "Tệp tin";
   try {
     return decodeURIComponent(last);
   } catch {
@@ -324,7 +324,7 @@ function collectMedia(messages: Message[]): MediaItem[] {
         url: attachment.url,
         type: attachment.type,
         createdAt: message.createdAt,
-        senderName: message.senderName || "Nguoi dung",
+        senderName: message.senderName || "Người dùng",
       });
     });
 
@@ -340,7 +340,7 @@ function collectMedia(messages: Message[]): MediaItem[] {
         url: message.content,
         type: message.type,
         createdAt: message.createdAt,
-        senderName: message.senderName || "Nguoi dung",
+        senderName: message.senderName || "Người dùng",
       });
     }
   });
@@ -371,7 +371,7 @@ function collectFiles(messages: Message[]): FileItem[] {
         size: attachment.size,
         createdAt: message.createdAt,
         extension: parseFileExtension(name),
-        senderName: message.senderName || "Nguoi dung",
+        senderName: message.senderName || "Người dùng",
       });
     });
 
@@ -387,7 +387,7 @@ function collectFiles(messages: Message[]): FileItem[] {
         url: message.content,
         createdAt: message.createdAt,
         extension: parseFileExtension(fileName),
-        senderName: message.senderName || "Nguoi dung",
+        senderName: message.senderName || "Người dùng",
       });
     }
   });
@@ -419,7 +419,7 @@ function collectLinks(messages: Message[]): LinkItem[] {
         url: normalized,
         host: getHost(normalized),
         createdAt: message.createdAt,
-        senderName: message.senderName || "Nguoi dung",
+        senderName: message.senderName || "Người dùng",
       });
     });
   });
@@ -490,8 +490,8 @@ export default function ConversationInfoScreen() {
 
   const displayName =
     conversation?.type === "group"
-      ? conversation.name || "Nhom"
-      : otherParticipant?.fullName || "Nguoi dung";
+      ? conversation.name || "Nhóm"
+      : otherParticipant?.fullName || "Người dùng";
 
   const displayAvatar =
     conversation?.type === "group"
@@ -500,8 +500,8 @@ export default function ConversationInfoScreen() {
 
   const subtitle =
     conversation?.type === "group"
-      ? `${conversation.participants.length} thanh vien`
-      : "Tro chuyen rieng tu";
+      ? `${conversation.participants.length} thành viên`
+      : "Trò chuyện riêng tư";
 
   const isMuted = currentParticipant?.isMuted ?? false;
   const isPinned =
@@ -547,7 +547,7 @@ export default function ConversationInfoScreen() {
     try {
       await Linking.openURL(url);
     } catch {
-      GrayToast("Khong the mo lien ket");
+      GrayToast("Không thể mở liên kết");
     }
   };
 
@@ -592,7 +592,7 @@ export default function ConversationInfoScreen() {
       patchCurrentParticipant({ isMuted: nextMuted, muteUntil });
       GrayToast(successMessage);
     } catch {
-      GrayToast(nextMuted ? "Khong the tat thong bao" : "Khong the bat thong bao");
+      GrayToast(nextMuted ? "Không thể tắt thông báo" : "Không thể bật thông báo");
     } finally {
       setIsUpdatingMute(false);
     }
@@ -605,14 +605,14 @@ export default function ConversationInfoScreen() {
       void updateMuteSetting({
         isMuted: false,
         muteUntil: null,
-        successMessage: "Da bat thong bao",
+        successMessage: "Đã tắt thông báo",
       });
       return;
     }
 
     Alert.alert(
-      "Tat thong bao",
-      "Chon thoi gian tat thong bao cho cuoc tro chuyen nay",
+      "Tắt thông báo",
+      "Chọn thời gian tắt thông báo cho hội thoại này",
       [
         ...MUTE_OPTIONS.map((option) => ({
           text: option.label,
@@ -623,12 +623,12 @@ export default function ConversationInfoScreen() {
               muteUntil: nextMuteUntil,
               successMessage:
                 option.id === "forever"
-                  ? "Da tat thong bao cho den khi bat lai"
-                  : `Da tat thong bao ${option.label.toLowerCase()}`,
+                  ? "Đã tắt thông báo cho đến khi được mở lại."
+                  : `Đã tắt thông báo ${option.label.toLowerCase()}`,
             });
           },
         })),
-        { text: "Huy", style: "cancel" as const },
+        { text: "Hủy", style: "cancel" as const },
       ],
       { cancelable: true },
     );
@@ -641,9 +641,9 @@ export default function ConversationInfoScreen() {
       setIsUpdatingPin(true);
       await conversationService.togglePin(conversation.id, user.id, !isPinned);
       patchCurrentParticipant({ isPinned: !isPinned });
-      GrayToast(isPinned ? "Da bo ghim hoi thoai" : "Da ghim hoi thoai");
+      GrayToast(isPinned ? "Đã bỏ ghim hội thoại" : "Đã ghim hội thoại");
     } catch {
-      GrayToast("Khong the cap nhat trang thai ghim");
+      GrayToast("Không thể cập nhật trạng thái ghim");
     } finally {
       setIsUpdatingPin(false);
     }
@@ -662,7 +662,7 @@ export default function ConversationInfoScreen() {
           }}
         >
           <Text style={{ fontSize: 16, color: "#64748B", textAlign: "center" }}>
-            Khong tim thay thong tin hoi thoai
+            Không tìm thấy thông tin hội thoại
           </Text>
           <TouchableOpacity
             onPress={() => router.back()}
@@ -674,7 +674,7 @@ export default function ConversationInfoScreen() {
               backgroundColor: "#2563EB",
             }}
           >
-            <Text style={{ color: "#fff", fontWeight: "700" }}>Quay lai</Text>
+            <Text style={{ color: "#fff", fontWeight: "700" }}>Quay lại</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -712,8 +712,8 @@ export default function ConversationInfoScreen() {
         >
           <Ionicons name="arrow-back" size={22} color="#1E293B" />
         </TouchableOpacity>
-        <Text style={{ fontSize: 13, fontWeight: "700", color: "#1E293B" }}>
-          Thong tin hoi thoai
+        <Text style={{ fontSize: 20, fontWeight: "700", color: "#1E293B" }}>
+          Thông tin hội thoại
         </Text>
       </View>
 
@@ -767,18 +767,18 @@ export default function ConversationInfoScreen() {
             }}
           >
             <ActionItem
-              label={isMuted ? "Bat thong bao" : "Tat thong bao"}
+              label={isMuted ? "Bật thông báo" : "Tắt thông báo"}
               onPress={handleMutePress}
             />
             <ActionItem
-              label={isPinned ? "Bo ghim" : "Ghim hoi thoai"}
+              label={isPinned ? "Bỏ ghim" : "Ghim hội thoại"}
               onPress={() => {
                 void handlePinPress();
               }}
             />
             <ActionItem
-              label={conversation.type === "group" ? "Quan ly nhom" : "Tao nhom chat"}
-              onPress={() => GrayToast("Tinh nang dang phat trien")}
+              label={conversation.type === "group" ? "Quản lý nhóm" : "Tạo nhóm chat"}
+              onPress={() => GrayToast("Tính năng đang phát triển")}
             />
           </View>
         </View>
@@ -797,22 +797,22 @@ export default function ConversationInfoScreen() {
             icon="time-outline"
             iconColor="#2563EB"
             iconBackground="#DBEAFE"
-            title="Nhac hen"
-            subtitle="Tao loi nhac trong doan chat"
-            onPress={() => GrayToast("Tinh nang dang phat trien")}
+            title="Nhắc hẹn"
+            subtitle="Tạo lời nhắc trong đoạn chat"
+            onPress={() => GrayToast("Tính năng đang phát triển")}
             showBorder
           />
           <InfoListItem
             icon="people-outline"
             iconColor="#2563EB"
             iconBackground="#DBEAFE"
-            title="Nhom chat chung"
+            title="Nhóm chat chung"
             subtitle={
               conversation.type === "group"
-                ? "Cuoc tro chuyen nhom hien tai"
-                : `${commonGroupCount} nhom chung`
+                ? "Cuộc trò chuyện nhóm hiện tại"
+                : `${commonGroupCount} nhóm chung`
             }
-            onPress={() => GrayToast("Tinh nang dang phat trien")}
+            onPress={() => GrayToast("Tính năng đang phát triển")}
           />
         </View>
 
@@ -828,7 +828,7 @@ export default function ConversationInfoScreen() {
         >
           <SectionHeader
             icon="images-outline"
-            title="Anh/Video"
+            title="Ảnh/Video"
             count={mediaItems.length}
             expanded={showMedia}
             onToggle={() => setShowMedia((prev) => !prev)}
@@ -838,7 +838,7 @@ export default function ConversationInfoScreen() {
             <View style={{ paddingHorizontal: 12, paddingTop: 12, paddingBottom: 12 }}>
               {visibleMedia.length === 0 ? (
                 <Text style={{ color: "#64748B", fontSize: 12 }}>
-                  Chua co anh hoac video duoc chia se.
+                  Chưa có ảnh hoặc video được chia sẻ.
                 </Text>
               ) : (
                 <View
@@ -901,7 +901,7 @@ export default function ConversationInfoScreen() {
                   style={{ marginTop: 4, alignSelf: "flex-start" }}
                 >
                   <Text style={{ fontSize: 13, fontWeight: "600", color: "#2563EB" }}>
-                    {showAllInfoItems.media ? "Thu gon" : "Xem tat ca"}
+                    {showAllInfoItems.media ? "Thu gọn" : "Xem tất cả"}
                   </Text>
                 </TouchableOpacity>
               ) : null}
@@ -931,7 +931,7 @@ export default function ConversationInfoScreen() {
             <View style={{ paddingHorizontal: 12, paddingTop: 12, paddingBottom: 12 }}>
               {visibleFiles.length === 0 ? (
                 <Text style={{ color: "#64748B", fontSize: 12 }}>
-                  Chua co tep duoc chia se.
+                  Chưa có tệp được chia sẻ.
                 </Text>
               ) : (
                 visibleFiles.map((item) => {
@@ -1003,7 +1003,7 @@ export default function ConversationInfoScreen() {
                   style={{ marginTop: 4, alignSelf: "flex-start" }}
                 >
                   <Text style={{ fontSize: 13, fontWeight: "600", color: "#2563EB" }}>
-                    {showAllInfoItems.files ? "Thu gon" : "Xem tat ca"}
+                    {showAllInfoItems.files ? "Thu gọn" : "Xem tất cả"}
                   </Text>
                 </TouchableOpacity>
               ) : null}
@@ -1033,7 +1033,7 @@ export default function ConversationInfoScreen() {
             <View style={{ paddingHorizontal: 12, paddingTop: 12, paddingBottom: 12 }}>
               {visibleLinks.length === 0 ? (
                 <Text style={{ color: "#64748B", fontSize: 12 }}>
-                  Chua co lien ket duoc chia se.
+                  Chưa có liên kết được chia sẻ.
                 </Text>
               ) : (
                 visibleLinks.map((item) => {
@@ -1096,7 +1096,7 @@ export default function ConversationInfoScreen() {
                   style={{ marginTop: 4, alignSelf: "flex-start" }}
                 >
                   <Text style={{ fontSize: 13, fontWeight: "600", color: "#2563EB" }}>
-                    {showAllInfoItems.links ? "Thu gon" : "Xem tat ca"}
+                    {showAllInfoItems.links ? "Thu gọn" : "Xem tất cả"}
                   </Text>
                 </TouchableOpacity>
               ) : null}

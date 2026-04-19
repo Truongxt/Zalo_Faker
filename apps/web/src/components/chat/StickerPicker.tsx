@@ -64,12 +64,25 @@ export default function StickerPicker({ onSelect }: StickerPickerProps) {
     }
 
     return (
-        <div className="w-[300px] h-[300px] bg-white dark:bg-dark-300 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-2 overflow-y-auto">
+        <div
+            className="w-[300px] h-[300px] bg-white dark:bg-dark-300 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-2 overflow-y-auto"
+            onMouseDown={(event) => event.stopPropagation()}
+            onClick={(event) => event.stopPropagation()}
+        >
             <div className="grid grid-cols-4 gap-2">
                 {stickers.map((url, i) => (
                     <button
                         key={i}
-                        onClick={() => onSelect(url)}
+                        type="button"
+                        onMouseDown={(event) => {
+                            event.preventDefault()
+                            event.stopPropagation()
+                        }}
+                        onClick={(event) => {
+                            event.preventDefault()
+                            event.stopPropagation()
+                            onSelect(url)
+                        }}
                         className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors aspect-square flex items-center justify-center opacity-90 hover:opacity-100 transform hover:scale-110 active:scale-95"
                     >
                         <img src={url} alt="Sticker" className="w-full h-full object-contain drop-shadow-md" loading="lazy" />

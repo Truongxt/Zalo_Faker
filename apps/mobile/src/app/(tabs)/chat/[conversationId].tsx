@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import {
   View,
   Text,
@@ -33,10 +33,18 @@ import { Avatar } from "@/components/ui/Avatar";
 import { GrayToast } from "@/components/ui";
 
 import { ChatOptionsModal } from "@/components/chat/ChatOptionsModal";
+import { PinHistoryBanner } from "@/components/chat/PinHistoryBanner";
 import { ForwardMessageModal } from "@/components/chat/ForwardMessageModal";
 import type { Message } from "@/types";
 import { API_URL } from "@/constants/config";
 import { STICKER_URLS } from "@/constants/stickers";
+import {
+  appendPinHistoryEntry,
+  isPinHistoryMessage,
+  loadPinHistoryEntries,
+  mergeMessagesWithPinHistory,
+  type PinHistoryEntry,
+} from "@/lib/pinHistory";
 
 const REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "😡"];
 
@@ -205,9 +213,9 @@ const getMessagePreviewText = (message: Message | null | undefined) => {
 
       const nestedText = String(
         (message.content as any)?.text
-          || (message.content as any)?.message
-          || (message.content as any)?.content
-          || "",
+        || (message.content as any)?.message
+        || (message.content as any)?.content
+        || "",
       ).trim();
 
       return nestedText || "Tin nhắn";
@@ -588,8 +596,9 @@ function MessageItem({
   replyPreview = null,
 }: MessageItemProps) {
   const [showVoiceTranscript, setShowVoiceTranscript] = useState(false);
-  const bg = isMe ? "#0068FF" : "#F3F4F6";
-  const textColor = isMe ? "#fff" : "#111827";
+  const isAnnouncement = Boolean((msg as any)?.metadata?.isAnnouncement);
+  const bg = isAnnouncement ? "#FFF7E6" : isMe ? "#0068FF" : "#F3F4F6";
+  const textColor = isAnnouncement ? "#111827" : isMe ? "#fff" : "#111827";
   const showSenderMeta = !isMe && !isGroupedWithPrevious;
   const voiceAttachment = (msg.attachments || []).find(
     (attachment) => attachment.type === "voice",
@@ -599,21 +608,21 @@ function MessageItem({
   );
   const fallbackVoiceUrl =
     typeof msg.content === "string" &&
-    (/^https?:\/\//i.test(msg.content) || msg.content.startsWith("/"))
+      (/^https?:\/\//i.test(msg.content) || msg.content.startsWith("/"))
       ? msg.content
       : undefined;
   const contentVoiceUrl =
     msg.content && typeof msg.content === "object"
       ? String(
-          (msg.content as any).mediaUrl ||
-          (msg.content as any).url ||
-          (msg.content as any).fileUrl ||
-          "",
-        ).trim() || undefined
+        (msg.content as any).mediaUrl ||
+        (msg.content as any).url ||
+        (msg.content as any).fileUrl ||
+        "",
+      ).trim() || undefined
       : undefined;
   const fallbackVideoUrl =
     typeof msg.content === "string" &&
-    (/^https?:\/\//i.test(msg.content) || msg.content.startsWith("/"))
+      (/^https?:\/\//i.test(msg.content) || msg.content.startsWith("/"))
       ? msg.content
       : typeof msg.content === "object"
         ? String((msg.content as any).mediaUrl || (msg.content as any).url || "").trim() || undefined
@@ -632,9 +641,9 @@ function MessageItem({
       : undefined);
   const transcriptFromContent =
     typeof msg.content === "string" &&
-    msg.content.trim() &&
-    !/^https?:\/\//i.test(msg.content) &&
-    msg.content !== "Tin nhắn thoại"
+      msg.content.trim() &&
+      !/^https?:\/\//i.test(msg.content) &&
+      msg.content !== "Tin nhắn thoại"
       ? msg.content.trim()
       : "";
   const voiceTranscript =
@@ -698,9 +707,9 @@ function MessageItem({
         <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
           <View
             style={{
-              width: 36,
-              height: 36,
-              borderRadius: 18,
+              width: 40,
+              height: 40,
+              borderRadius: 20,
               alignItems: "center",
               justifyContent: "center",
               backgroundColor: isMissed
@@ -716,7 +725,7 @@ function MessageItem({
               name={
                 parsedCallPayload.callType === "video" ? "videocam" : "call"
               }
-              size={18}
+              size={20}
               color={
                 isMissed
                   ? isMe
@@ -729,17 +738,17 @@ function MessageItem({
             />
           </View>
           <View style={{ minWidth: 0, flexShrink: 1 }}>
-            <Text style={{ color: textColor, fontWeight: "700", fontSize: 15 }}>
+            <Text style={{ color: textColor, fontWeight: "700", fontSize: 16 }}>
               {callStatusText}
             </Text>
             {parsedCallPayload.status === "finished" && (
-              <Text style={{ color: textColor, opacity: 0.75, fontSize: 12 }}>
+              <Text style={{ color: textColor, opacity: 0.75, fontSize: 13 }}>
                 {formatAudioTime(parsedCallPayload.duration * 1000)}
               </Text>
             )}
             {isMissed && !isMe && (
               <Text
-                style={{ color: "#ef4444", fontSize: 12, fontWeight: "600" }}
+                style={{ color: "#ef4444", fontSize: 13, fontWeight: "600" }}
               >
                 Nhấn để gọi lại
               </Text>
@@ -754,7 +763,7 @@ function MessageItem({
         return (
           <Image
             source={{ uri: (msg as any).attachments?.[0]?.url || msg.content }}
-            style={{ width: 200, height: 150, borderRadius: 12 }}
+            style={{ width: 220, height: 165, borderRadius: 14 }}
             resizeMode="cover"
           />
         );
@@ -780,9 +789,9 @@ function MessageItem({
           <Video
             source={{ uri: videoUrl }}
             style={{
-              width: 230,
-              height: 300,
-              borderRadius: 12,
+              width: 240,
+              height: 320,
+              borderRadius: 14,
               backgroundColor: "#000",
             }}
             useNativeControls
@@ -797,7 +806,7 @@ function MessageItem({
       case "voice":
         if (voiceUrl) {
           return (
-            <View style={{ minWidth: 210 }}>
+            <View style={{ minWidth: 228 }}>
               <VoiceMessagePlayer
                 audioUrl={voiceUrl}
                 durationSeconds={voiceDuration}
@@ -830,7 +839,7 @@ function MessageItem({
                   <Text
                     style={{
                       color: textColor,
-                      fontSize: 11,
+                      fontSize: 12,
                       fontWeight: "700",
                     }}
                   >
@@ -838,7 +847,7 @@ function MessageItem({
                   </Text>
                   <Ionicons
                     name={showVoiceTranscript ? "chevron-up" : "chevron-down"}
-                    size={14}
+                    size={15}
                     color={textColor}
                   />
                 </TouchableOpacity>
@@ -858,8 +867,8 @@ function MessageItem({
                   <Text
                     style={{
                       color: textColor,
-                      fontSize: 13,
-                      lineHeight: 18,
+                      fontSize: 14,
+                      lineHeight: 20,
                     }}
                   >
                     {transcriptLabel}
@@ -885,8 +894,8 @@ function MessageItem({
             <View
               style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
             >
-              <Ionicons name="document-outline" size={18} color={textColor} />
-              <Text style={{ color: textColor, flex: 1 }} numberOfLines={1}>
+              <Ionicons name="document-outline" size={20} color={textColor} />
+              <Text style={{ color: textColor, flex: 1, fontSize: 14 }} numberOfLines={1}>
                 {(msg as any).attachments?.[0]?.name || "File đính kèm"}
               </Text>
             </View>
@@ -897,8 +906,8 @@ function MessageItem({
                 activeOpacity={0.85}
                 style={{
                   alignSelf: "flex-start",
-                  paddingHorizontal: 10,
-                  paddingVertical: 6,
+                  paddingHorizontal: 11,
+                  paddingVertical: 7,
                   borderRadius: 14,
                   borderWidth: 1,
                   borderColor: isMe ? "rgba(255,255,255,0.35)" : "#9CA3AF",
@@ -910,7 +919,7 @@ function MessageItem({
                 <Text
                   style={{
                     color: textColor,
-                    fontSize: 12,
+                    fontSize: 13,
                     fontWeight: "700",
                   }}
                 >
@@ -921,7 +930,7 @@ function MessageItem({
               <Text
                 style={{
                   color: isMe ? "rgba(255,255,255,0.75)" : "#6B7280",
-                  fontSize: 11,
+                  fontSize: 12,
                 }}
               >
                 File này chưa hỗ trợ xem trước
@@ -933,13 +942,13 @@ function MessageItem({
         return (
           <Image
             source={{ uri: msg.content }}
-            style={{ width: 100, height: 100 }}
+            style={{ width: 112, height: 112 }}
             resizeMode="contain"
           />
         );
       default:
         return (
-          <Text style={{ color: textColor, lineHeight: 20 }}>
+          <Text style={{ color: textColor, fontSize: 16, lineHeight: 22 }}>
             {msg.content}
           </Text>
         );
@@ -961,7 +970,7 @@ function MessageItem({
       style={{
         flexDirection: "row",
         justifyContent: isMe ? "flex-end" : "flex-start",
-        marginHorizontal: 10,
+        marginHorizontal: 12,
         marginVertical: isGroupedWithPrevious ? 1 : 2,
       }}
     >
@@ -969,20 +978,20 @@ function MessageItem({
         <Avatar
           name={msg.senderName || "?"}
           uri={(msg as any).senderAvatar}
-          size={32}
+          size={36}
         />
       )}
 
       <View
         style={{
-          maxWidth: "74%",
-          marginLeft: isMe ? 0 : showSenderMeta ? 8 : 40,
+          maxWidth: "76%",
+          marginLeft: isMe ? 0 : showSenderMeta ? 8 : 44,
         }}
       >
         {showSenderMeta && (
           <Text
             style={{
-              fontSize: 11,
+              fontSize: 12,
               color: "#6B7280",
               marginBottom: 1,
               marginLeft: 4,
@@ -995,9 +1004,11 @@ function MessageItem({
         <View
           style={{
             backgroundColor: bg,
-            borderRadius: 18,
-            paddingHorizontal: 11,
-            paddingVertical: 7,
+            borderRadius: 20,
+            paddingHorizontal: 13,
+            paddingVertical: 9,
+            borderWidth: isAnnouncement ? 1 : 0,
+            borderColor: isAnnouncement ? "#F5C24B" : "transparent",
           }}
         >
           {replyPreview && !msg.isDeleted && (
@@ -1007,15 +1018,23 @@ function MessageItem({
                 paddingHorizontal: 11,
                 paddingVertical: 9,
                 borderRadius: 14,
-                backgroundColor: isMe ? "#EAF2FF" : "#FFFFFF",
+                backgroundColor: isAnnouncement
+                  ? "#FFFDF7"
+                  : isMe
+                    ? "#EAF2FF"
+                    : "#FFFFFF",
                 borderWidth: 1,
-                borderColor: isMe ? "#9DBDFF" : "#D8E6FF",
+                borderColor: isAnnouncement
+                  ? "#F7D98B"
+                  : isMe
+                    ? "#9DBDFF"
+                    : "#D8E6FF",
               }}
             >
               <Text
                 style={{
                   color: "#2563EB",
-                  fontSize: 11,
+                  fontSize: 12,
                   fontWeight: "700",
                 }}
               >
@@ -1026,8 +1045,8 @@ function MessageItem({
                 style={{
                   marginTop: 3,
                   color: "#64748B",
-                  fontSize: 12,
-                  lineHeight: 17,
+                  fontSize: 13,
+                  lineHeight: 18,
                 }}
               >
                 {replyPreview.content}
@@ -1056,6 +1075,28 @@ function MessageItem({
                 }}
               >
                 Chuyển tiếp
+              </Text>
+            </View>
+          )}
+          {isAnnouncement && (
+            <View
+              style={{
+                alignSelf: "flex-start",
+                paddingHorizontal: 12,
+                paddingVertical: 5,
+                borderRadius: 999,
+                backgroundColor: "#FDE9A9",
+                marginBottom: 8,
+              }}
+            >
+              <Text
+                style={{
+                  color: "#9A5B00",
+                  fontSize: 13,
+                  fontWeight: "700",
+                }}
+              >
+                Thông báo
               </Text>
             </View>
           )}
@@ -1112,8 +1153,12 @@ export default function ChatRoomScreen() {
   const [forwardMessage, setForwardMessage] = useState<Message | null>(null);
   const [showChatOptions, setShowChatOptions] = useState(false);
   const [replyToMessageId, setReplyToMessageId] = useState<string | null>(null);
+  const [announcementMode, setAnnouncementMode] = useState(false);
   const [isRecordingVoice, setIsRecordingVoice] = useState(false);
   const [voiceRecordingSeconds, setVoiceRecordingSeconds] = useState(0);
+  const [pinHistoryEntries, setPinHistoryEntries] = useState<PinHistoryEntry[]>(
+    [],
+  );
   const [isSummarizingConversation, setIsSummarizingConversation] =
     useState(false);
   const [dailySummary, setDailySummary] = useState<{
@@ -1143,6 +1188,7 @@ export default function ChatRoomScreen() {
   const voiceRecordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(
     null,
   );
+  const pinnedMessageRef = useRef<any>(null);
 
   // Determine conversation name
   const otherParticipant = conversation?.participants?.find(
@@ -1176,26 +1222,52 @@ export default function ChatRoomScreen() {
   const canPinInGroup =
     conversation?.type === "group"
       ? (() => {
-          const roleRank: Record<string, number> = {
-            member: 1,
-            deputy: 2,
-            admin: 3,
-          };
-          const scopeRank: Record<string, number> = {
-            all: 1,
-            admin_deputy: 2,
-            admin: 3,
-          };
-          const currentRank = roleRank[myGroupRole] || 0;
-          const requiredRank = scopeRank[pinScope] || Number.MAX_SAFE_INTEGER;
-          return currentRank >= requiredRank;
-        })()
+        const roleRank: Record<string, number> = {
+          member: 1,
+          deputy: 2,
+          admin: 3,
+        };
+        const scopeRank: Record<string, number> = {
+          all: 1,
+          admin_deputy: 2,
+          admin: 3,
+        };
+        const currentRank = roleRank[myGroupRole] || 0;
+        const requiredRank = scopeRank[pinScope] || Number.MAX_SAFE_INTEGER;
+        return currentRank >= requiredRank;
+      })()
+      : false;
+  const announcementScope = String(
+    conversation?.groupSettings?.permissions?.sendAnnouncement || "admin_deputy",
+  ).toLowerCase();
+  const canSendAnnouncementInGroup =
+    conversation?.type === "group"
+      ? (() => {
+        const roleRank: Record<string, number> = {
+          member: 1,
+          deputy: 2,
+          admin: 3,
+        };
+        const scopeRank: Record<string, number> = {
+          all: 1,
+          admin_deputy: 2,
+          admin: 3,
+        };
+        const currentRank = roleRank[myGroupRole] || 0;
+        const requiredRank =
+          scopeRank[announcementScope] || Number.MAX_SAFE_INTEGER;
+        return currentRank >= requiredRank;
+      })()
       : false;
   const canPinMessage =
     conversation?.type === "group"
       ? canPinInGroup
       : conversation?.type === "private";
   const pinnedMessage = conversation?.groupSettings?.pinnedMessage || null;
+  const displayMessages = useMemo(
+    () => mergeMessagesWithPinHistory(convMessages, pinHistoryEntries),
+    [convMessages, pinHistoryEntries],
+  );
   const activeReplyPreview = replyToMessageId
     ? resolveReplyPreview(replyToMessageId, convMessages)
     : null;
@@ -1394,13 +1466,100 @@ export default function ChatRoomScreen() {
     };
   }, [otherParticipant?.userId, user?.id]);
 
+  const resolvePinActorName = useCallback(
+    (actorId: string) => {
+      const normalizedActorId = String(actorId || "").trim();
+      if (!normalizedActorId) return "User";
+
+      if (String(user?.id || "") === normalizedActorId) {
+        return String(user?.fullName || "User").trim() || "User";
+      }
+
+      const participantName = conversation?.participants?.find(
+        (participant) => String(participant.userId) === normalizedActorId,
+      )?.fullName;
+      if (typeof participantName === "string" && participantName.trim()) {
+        return participantName.trim();
+      }
+
+      const messageSenderName = convMessages.find(
+        (message) => String(message.senderId) === normalizedActorId,
+      )?.senderName;
+      if (typeof messageSenderName === "string" && messageSenderName.trim()) {
+        return messageSenderName.trim();
+      }
+
+      return "User";
+    },
+    [convMessages, conversation?.participants, user?.fullName, user?.id],
+  );
+
+  const loadPinHistory = useCallback(async () => {
+    if (!convId) {
+      setPinHistoryEntries([]);
+      return;
+    }
+
+    const entries = await loadPinHistoryEntries(convId);
+    setPinHistoryEntries(entries);
+  }, [convId]);
+
+  const appendPinnedHistory = useCallback(
+    async (nextPinnedMessage: any | null, updatedBy?: string) => {
+      if (!convId) return;
+
+      const previousPinnedMessage = pinnedMessageRef.current;
+      const previousKey = previousPinnedMessage
+        ? `${String(previousPinnedMessage.messageId || "")}:${String(previousPinnedMessage.pinnedAt || "")}:${String(previousPinnedMessage.pinnedBy || "")}`
+        : "";
+      const nextKey = nextPinnedMessage
+        ? `${String(nextPinnedMessage.messageId || "")}:${String(nextPinnedMessage.pinnedAt || "")}:${String(nextPinnedMessage.pinnedBy || "")}`
+        : "";
+
+      if (previousKey === nextKey) return;
+
+      const normalizedActorId = String(
+        updatedBy || nextPinnedMessage?.pinnedBy || user?.id || "",
+      ).trim();
+      const action = nextPinnedMessage ? "pin" : "unpin";
+      const targetPinnedMessage = nextPinnedMessage || previousPinnedMessage;
+      const targetMessageId = String(
+        targetPinnedMessage?.messageId || "",
+      ).trim();
+      if (!targetMessageId) return;
+
+      const createdAt =
+        action === "pin" && String(nextPinnedMessage?.pinnedAt || "").trim()
+          ? String(nextPinnedMessage.pinnedAt)
+          : new Date().toISOString();
+      const eventKey =
+        action === "pin"
+          ? `pin:${convId}:${normalizedActorId}:${targetMessageId}:${String(nextPinnedMessage?.pinnedAt || "")}`
+          : `unpin:${convId}:${normalizedActorId}:${targetMessageId}:${String(previousPinnedMessage?.pinnedAt || "")}`;
+
+      const nextEntries = await appendPinHistoryEntry({
+        eventKey,
+        conversationId: convId,
+        actorId: normalizedActorId,
+        actorName: resolvePinActorName(normalizedActorId),
+        action,
+        previewText: getPinnedMessagePreview(targetPinnedMessage),
+        targetMessageId,
+        createdAt,
+      });
+
+      setPinHistoryEntries(nextEntries);
+    },
+    [convId, getPinnedMessagePreview, resolvePinActorName, user?.id],
+  );
+
   const startCall = useCallback(
     (callType: "audio" | "video") => {
       if (!user?.id || !convId) {
         GrayToast("Không thể bắt đầu cuộc gọi");
         return;
       }
-      
+
       if (conversation?.type !== "group" && !otherParticipant?.userId) {
         GrayToast("Không thể bắt đầu cuộc gọi");
         return;
@@ -1408,7 +1567,7 @@ export default function ChatRoomScreen() {
 
       const isGroup = conversation?.type === "group";
       const callId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      
+
       router.push({
         pathname: "/call/[callId]",
         params: {
@@ -1496,7 +1655,16 @@ export default function ChatRoomScreen() {
     setShowStickerPicker(false);
     setDailySummary(null);
     setIsSummarizingConversation(false);
+    setAnnouncementMode(false);
   }, [convId]);
+
+  useEffect(() => {
+    pinnedMessageRef.current = pinnedMessage;
+  }, [pinnedMessage]);
+
+  useEffect(() => {
+    void loadPinHistory();
+  }, [loadPinHistory]);
 
   // Join socket room + listeners
   useEffect(() => {
@@ -1532,13 +1700,13 @@ export default function ChatRoomScreen() {
 
   // Scroll to bottom when messages change
   useEffect(() => {
-    if (convMessages.length > 0) {
+    if (displayMessages.length > 0) {
       setTimeout(
         () => flatListRef.current?.scrollToEnd({ animated: false }),
         100,
       );
     }
-  }, [convMessages.length]);
+  }, [displayMessages.length]);
 
   useEffect(() => {
     return () => {
@@ -1646,7 +1814,7 @@ export default function ChatRoomScreen() {
 
         const durationMillis =
           typeof statusBeforeStop?.durationMillis === "number" &&
-          Number.isFinite(statusBeforeStop.durationMillis)
+            Number.isFinite(statusBeforeStop.durationMillis)
             ? statusBeforeStop.durationMillis
             : voiceRecordingSeconds * 1000;
 
@@ -1766,12 +1934,24 @@ export default function ChatRoomScreen() {
   const handleSend = async () => {
     const trimmed = text.trim();
     if (!trimmed || isSending) return;
+    if (
+      conversation?.type === "group"
+      && announcementMode
+      && !canSendAnnouncementInGroup
+    ) {
+      GrayToast("Bạn không có quyền gửi thông báo trong nhóm này");
+      return;
+    }
     if (isMessagingBlocked) {
       GrayToast(
         isBlockedByMe ? "Bạn đã chặn người dùng này" : "Bạn đã bị chặn",
       );
       return;
     }
+    const nextMetadata =
+      conversation?.type === "group" && announcementMode
+        ? { isAnnouncement: true }
+        : undefined;
     setText("");
     setIsSending(true);
     if (convId && user) {
@@ -1782,8 +1962,10 @@ export default function ChatRoomScreen() {
         type: "text",
         content: trimmed,
         replyTo: replyToMessageId || undefined,
+        metadata: nextMetadata,
       });
       setReplyToMessageId(null);
+      setAnnouncementMode(false);
     } catch {
       GrayToast("Không thể gửi tin nhắn");
     } finally {
@@ -1959,11 +2141,14 @@ export default function ChatRoomScreen() {
     const onPinnedMessage = ({
       conversationId: incomingConversationId,
       pinnedMessage: nextPinnedMessage,
+      updatedBy,
     }: {
       conversationId: string;
       pinnedMessage: any | null;
+      updatedBy?: string;
     }) => {
       if (String(incomingConversationId) !== String(convId)) return;
+      void appendPinnedHistory(nextPinnedMessage || null, updatedBy);
       handleUpdatePinnedMessage(nextPinnedMessage || null);
     };
 
@@ -1972,7 +2157,7 @@ export default function ChatRoomScreen() {
     return () => {
       socket.off("chat:pinned_message", onPinnedMessage);
     };
-  }, [convId, handleUpdatePinnedMessage, user]);
+  }, [appendPinnedHistory, convId, handleUpdatePinnedMessage, user]);
 
   const handlePinMessage = useCallback(
     async (message: Message) => {
@@ -2001,6 +2186,7 @@ export default function ChatRoomScreen() {
           (result as any)?.conversation?.groupSettings?.pinnedMessage ||
           (result as any)?.group?.groupSettings?.pinnedMessage ||
           null;
+        await appendPinnedHistory(nextPinned, user?.id);
         handleUpdatePinnedMessage(nextPinned);
         socketService.emit("chat:sync_pinned_message", {
           conversationId: convId,
@@ -2010,7 +2196,14 @@ export default function ChatRoomScreen() {
         GrayToast(error?.message || "Không thể ghim tin nhắn");
       }
     },
-    [canPinInGroup, convId, conversation, handleUpdatePinnedMessage],
+    [
+      appendPinnedHistory,
+      canPinInGroup,
+      convId,
+      conversation,
+      handleUpdatePinnedMessage,
+      user?.id,
+    ],
   );
 
   const handleUnpinMessage = useCallback(async () => {
@@ -2027,6 +2220,7 @@ export default function ChatRoomScreen() {
         await conversationService.unpinMessage(convId);
       }
 
+      await appendPinnedHistory(null, user?.id);
       handleUpdatePinnedMessage(null);
       socketService.emit("chat:sync_pinned_message", {
         conversationId: convId,
@@ -2035,7 +2229,14 @@ export default function ChatRoomScreen() {
     } catch (error: any) {
       GrayToast(error?.message || "Không thể bỏ ghim tin nhắn");
     }
-  }, [canPinInGroup, convId, conversation, handleUpdatePinnedMessage]);
+  }, [
+    appendPinnedHistory,
+    canPinInGroup,
+    convId,
+    conversation,
+    handleUpdatePinnedMessage,
+    user?.id,
+  ]);
 
   const handleLongPress = (msg: Message) => {
     setSelectedMsg(msg);
@@ -2049,11 +2250,11 @@ export default function ChatRoomScreen() {
       onPress?: () => void;
       style?: "default" | "destructive" | "cancel";
     }> = [
-      {
-        text: "Thả cảm xúc",
-        onPress: () => setShowReactions(true),
-      },
-    ];
+        {
+          text: "Thả cảm xúc",
+          onPress: () => setShowReactions(true),
+        },
+      ];
 
     if (isMe && !msg.isDeleted) {
       options.push({
@@ -2182,19 +2383,19 @@ export default function ChatRoomScreen() {
       style?: "default" | "cancel" | "destructive";
       onPress?: () => void;
     }> = [
-      {
-        text: "Đổi hình nền",
-        onPress: () => setShowChatOptions(true),
-      },
-      {
-        text: "Thông tin hội thoại",
-        onPress: () =>
-          router.push({
-            pathname: "/(tabs)/chat/conversation-info",
-            params: { conversationId: String(convId) },
-          }),
-      },
-    ];
+        {
+          text: "Đổi hình nền",
+          onPress: () => setShowChatOptions(true),
+        },
+        {
+          text: "Thông tin hội thoại",
+          onPress: () =>
+            router.push({
+              pathname: "/(tabs)/chat/conversation-info",
+              params: { conversationId: String(convId) },
+            }),
+        },
+      ];
 
     if (conversation?.type === "private") {
       options.push({
@@ -2209,9 +2410,14 @@ export default function ChatRoomScreen() {
   };
 
   const renderMessage = ({ item, index }: { item: Message; index: number }) => {
-    const previousMessage = index > 0 ? convMessages[index - 1] : null;
+    if (isPinHistoryMessage(item)) {
+      return <PinHistoryBanner message={item} />;
+    }
+
+    const previousMessage = index > 0 ? displayMessages[index - 1] : null;
     const isGroupedWithPrevious =
       Boolean(previousMessage) &&
+      !isPinHistoryMessage(previousMessage) &&
       previousMessage!.senderId === item.senderId &&
       !previousMessage!.isDeleted &&
       !item.isDeleted;
@@ -2255,11 +2461,11 @@ export default function ChatRoomScreen() {
           <Ionicons name="arrow-back" size={24} color="#111827" />
         </TouchableOpacity>
 
-        <Avatar name={convName} uri={convAvatar} size={36} />
+        <Avatar name={convName} uri={convAvatar} size={40} />
 
         <View style={{ flex: 1, marginLeft: 8 }}>
           <Text
-            style={{ fontWeight: "700", fontSize: 15, color: "#111827" }}
+            style={{ fontWeight: "700", fontSize: 17, color: "#111827" }}
             numberOfLines={1}
           >
             {convName}
@@ -2270,7 +2476,7 @@ export default function ChatRoomScreen() {
           {typingUsers.length === 0 && conversation?.type === "private" && (
             <Text
               style={{
-                fontSize: 11,
+                fontSize: 12,
                 color: isPartnerOnline ? "#16A34A" : "#6B7280",
               }}
             >
@@ -2278,7 +2484,7 @@ export default function ChatRoomScreen() {
             </Text>
           )}
           {conversation?.type === "group" && (
-            <Text style={{ fontSize: 11, color: "#6B7280" }}>
+            <Text style={{ fontSize: 12, color: "#6B7280" }}>
               {conversation.participants?.length || 0} thành viên
             </Text>
           )}
@@ -2399,42 +2605,42 @@ export default function ChatRoomScreen() {
           </ImageBackground>
         )}
         {isLoading ? (
-        <View
-          style={{ flex: 1, alignItems: "center", justifyContent: "center" }}
-        >
-          <ActivityIndicator size="large" color="#0068FF" />
-          <Text style={{ marginTop: 12, color: "#9CA3AF" }}>
-            Đang tải tin nhắn...
-          </Text>
-        </View>
-      ) : (
-        <FlatList
-          ref={flatListRef}
-          data={convMessages}
-          keyExtractor={(item) => item.id}
-          renderItem={renderMessage}
-          style={{ flex: 1 }}
-          contentContainerStyle={{ paddingVertical: 4, paddingBottom: 2, flexGrow: 1 }}
-          ListEmptyComponent={
-            <View
-              style={{
-                flex: 1,
-                alignItems: "center",
-                justifyContent: "center",
-                paddingTop: 80,
-              }}
-            >
-              <Text style={{ fontSize: 36, marginBottom: 8 }}>💬</Text>
-              <Text style={{ color: "#9CA3AF" }}>
-                Hãy bắt đầu cuộc trò chuyện!
-              </Text>
-            </View>
-          }
-          onContentSizeChange={() =>
-            flatListRef.current?.scrollToEnd({ animated: false })
-          }
-        />
-      )}
+          <View
+            style={{ flex: 1, alignItems: "center", justifyContent: "center" }}
+          >
+            <ActivityIndicator size="large" color="#0068FF" />
+            <Text style={{ marginTop: 12, color: "#9CA3AF" }}>
+              Đang tải tin nhắn...
+            </Text>
+          </View>
+        ) : (
+          <FlatList
+            ref={flatListRef}
+            data={displayMessages}
+            keyExtractor={(item) => item.id}
+            renderItem={renderMessage}
+            style={{ flex: 1 }}
+            contentContainerStyle={{ paddingVertical: 4, paddingBottom: 2, flexGrow: 1 }}
+            ListEmptyComponent={
+              <View
+                style={{
+                  flex: 1,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  paddingTop: 80,
+                }}
+              >
+                <Text style={{ fontSize: 36, marginBottom: 8 }}>💬</Text>
+                <Text style={{ color: "#9CA3AF" }}>
+                  Hãy bắt đầu cuộc trò chuyện!
+                </Text>
+              </View>
+            }
+            onContentSizeChange={() =>
+              flatListRef.current?.scrollToEnd({ animated: false })
+            }
+          />
+        )}
       </View>
 
       {/* Reaction picker */}
@@ -2623,7 +2829,7 @@ export default function ChatRoomScreen() {
                 </Text>
                 <Text
                   numberOfLines={1}
-                  style={{ marginTop: 2, color: "#475569", fontSize: 12 }}
+                  style={{ marginTop: 2, color: "#475569", fontSize: 13 }}
                 >
                   {activeReplyPreview.content}
                 </Text>
@@ -2633,9 +2839,9 @@ export default function ChatRoomScreen() {
             <TouchableOpacity
               onPress={() => setReplyToMessageId(null)}
               style={{
-                width: 28,
-                height: 28,
-                borderRadius: 14,
+                width: 30,
+                height: 30,
+                borderRadius: 15,
                 alignItems: "center",
                 justifyContent: "center",
                 backgroundColor: "#DBEAFE",
@@ -2650,18 +2856,18 @@ export default function ChatRoomScreen() {
           <View
             style={{
               marginBottom: 10,
-              borderRadius: 12,
+              borderRadius: 14,
               borderWidth: 1,
               borderColor: "#FCD34D",
               backgroundColor: "#FEF3C7",
-              paddingHorizontal: 10,
-              paddingVertical: 8,
+              paddingHorizontal: 12,
+              paddingVertical: 9,
               flexDirection: "row",
               alignItems: "center",
               justifyContent: "space-between",
             }}
           >
-            <Text style={{ color: "#92400E", fontSize: 12, fontWeight: "600" }}>
+            <Text style={{ color: "#92400E", fontSize: 13, fontWeight: "600" }}>
               {isBlockedByMe ? "Bạn đã chặn người dùng này" : "Bạn đã bị chặn"}
             </Text>
             {isBlockedByMe && (
@@ -2670,7 +2876,7 @@ export default function ChatRoomScreen() {
                 style={{ paddingVertical: 3 }}
               >
                 <Text
-                  style={{ color: "#92400E", fontSize: 12, fontWeight: "700" }}
+                  style={{ color: "#92400E", fontSize: 13, fontWeight: "700" }}
                 >
                   Mở chặn
                 </Text>
@@ -2684,10 +2890,12 @@ export default function ChatRoomScreen() {
             flexDirection: "row",
             alignItems: "center",
             backgroundColor: "#ECEDEF",
-            borderRadius: 26,
-            minHeight: 50,
-            paddingLeft: 6,
-            paddingRight: 8,
+            borderRadius: 28,
+            minHeight: 54,
+            paddingLeft: 8,
+            paddingRight: 10,
+            borderWidth: announcementMode ? 1 : 0,
+            borderColor: announcementMode ? "#F5C24B" : "transparent",
             opacity: isMessagingBlocked ? 0.6 : 1,
           }}
         >
@@ -2695,14 +2903,42 @@ export default function ChatRoomScreen() {
             onPress={handleToggleStickerPicker}
             disabled={Boolean(isMessagingBlocked)}
             style={{
-              width: 36,
-              height: 36,
+              width: 40,
+              height: 40,
               alignItems: "center",
               justifyContent: "center",
             }}
           >
-            <Ionicons name="happy-outline" size={28} color="#7B8088" />
+            <Ionicons name="happy-outline" size={30} color="#7B8088" />
           </TouchableOpacity>
+
+          {conversation?.type === "group" && (
+            <TouchableOpacity
+              onPress={() => {
+                if (!canSendAnnouncementInGroup) {
+                  GrayToast("Bạn không có quyền gửi thông báo trong nhóm này");
+                  return;
+                }
+                setAnnouncementMode((prev) => !prev);
+              }}
+              disabled={Boolean(isMessagingBlocked)}
+              style={{
+                width: 38,
+                height: 38,
+                alignItems: "center",
+                justifyContent: "center",
+                borderRadius: 19,
+                backgroundColor: announcementMode ? "#FDE9A9" : "transparent",
+                marginLeft: 2,
+              }}
+            >
+              <Ionicons
+                name="megaphone-outline"
+                size={21}
+                color={announcementMode ? "#C27A00" : "#7B8088"}
+              />
+            </TouchableOpacity>
+          )}
 
           <TextInput
             value={text}
@@ -2715,10 +2951,10 @@ export default function ChatRoomScreen() {
               flex: 1,
               marginLeft: 4,
               marginRight: 8,
-              fontSize: 17,
+              fontSize: 18,
               color: "#343A40",
               maxHeight: 110,
-              paddingVertical: 8,
+              paddingVertical: 9,
             }}
           />
 
@@ -2726,13 +2962,13 @@ export default function ChatRoomScreen() {
             onPress={handlePickFile}
             disabled={Boolean(isMessagingBlocked)}
             style={{
-              width: 36,
-              height: 36,
+              width: 40,
+              height: 40,
               alignItems: "center",
               justifyContent: "center",
             }}
           >
-            <Ionicons name="ellipsis-horizontal" size={23} color="#7B8088" />
+            <Ionicons name="ellipsis-horizontal" size={24} color="#7B8088" />
           </TouchableOpacity>
 
           {!text.trim() ? (
@@ -2740,15 +2976,15 @@ export default function ChatRoomScreen() {
               onPress={handleToggleVoiceRecording}
               disabled={Boolean(isMessagingBlocked)}
               style={{
-                width: 36,
-                height: 36,
+                width: 40,
+                height: 40,
                 alignItems: "center",
                 justifyContent: "center",
               }}
             >
               <Ionicons
                 name={isRecordingVoice ? "send" : "mic-outline"}
-                size={24}
+                size={25}
                 color={isRecordingVoice ? "#0068FF" : "#7B8088"}
               />
             </TouchableOpacity>
@@ -2757,8 +2993,8 @@ export default function ChatRoomScreen() {
               onPress={handleSend}
               disabled={isSending || Boolean(isMessagingBlocked)}
               style={{
-                width: 36,
-                height: 36,
+                width: 40,
+                height: 40,
                 alignItems: "center",
                 justifyContent: "center",
               }}
@@ -2766,7 +3002,7 @@ export default function ChatRoomScreen() {
               {isSending ? (
                 <ActivityIndicator size="small" color="#0068FF" />
               ) : (
-                <Ionicons name="send" size={24} color="#0068FF" />
+                <Ionicons name="send" size={25} color="#0068FF" />
               )}
             </TouchableOpacity>
           )}
@@ -2799,7 +3035,7 @@ export default function ChatRoomScreen() {
               <Text style={{ flex: 1, fontSize: 16, color: "#EF4444", fontWeight: "600" }}>
                 Đang ghi âm {formatRecordingTime(voiceRecordingSeconds)}
               </Text>
-              
+
               <TouchableOpacity
                 onPress={handleCancelVoiceRecording}
                 style={{
