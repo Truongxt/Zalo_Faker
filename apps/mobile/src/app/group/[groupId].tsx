@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import {
   View,
   Text,
@@ -23,6 +23,7 @@ import { Avatar } from "@/components/ui/Avatar";
 import { GrayToast } from "@/components/ui";
 import { ChatOptionsModal } from "@/components/chat/ChatOptionsModal";
 import { ForwardMessageModal } from "@/components/chat/ForwardMessageModal";
+import { PinHistoryBanner } from "@/components/chat/PinHistoryBanner";
 import { VoiceMessagePlayer } from "@/components/chat/VoiceMessagePlayer";
 import { Audio } from "expo-av";
 import Svg, { Path, Line } from "react-native-svg";
@@ -39,6 +40,13 @@ import {
 import { STICKER_URLS } from "@/constants/stickers";
 import { API_URL } from "@/constants/config";
 import type { Message } from "@/types";
+import {
+  appendPinHistoryEntry,
+  isPinHistoryMessage,
+  loadPinHistoryEntries,
+  mergeMessagesWithPinHistory,
+  type PinHistoryEntry,
+} from "@/lib/pinHistory";
 
 const REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "😡"];
 
@@ -216,13 +224,18 @@ export default function GroupChatScreen() {
   const [isRecordingVoice, setIsRecordingVoice] = useState(false);
   const [voiceRecordingSeconds, setVoiceRecordingSeconds] = useState(0);
   const [replyToMessageId, setReplyToMessageId] = useState<string | null>(null);
+  const [announcementMode, setAnnouncementMode] = useState(false);
   const [localPinnedMessage, setLocalPinnedMessage] = useState<any>(null);
+  const [pinHistoryEntries, setPinHistoryEntries] = useState<PinHistoryEntry[]>(
+    [],
+  );
   const [typingUsers, setTypingUsers] = useState<string[]>([]);
   const flatListRef = useRef<FlatList>(null);
   const voiceRecordingRef = useRef<Audio.Recording | null>(null);
   const voiceRecordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(
     null,
   );
+  const pinnedMessageRef = useRef<any>(null);
 
   const myGroupRole = String(
     conversation?.participants?.find(
@@ -248,9 +261,34 @@ export default function GroupChatScreen() {
     const requiredRank = scopeRank[pinScope] || 2;
     return currentRank >= requiredRank;
   })();
+  const announcementScope = String(
+    conversation?.groupSettings?.permissions?.sendAnnouncement
+      || (group as any)?.groupSettings?.permissions?.sendAnnouncement
+      || "admin_deputy",
+  ).toLowerCase();
+  const canSendAnnouncementInGroup = (() => {
+    const roleRank: Record<string, number> = {
+      member: 1,
+      deputy: 2,
+      admin: 3,
+    };
+    const scopeRank: Record<string, number> = {
+      all: 1,
+      admin_deputy: 2,
+      admin: 3,
+    };
+
+    const currentRank = roleRank[myGroupRole] || 0;
+    const requiredRank = scopeRank[announcementScope] || 2;
+    return currentRank >= requiredRank;
+  })();
 
   const pinnedMessage =
     conversation?.groupSettings?.pinnedMessage || localPinnedMessage || null;
+  const displayMessages = useMemo(
+    () => mergeMessagesWithPinHistory(convMessages, pinHistoryEntries),
+    [convMessages, pinHistoryEntries],
+  );
   const activeReplyPreview = replyToMessageId
     ? resolveReplyPreview(replyToMessageId, convMessages)
     : null;
@@ -289,6 +327,93 @@ export default function GroupChatScreen() {
     if (message.type === "file") return "[Tập tin]";
     return "Tin nhắn đã ghim";
   }, []);
+
+  const resolvePinActorName = useCallback(
+    (actorId: string) => {
+      const normalizedActorId = String(actorId || "").trim();
+      if (!normalizedActorId) return "User";
+
+      if (String(user?.id || "") === normalizedActorId) {
+        return String(user?.fullName || "User").trim() || "User";
+      }
+
+      const participantName = conversation?.participants?.find(
+        (participant) => String(participant.userId) === normalizedActorId,
+      )?.fullName;
+      if (typeof participantName === "string" && participantName.trim()) {
+        return participantName.trim();
+      }
+
+      const messageSenderName = convMessages.find(
+        (message) => String(message.senderId) === normalizedActorId,
+      )?.senderName;
+      if (typeof messageSenderName === "string" && messageSenderName.trim()) {
+        return messageSenderName.trim();
+      }
+
+      return "User";
+    },
+    [convMessages, conversation?.participants, user?.fullName, user?.id],
+  );
+
+  const loadPinHistory = useCallback(async () => {
+    if (!convId) {
+      setPinHistoryEntries([]);
+      return;
+    }
+
+    const entries = await loadPinHistoryEntries(convId);
+    setPinHistoryEntries(entries);
+  }, [convId]);
+
+  const appendPinnedHistory = useCallback(
+    async (nextPinnedMessage: any | null, updatedBy?: string) => {
+      if (!convId) return;
+
+      const previousPinnedMessage = pinnedMessageRef.current;
+      const previousKey = previousPinnedMessage
+        ? `${String(previousPinnedMessage.messageId || "")}:${String(previousPinnedMessage.pinnedAt || "")}:${String(previousPinnedMessage.pinnedBy || "")}`
+        : "";
+      const nextKey = nextPinnedMessage
+        ? `${String(nextPinnedMessage.messageId || "")}:${String(nextPinnedMessage.pinnedAt || "")}:${String(nextPinnedMessage.pinnedBy || "")}`
+        : "";
+
+      if (previousKey === nextKey) return;
+
+      const normalizedActorId = String(
+        updatedBy || nextPinnedMessage?.pinnedBy || user?.id || "",
+      ).trim();
+      const action = nextPinnedMessage ? "pin" : "unpin";
+      const targetPinnedMessage = nextPinnedMessage || previousPinnedMessage;
+      const targetMessageId = String(
+        targetPinnedMessage?.messageId || "",
+      ).trim();
+      if (!targetMessageId) return;
+
+      const createdAt =
+        action === "pin" && String(nextPinnedMessage?.pinnedAt || "").trim()
+          ? String(nextPinnedMessage.pinnedAt)
+          : new Date().toISOString();
+      const eventKey =
+        action === "pin"
+          ? `pin:${convId}:${normalizedActorId}:${targetMessageId}:${String(nextPinnedMessage?.pinnedAt || "")}`
+          : `unpin:${convId}:${normalizedActorId}:${targetMessageId}:${String(previousPinnedMessage?.pinnedAt || "")}`;
+
+      const nextEntries = await appendPinHistoryEntry({
+        eventKey,
+        conversationId: convId,
+        actorId: normalizedActorId,
+        actorName: resolvePinActorName(normalizedActorId),
+        action,
+        previewText: getPinnedMessagePreview(targetPinnedMessage),
+        targetMessageId,
+        createdAt,
+      });
+
+      setPinHistoryEntries(nextEntries);
+    },
+    [convId, getPinnedMessagePreview, resolvePinActorName, user?.id],
+  );
 
   // Load group info
   useEffect(() => {
@@ -351,16 +476,25 @@ export default function GroupChatScreen() {
   }, [convId, user?.id]);
 
   useEffect(() => {
-    if (convMessages.length > 0)
+    if (displayMessages.length > 0)
       setTimeout(
         () => flatListRef.current?.scrollToEnd({ animated: false }),
         100,
       );
-  }, [convMessages.length]);
+  }, [displayMessages.length]);
 
   useEffect(() => {
     setShowStickerPicker(false);
+    setAnnouncementMode(false);
   }, [convId]);
+
+  useEffect(() => {
+    pinnedMessageRef.current = pinnedMessage;
+  }, [pinnedMessage]);
+
+  useEffect(() => {
+    void loadPinHistory();
+  }, [loadPinHistory]);
 
   useEffect(() => {
     if (conversation?.groupSettings?.pinnedMessage !== undefined) {
@@ -418,11 +552,14 @@ export default function GroupChatScreen() {
     const onPinnedMessage = ({
       conversationId: incomingConversationId,
       pinnedMessage: nextPinnedMessage,
+      updatedBy,
     }: {
       conversationId: string;
       pinnedMessage: any | null;
+      updatedBy?: string;
     }) => {
       if (String(incomingConversationId) !== String(convId)) return;
+      void appendPinnedHistory(nextPinnedMessage || null, updatedBy);
       handleUpdatePinnedMessage(nextPinnedMessage || null);
     };
 
@@ -431,7 +568,7 @@ export default function GroupChatScreen() {
     return () => {
       socket.off("chat:pinned_message", onPinnedMessage);
     };
-  }, [convId, handleUpdatePinnedMessage, user]);
+  }, [appendPinnedHistory, convId, handleUpdatePinnedMessage, user]);
 
   const handlePinMessage = useCallback(
     async (message: Message) => {
@@ -454,6 +591,7 @@ export default function GroupChatScreen() {
           (result as any)?.pinnedMessage ||
           (result as any)?.group?.groupSettings?.pinnedMessage ||
           null;
+        await appendPinnedHistory(nextPinned, user?.id);
         handleUpdatePinnedMessage(nextPinned);
         socketService.emit("chat:sync_pinned_message", { conversationId: convId });
         GrayToast("Đã ghim tin nhắn");
@@ -461,7 +599,14 @@ export default function GroupChatScreen() {
         GrayToast(error?.message || "Không thể ghim tin nhắn");
       }
     },
-    [canPinInGroup, convId, groupId, handleUpdatePinnedMessage],
+    [
+      appendPinnedHistory,
+      canPinInGroup,
+      convId,
+      groupId,
+      handleUpdatePinnedMessage,
+      user?.id,
+    ],
   );
 
   const handleUnpinMessage = useCallback(async () => {
@@ -475,17 +620,30 @@ export default function GroupChatScreen() {
 
     try {
       await unpinGroupMessage(targetGroupId);
+      await appendPinnedHistory(null, user?.id);
       handleUpdatePinnedMessage(null);
       socketService.emit("chat:sync_pinned_message", { conversationId: convId });
       GrayToast("Đã bỏ ghim tin nhắn");
     } catch (error: any) {
       GrayToast(error?.message || "Không thể bỏ ghim tin nhắn");
     }
-  }, [canPinInGroup, convId, groupId, handleUpdatePinnedMessage]);
+  }, [
+    appendPinnedHistory,
+    canPinInGroup,
+    convId,
+    groupId,
+    handleUpdatePinnedMessage,
+    user?.id,
+  ]);
 
   const handleSend = async () => {
     const trimmed = text.trim();
     if (!trimmed || isSending || !convId) return;
+    if (announcementMode && !canSendAnnouncementInGroup) {
+      GrayToast("Ban khong co quyen gui thong bao trong nhom nay");
+      return;
+    }
+    const nextMetadata = announcementMode ? { isAnnouncement: true } : undefined;
     setText("");
     setIsSending(true);
     try {
@@ -493,8 +651,10 @@ export default function GroupChatScreen() {
         type: "text",
         content: trimmed,
         replyTo: replyToMessageId || undefined,
+        metadata: nextMetadata,
       });
       setReplyToMessageId(null);
+      setAnnouncementMode(false);
     } catch {
       GrayToast("Không thể gửi tin nhắn");
     } finally {
@@ -820,7 +980,12 @@ export default function GroupChatScreen() {
   };
 
   const renderItem = ({ item }: { item: Message }) => {
+    if (isPinHistoryMessage(item)) {
+      return <PinHistoryBanner message={item} />;
+    }
+
     const isMe = item.senderId === user?.id;
+    const isAnnouncement = Boolean(item.metadata?.isAnnouncement);
     const replyPreview = resolveReplyPreview((item as any).replyTo, convMessages);
     const reactions = (item.reactions || []).reduce<Record<string, number>>(
       (acc, r) => {
@@ -841,12 +1006,12 @@ export default function GroupChatScreen() {
           marginVertical: 3,
         }}
       >
-        {!isMe && <Avatar name={item.senderName || "?"} size={32} />}
-        <View style={{ maxWidth: "72%", marginLeft: isMe ? 0 : 8 }}>
+        {!isMe && <Avatar name={item.senderName || "?"} size={36} />}
+        <View style={{ maxWidth: "76%", marginLeft: isMe ? 0 : 8 }}>
           {!isMe && (
             <Text
               style={{
-                fontSize: 11,
+                fontSize: 12,
                 color: "#6B7280",
                 marginBottom: 2,
                 marginLeft: 4,
@@ -857,10 +1022,16 @@ export default function GroupChatScreen() {
           )}
           <View
             style={{
-              backgroundColor: isMe ? "#0068FF" : "#F3F4F6",
-              borderRadius: 18,
-              paddingHorizontal: 12,
-              paddingVertical: 8,
+              backgroundColor: isAnnouncement
+                ? "#FFF7E6"
+                : isMe
+                  ? "#0068FF"
+                  : "#F3F4F6",
+              borderRadius: 20,
+              paddingHorizontal: 13,
+              paddingVertical: 9,
+              borderWidth: isAnnouncement ? 1 : 0,
+              borderColor: isAnnouncement ? "#F5C24B" : "transparent",
             }}
           >
             {replyPreview && !item.isDeleted && (
@@ -870,15 +1041,23 @@ export default function GroupChatScreen() {
                   paddingHorizontal: 11,
                   paddingVertical: 9,
                   borderRadius: 14,
-                  backgroundColor: isMe ? "#EAF2FF" : "#FFFFFF",
+                  backgroundColor: isAnnouncement
+                    ? "#FFFDF7"
+                    : isMe
+                      ? "#EAF2FF"
+                      : "#FFFFFF",
                   borderWidth: 1,
-                  borderColor: isMe ? "#9DBDFF" : "#D8E6FF",
+                  borderColor: isAnnouncement
+                    ? "#F7D98B"
+                    : isMe
+                      ? "#9DBDFF"
+                      : "#D8E6FF",
                 }}
               >
                 <Text
                   style={{
                     color: "#2563EB",
-                    fontSize: 11,
+                    fontSize: 12,
                     fontWeight: "700",
                   }}
                 >
@@ -889,8 +1068,8 @@ export default function GroupChatScreen() {
                   style={{
                     marginTop: 3,
                     color: "#64748B",
-                    fontSize: 12,
-                    lineHeight: 17,
+                    fontSize: 13,
+                    lineHeight: 18,
                   }}
                 >
                   {replyPreview.content}
@@ -909,7 +1088,7 @@ export default function GroupChatScreen() {
             ) : item.type === "sticker" ? (
               <Image
                 source={{ uri: String(item.content || "") }}
-                style={{ width: 100, height: 100 }}
+                style={{ width: 112, height: 112 }}
                 resizeMode="contain"
               />
             ) : item.type === "voice" ? (
@@ -926,16 +1105,44 @@ export default function GroupChatScreen() {
                     ? (item.content as any).duration || 0
                     : 0
                 }
-                textColor={isMe ? "#fff" : "#111827"}
+                textColor={isAnnouncement ? "#111827" : isMe ? "#fff" : "#111827"}
               />
             ) : (
-              <Text
-                style={{ color: isMe ? "#fff" : "#111827", lineHeight: 20 }}
-              >
-                {typeof item.content === "string"
-                  ? item.content
-                  : String((item.content as any)?.text || "")}
-              </Text>
+              <View>
+                {isAnnouncement && (
+                  <View
+                    style={{
+                      alignSelf: "flex-start",
+                      paddingHorizontal: 12,
+                      paddingVertical: 5,
+                      borderRadius: 999,
+                      backgroundColor: "#FDE9A9",
+                      marginBottom: 8,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color: "#9A5B00",
+                        fontSize: 13,
+                        fontWeight: "700",
+                      }}
+                    >
+                      Thong bao
+                    </Text>
+                  </View>
+                )}
+                <Text
+                  style={{
+                    color: isAnnouncement ? "#111827" : isMe ? "#fff" : "#111827",
+                    fontSize: 16,
+                    lineHeight: 22,
+                  }}
+                >
+                  {typeof item.content === "string"
+                    ? item.content
+                    : String((item.content as any)?.text || "")}
+                </Text>
+              </View>
             )}
           </View>
           <View
@@ -947,11 +1154,11 @@ export default function GroupChatScreen() {
               marginTop: 2,
             }}
           >
-            <Text style={{ fontSize: 10, color: "#9CA3AF" }}>
+            <Text style={{ fontSize: 11, color: "#9CA3AF" }}>
               {formatTime(item.createdAt)}
             </Text>
             {Object.entries(reactions).map(([e, c]) => (
-              <Text key={e} style={{ fontSize: 11 }}>
+              <Text key={e} style={{ fontSize: 12 }}>
                 {e}
                 {c > 1 ? c : ""}
               </Text>
@@ -1001,16 +1208,16 @@ export default function GroupChatScreen() {
           <Avatar
             uri={conversation?.avatar || group?.avatar}
             name={conversation?.name || group?.name || "Nhóm"}
-            size={40}
+            size={44}
           />
           <View style={{ marginLeft: 10, flex: 1 }}>
             <Text
               numberOfLines={1}
-              style={{ fontSize: 16, fontWeight: "700", color: "#111827" }}
+              style={{ fontSize: 18, fontWeight: "700", color: "#111827" }}
             >
               {conversation?.name || group?.name || "Nhóm"}
             </Text>
-            <Text style={{ fontSize: 12, color: "#6B7280", marginTop: 1 }}>
+            <Text style={{ fontSize: 13, color: "#6B7280", marginTop: 1 }}>
               {group?.membersCount || group?.members?.length || conversation?.participants?.length || 0} thành viên
             </Text>
           </View>
@@ -1130,7 +1337,7 @@ export default function GroupChatScreen() {
       ) : (
         <FlatList
           ref={flatListRef}
-          data={convMessages}
+          data={displayMessages}
           keyExtractor={(item) => item.id}
           renderItem={renderItem}
           style={{ flex: 1 }}
@@ -1214,9 +1421,9 @@ export default function GroupChatScreen() {
               justifyContent: "space-between",
               gap: 12,
               marginBottom: 8,
-              paddingHorizontal: 12,
-              paddingVertical: 9,
-              borderRadius: 14,
+              paddingHorizontal: 13,
+              paddingVertical: 10,
+              borderRadius: 15,
               backgroundColor: "#EFF6FF",
               borderWidth: 1,
               borderColor: "#BFDBFE",
@@ -1230,13 +1437,13 @@ export default function GroupChatScreen() {
               />
               <View style={{ marginLeft: 8, flex: 1 }}>
                 <Text
-                  style={{ color: "#2563EB", fontSize: 12, fontWeight: "700" }}
+                  style={{ color: "#2563EB", fontSize: 13, fontWeight: "700" }}
                 >
                   Trả lời {activeReplyPreview.senderName}
                 </Text>
                 <Text
                   numberOfLines={1}
-                  style={{ marginTop: 2, color: "#475569", fontSize: 12 }}
+                  style={{ marginTop: 2, color: "#475569", fontSize: 13 }}
                 >
                   {activeReplyPreview.content}
                 </Text>
@@ -1246,9 +1453,9 @@ export default function GroupChatScreen() {
             <TouchableOpacity
               onPress={() => setReplyToMessageId(null)}
               style={{
-                width: 28,
-                height: 28,
-                borderRadius: 14,
+                width: 30,
+                height: 30,
+                borderRadius: 15,
                 alignItems: "center",
                 justifyContent: "center",
                 backgroundColor: "#DBEAFE",
@@ -1264,22 +1471,49 @@ export default function GroupChatScreen() {
             flexDirection: "row",
             alignItems: "center",
             backgroundColor: "#ECEDEF",
-            borderRadius: 26,
-            minHeight: 50,
-            paddingLeft: 6,
-            paddingRight: 8,
+            borderRadius: 28,
+            minHeight: 54,
+            paddingLeft: 8,
+            paddingRight: 10,
+            borderWidth: announcementMode ? 1 : 0,
+            borderColor: announcementMode ? "#F5C24B" : "transparent",
           }}
         >
           <TouchableOpacity
             onPress={handleToggleStickerPicker}
             style={{
-              width: 36,
-              height: 36,
+              width: 40,
+              height: 40,
               alignItems: "center",
               justifyContent: "center",
             }}
           >
-            <Ionicons name="happy-outline" size={28} color="#7B8088" />
+            <Ionicons name="happy-outline" size={30} color="#7B8088" />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={() => {
+              if (!canSendAnnouncementInGroup) {
+                GrayToast("Ban khong co quyen gui thong bao trong nhom nay");
+                return;
+              }
+              setAnnouncementMode((prev) => !prev);
+            }}
+            style={{
+              width: 38,
+              height: 38,
+              alignItems: "center",
+              justifyContent: "center",
+              borderRadius: 19,
+              backgroundColor: announcementMode ? "#FDE9A9" : "transparent",
+              marginLeft: 2,
+            }}
+          >
+            <Ionicons
+              name="megaphone-outline"
+              size={21}
+              color={announcementMode ? "#C27A00" : "#7B8088"}
+            />
           </TouchableOpacity>
 
           <TextInput
@@ -1292,23 +1526,23 @@ export default function GroupChatScreen() {
               flex: 1,
               marginLeft: 4,
               marginRight: 8,
-              fontSize: 17,
+              fontSize: 18,
               color: "#343A40",
               maxHeight: 110,
-              paddingVertical: 8,
+              paddingVertical: 9,
             }}
           />
 
           <TouchableOpacity
             onPress={handlePickFile}
             style={{
-              width: 36,
-              height: 36,
+              width: 40,
+              height: 40,
               alignItems: "center",
               justifyContent: "center",
             }}
           >
-            <Ionicons name="ellipsis-horizontal" size={23} color="#7B8088" />
+            <Ionicons name="ellipsis-horizontal" size={24} color="#7B8088" />
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -1319,8 +1553,8 @@ export default function GroupChatScreen() {
             }
             disabled={isSending}
             style={{
-              width: 36,
-              height: 36,
+              width: 40,
+              height: 40,
               alignItems: "center",
               justifyContent: "center",
             }}
@@ -1330,7 +1564,7 @@ export default function GroupChatScreen() {
             ) : (
               <Ionicons
                 name={text.trim() ? "send" : isRecordingVoice ? "send" : "mic-outline"}
-                size={24}
+                size={25}
                 color={text.trim() || isRecordingVoice ? "#0068FF" : "#7B8088"}
               />
             )}

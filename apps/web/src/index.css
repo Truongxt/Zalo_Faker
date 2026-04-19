@@ -106,7 +106,7 @@
   }
 
   .message-sent {
-    @apply bg-primary-500 text-white rounded-br-md;
+    @apply bg-primary-500 text-black rounded-br-md;
   }
 
   .message-received {
