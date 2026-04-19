@@ -172,7 +172,8 @@ const UserService = {
       "status",
       "presenceStatus",
       "lastActiveAt",
-      "userName"
+      "userName",
+      "hiddenChatPin"
     ];
 
     for (const field of allowedFields) {
@@ -753,6 +754,13 @@ const UserService = {
   getLoginHistory: async (userId, limit = 20) => {
     if (!userId) throw new Error("userId is required");
     return await loginHistoryRepository.getByUserId(userId, limit);
+  },
+
+  comparePassword: async (userId, password) => {
+    if (!userId || !password) return false;
+    const user = await userRepository.getById(userId);
+    if (!user) return false;
+    return await bcrypt.compare(password + "nhan123@@", user.password);
   },
 
   registerComplete: async (registerData) => {
