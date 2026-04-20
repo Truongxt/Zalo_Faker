@@ -251,6 +251,15 @@ export default function ChatRoom() {
     date: string;
   } | null>(null);
 
+  // Active group call state (for "join later" banner)
+  const [activeGroupCall, setActiveGroupCall] = useState<{
+    roomId: string;
+    conversationId: string;
+    callType: 'audio' | 'video';
+    hostUserId: string;
+    participantCount: number;
+  } | null>(null);
+
   // Pagination state
   const pagination = useMessagePagination(conversationId);
 
@@ -448,6 +457,78 @@ export default function ChatRoom() {
         console.error("Load group settings error:", error);
       });
   }, [conversationId, activeConversation?.id, activeConversation?.type]);
+
+  // Check for active group call on this conversation
+  useEffect(() => {
+    if (!conversationId || activeConversation?.type !== 'group') {
+      setActiveGroupCall(null);
+      return;
+    }
+
+    const socket = socketService.getSocket();
+    if (!socket) return;
+
+    // Query server for any active call
+    socket.emit('group:check-active', { conversationId }, (res: any) => {
+      if (res?.success && res.room) {
+        setActiveGroupCall({
+          roomId: res.room.roomId,
+          conversationId: res.room.conversationId,
+          callType: res.room.callType || 'audio',
+          hostUserId: res.room.hostUserId,
+          participantCount: res.room.participants?.length || 0,
+        });
+      } else {
+        setActiveGroupCall(null);
+      }
+    });
+
+    // Listen for new incoming group call on this conversation
+    const handleGroupIncomingForBanner = (data: any) => {
+      if (String(data?.conversationId) !== String(conversationId)) return;
+      setActiveGroupCall({
+        roomId: data.roomId,
+        conversationId: data.conversationId,
+        callType: data.callType || 'audio',
+        hostUserId: data.hostUserId,
+        participantCount: data.participantCount || 0,
+      });
+    };
+
+    // Listen for room ended
+    const handleGroupRoomEnded = (data: any) => {
+      if (String(data?.conversationId) !== String(conversationId)) return;
+      setActiveGroupCall(null);
+    };
+
+    // Listen for participant changes to update count
+    const handleUserJoinedBanner = (data: any) => {
+      setActiveGroupCall((prev) => {
+        if (!prev || prev.roomId !== data?.roomId) return prev;
+        return { ...prev, participantCount: data.participantCount || prev.participantCount + 1 };
+      });
+    };
+
+    const handleUserLeftBanner = (data: any) => {
+      setActiveGroupCall((prev) => {
+        if (!prev || prev.roomId !== data?.roomId) return prev;
+        const newCount = data.participantCount ?? Math.max(0, prev.participantCount - 1);
+        return { ...prev, participantCount: newCount };
+      });
+    };
+
+    socket.on('group:incoming', handleGroupIncomingForBanner);
+    socket.on('group:room-ended', handleGroupRoomEnded);
+    socket.on('group:user-joined', handleUserJoinedBanner);
+    socket.on('group:user-left', handleUserLeftBanner);
+
+    return () => {
+      socket.off('group:incoming', handleGroupIncomingForBanner);
+      socket.off('group:room-ended', handleGroupRoomEnded);
+      socket.off('group:user-joined', handleUserJoinedBanner);
+      socket.off('group:user-left', handleUserLeftBanner);
+    };
+  }, [conversationId, activeConversation?.type]);
 
   // ✅ Vào phòng socket + lắng nghe tin nhắn realtime
   useEffect(() => {
@@ -2106,17 +2187,56 @@ export default function ChatRoom() {
     }).length;
   }, [conversations, otherUser?.userId, user?.id]);
 
+  const startGroupCallFlow = (callType: 'audio' | 'video') => {
+    if (!conversationId || !user) return;
+    const socket = socketService.getSocket();
+    if (!socket) return;
+
+    // Create room on server
+    socket.emit('group:create', { conversationId, callType }, (res: any) => {
+      if (!res?.success || !res.room) {
+        console.error('[GroupCall] Failed to create room:', res?.error);
+        return;
+      }
+
+      const { roomId } = res.room;
+
+      // Start the group call locally
+      useCallStore.getState().startGroupCall(
+        roomId,
+        conversationId,
+        callType,
+        true, // isHost
+        user.id,
+      );
+
+      // Invite all other participants in the conversation
+      const otherParticipantIds = (activeConversation?.participants || [])
+        .map((p) => String(p.userId))
+        .filter((uid) => uid !== String(user.id));
+
+      if (otherParticipantIds.length > 0) {
+        socket.emit('group:invite', { roomId, userIds: otherParticipantIds }, (inviteRes: any) => {
+          console.log('[GroupCall] Invite result:', inviteRes);
+        });
+      }
+
+      // Also emit legacy video:call-user for mobile compatibility
+      socket.emit('video:call-user', {
+        fromUserId: user.id,
+        conversationId,
+        callerName: user.fullName || 'Người dùng',
+        callerAvatar: user.avatarUrl || null,
+        callType,
+        isGroupCall: true,
+      });
+    });
+  };
+
   const handleStartVideoCall = () => {
     if (!conversationId || !user) return;
     if (activeConversation?.type === "group") {
-      useCallStore.getState().setOutgoingCall({
-        isCaller: true,
-        conversationId: conversationId,
-        callerName: activeConversation.name || "Nhóm",
-        callerAvatar: activeConversation.avatar || undefined,
-        callType: "video",
-        isGroupCall: true,
-      });
+      startGroupCallFlow('video');
       return;
     }
     if (!otherUser) return;
@@ -2133,14 +2253,7 @@ export default function ChatRoom() {
   const handleStartVoiceCall = () => {
     if (!conversationId || !user) return;
     if (activeConversation?.type === "group") {
-      useCallStore.getState().setOutgoingCall({
-        isCaller: true,
-        conversationId: conversationId,
-        callerName: activeConversation.name || "Nhóm",
-        callerAvatar: activeConversation.avatar || undefined,
-        callType: "audio",
-        isGroupCall: true,
-      });
+      startGroupCallFlow('audio');
       return;
     }
     if (!otherUser) return;
@@ -2447,6 +2560,44 @@ export default function ChatRoom() {
               </button>
             )}
           </div>
+        </div>
+      )}
+
+      {/* Active Group Call Banner */}
+      {activeGroupCall && useCallStore.getState().groupCall.callStatus === 'idle' && (
+        <div className="px-4 py-2.5 border-b border-green-200 dark:border-green-800 bg-green-50/90 dark:bg-green-900/20 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="relative flex-shrink-0">
+              <Phone className="w-4 h-4 text-green-600 dark:text-green-400" />
+              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-green-700 dark:text-green-300">
+                Cuộc gọi {activeGroupCall.callType === 'video' ? 'video' : 'thoại'} nhóm đang diễn ra
+              </p>
+              <p className="text-xs text-green-600 dark:text-green-400">
+                {activeGroupCall.participantCount > 0
+                  ? `${activeGroupCall.participantCount} người đang tham gia`
+                  : 'Đang chờ người tham gia'}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => {
+              useCallStore.getState().startGroupCall(
+                activeGroupCall.roomId,
+                activeGroupCall.conversationId,
+                activeGroupCall.callType,
+                false,
+                activeGroupCall.hostUserId,
+              );
+              setActiveGroupCall(null);
+            }}
+            className="flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-green-500 hover:bg-green-600 text-white text-sm font-medium transition-all transform hover:scale-105 shadow-md shadow-green-500/30"
+          >
+            <Phone className="w-3.5 h-3.5" />
+            Tham gia
+          </button>
         </div>
       )}
 

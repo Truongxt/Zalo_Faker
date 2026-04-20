@@ -59,11 +59,11 @@ const parseCallPayload = (content) => {
 
 const getCallPreviewText = (callPayload) => {
     const suffix = callPayload.callType === "video" ? " video" : ""
-    if (callPayload.status === "finished") return `Cuoc goi${suffix}`
-    if (callPayload.status === "missed") return `Cuoc goi nho${suffix}`
-    if (callPayload.status === "rejected") return "Cuoc goi bi tu choi"
-    if (callPayload.status === "cancelled") return "Cuoc goi da huy"
-    return callPayload.callType === "video" ? "Cuoc goi video" : "Cuoc goi"
+    if (callPayload.status === "finished") return `Cuộc gọi${suffix}`
+    if (callPayload.status === "missed") return `Cuộc gọi nhỡ${suffix}`
+    if (callPayload.status === "rejected") return "Cuộc gọi đã từ chối"
+    if (callPayload.status === "cancelled") return "Cuộc gọi đã hủy"
+    return callPayload.callType === "video" ? "Cuộc gọi video" : "Cuộc gọi"
 }
 
 const getLastMessageContent = ({ type, content, metadata }) => {
