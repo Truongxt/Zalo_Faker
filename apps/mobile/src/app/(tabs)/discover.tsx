@@ -32,7 +32,7 @@ const toThreadTitle = (question?: string) => {
   const normalized = String(question || "")
     .trim()
     .replace(/\s+/g, " ");
-  if (!normalized) return "Hoi thoai moi";
+  if (!normalized) return "Hội thoại mới";
   return normalized.length > 28 ? `${normalized.slice(0, 28)}...` : normalized;
 };
 
@@ -42,7 +42,7 @@ const buildConversationId = () =>
 const buildWelcomeMessage = (): LocalAIMessage => ({
   id: `welcome-ai-${Date.now()}`,
   role: "assistant",
-  text: "Xin chao, minh la AI Assistant. Ban co the hoi bat ky dieu gi lien quan den du lieu cua ban.",
+  text: "Xin chào, mình là AI Assistant. Bạn có thể hỏi bất kỳ điều gì liên quan đến dữ liệu của bạn.",
   createdAt: new Date().toISOString(),
 });
 
@@ -121,7 +121,7 @@ export default function DiscoverScreen() {
     setConversationTabs((prev) => [
       {
         id: newId,
-        title: "Hoi thoai moi",
+        title: "Hội thoại mới",
         lastAskedAt: now,
       },
       ...prev,
@@ -156,7 +156,7 @@ export default function DiscoverScreen() {
                 return [
                   {
                     id: fallbackId,
-                    title: "Hoi thoai moi",
+                    title: "Hội thoại mới",
                     lastAskedAt: new Date().toISOString(),
                   },
                 ];
@@ -213,7 +213,7 @@ export default function DiscoverScreen() {
           setConversationTabs([
             {
               id: fallbackId,
-              title: "Hoi thoai moi",
+              title: "Hội thoại mới",
               lastAskedAt: new Date().toISOString(),
             },
           ]);
@@ -270,7 +270,7 @@ export default function DiscoverScreen() {
           setConversationTabs([
             {
               id: fallbackId,
-              title: "Hoi thoai moi",
+              title: "Hội thoại mới",
               lastAskedAt: new Date().toISOString(),
             },
           ]);
@@ -291,7 +291,7 @@ export default function DiscoverScreen() {
         setConversationTabs([
           {
             id: fallbackId,
-            title: "Hoi thoai moi",
+            title: "Hội thoại mới",
             lastAskedAt: new Date().toISOString(),
           },
         ]);
@@ -357,19 +357,19 @@ export default function DiscoverScreen() {
       appendMessage({
         id: `ai-${Date.now()}`,
         role: "assistant",
-        text: result.answer || "Xin loi, minh chua the tra loi luc nay.",
+        text: result.answer || "Xin lỗi, mình chưa thể trả lời lúc này.",
         createdAt: new Date().toISOString(),
       });
     } catch (error: any) {
       const errorMessage =
         error?.response?.data?.message ||
         error?.message ||
-        "Khong the ket noi AI. Vui long thu lai.";
+        "Không thể kết nối AI. Vui lòng thử lại.";
 
       appendMessage({
         id: `ai-error-${Date.now()}`,
         role: "assistant",
-        text: `Loi: ${errorMessage}`,
+        text: `Lỗi: ${errorMessage}`,
         createdAt: new Date().toISOString(),
       });
     } finally {
@@ -494,8 +494,8 @@ export default function DiscoverScreen() {
             value={input}
             onChangeText={setInput}
             multiline
-            placeholder="Hoi AI ve thong tin cua ban..."
-            className="max-h-28 flex-1 py-2 text-base text-slate-900"
+            placeholder="Hỏi AI về thông tin của bạn..."
+            className="max-h-28 flex-1 py-1 text-base text-slate-900"
             editable={!isSending}
           />
 

@@ -47,9 +47,25 @@ type NormalizedContent = {
   callStatus?: string;
 };
 
+const looksLikeMediaUrl = (value: string): boolean => {
+  const normalized = value.trim();
+  if (!normalized) return false;
+
+  if (/^https?:\/\//i.test(normalized)) return true;
+  if (/^data:image\//i.test(normalized)) return true;
+  if (/^blob:/i.test(normalized)) return true;
+  if (/^\/(uploads|images|media|stickers)\//i.test(normalized)) return true;
+
+  return /\.(png|jpe?g|gif|webp|svg|avif)(\?.*)?$/i.test(normalized);
+};
+
 const normalizeContent = (rawContent: any): NormalizedContent => {
   if (typeof rawContent === "string") {
-    return { text: rawContent };
+    const mediaUrl = looksLikeMediaUrl(rawContent) ? rawContent : undefined;
+    return {
+      text: mediaUrl ? undefined : rawContent,
+      mediaUrl,
+    };
   }
 
   if (!rawContent || typeof rawContent !== "object") {

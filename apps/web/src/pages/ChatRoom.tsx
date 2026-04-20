@@ -48,6 +48,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import MessageBubble from "@/components/chat/MessageBubble";
+import PinHistoryBanner from "@/components/chat/PinHistoryBanner";
 import TypingIndicator from "@/components/chat/TypingIndicator";
 import StickerPicker from "@/components/chat/StickerPicker";
 import VirtualizedMessageList from "@/components/chat/VirtualizedMessageList";
@@ -75,6 +76,13 @@ import ForwardMessageModal from "@/components/chat/ForwardMessageModal";
 import BackgroundPickerModal from "@/components/chat/BackgroundPickerModal";
 import { useCallStore } from "@/stores/callStore";
 import { friendsService } from "@/services/friendsService";
+import {
+  appendPinHistoryEntry,
+  isPinHistoryMessage,
+  loadPinHistoryEntries,
+  mergeMessagesWithPinHistory,
+  type PinHistoryEntry,
+} from "@/lib/pinHistory";
 
 type InfoPanelSectionKey = "media" | "files" | "links";
 
@@ -140,6 +148,25 @@ const formatPanelFileSize = (size?: number) => {
   return `${(size / 1024).toFixed(0)} KB`;
 };
 
+const isImageBackground = (value?: string | null) =>
+  Boolean(value && /^(https?:\/\/|data:|blob:|\/)/i.test(value.trim()));
+
+const getSolidBackgroundColor = (value?: string | null) => {
+  const normalized = String(value || "").trim();
+  if (!normalized) return undefined;
+
+  if (/^linear-gradient/i.test(normalized)) {
+    const colors = normalized.match(/#(?:[0-9a-fA-F]{3}){1,2}/g);
+    return colors?.[0] || undefined;
+  }
+
+  if (/^(#|rgb|hsl)/i.test(normalized)) {
+    return normalized;
+  }
+
+  return undefined;
+};
+
 export default function ChatRoom() {
   const navigate = useNavigate();
   const { conversationId } = useParams<{ conversationId: string }>();
@@ -196,6 +223,9 @@ export default function ChatRoom() {
   const [showBackgroundPicker, setShowBackgroundPicker] = useState(false);
   const [announcementMode, setAnnouncementMode] = useState(false);
   const [isPinningMessage, setIsPinningMessage] = useState(false);
+  const [pinHistoryEntries, setPinHistoryEntries] = useState<PinHistoryEntry[]>(
+    [],
+  );
   const [pendingMediaList, setPendingMediaList] = useState<
     {
       file: File;
@@ -228,6 +258,7 @@ export default function ChatRoom() {
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const pinnedMessageRef = useRef<any>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -237,6 +268,10 @@ export default function ChatRoom() {
   const stickerPickerRef = useRef<HTMLDivElement>(null);
 
   const typing = conversationId ? typingUsers[conversationId] || [] : [];
+  const displayMessages = useMemo(
+    () => mergeMessagesWithPinHistory(messages, pinHistoryEntries),
+    [messages, pinHistoryEntries],
+  );
 
   const markMessageAsRead = useCallback(
     (messageId: string) => {
@@ -298,7 +333,20 @@ export default function ChatRoom() {
   // Scroll to bottom khi có tin nhắn mới
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [displayMessages]);
+
+  useEffect(() => {
+    pinnedMessageRef.current = activeConversation?.groupSettings?.pinnedMessage || null;
+  }, [activeConversation?.groupSettings?.pinnedMessage]);
+
+  useEffect(() => {
+    if (!conversationId) {
+      setPinHistoryEntries([]);
+      return;
+    }
+
+    setPinHistoryEntries(loadPinHistoryEntries(conversationId));
+  }, [conversationId]);
 
   // Load messages từ API lần đầu
   useEffect(() => {
@@ -1278,6 +1326,106 @@ export default function ChatRoom() {
     [activeConversation?.groupSettings, activeConversation?.type],
   );
 
+  const getPinnedMessagePreview = useCallback((message: any) => {
+    if (!message) return "Tin nhắn đã ghim";
+    if (message.metadata?.isAnnouncement) {
+      const announceText = String(message.content?.text || "").trim();
+      return announceText ? `[Thông báo] ${announceText}` : "[Thông báo]";
+    }
+
+    if (typeof message.content?.text === "string" && message.content.text.trim()) {
+      return message.content.text.trim();
+    }
+    if (
+      typeof message.content?.fileName === "string" &&
+      message.content.fileName.trim()
+    ) {
+      return `[File] ${message.content.fileName.trim()}`;
+    }
+
+    if (message.type === "image") return "[Hinh anh]";
+    if (message.type === "video") return "[Video]";
+    if (message.type === "voice") return "[Tin nhan thoai]";
+    if (message.type === "sticker") return "[Nhan dan]";
+    if (message.type === "file") return "[Tap tin]";
+    return "Tin nhan da ghim";
+  }, []);
+
+  const resolvePinActorName = useCallback(
+    (actorId: string) => {
+      const normalizedActorId = String(actorId || "").trim();
+      if (!normalizedActorId) return "User";
+
+      if (String(user?.id || "") === normalizedActorId) {
+        return String(user?.fullName || "User").trim() || "User";
+      }
+
+      const participantName = activeConversation?.participants?.find(
+        (participant) => String(participant.userId) === normalizedActorId,
+      )?.fullName;
+      if (typeof participantName === "string" && participantName.trim()) {
+        return participantName.trim();
+      }
+
+      return "User";
+    },
+    [activeConversation?.participants, user?.fullName, user?.id],
+  );
+
+  const appendPinnedHistory = useCallback(
+    (nextPinnedMessage: any | null, updatedBy?: string) => {
+      if (!conversationId) return;
+
+      const previousPinnedMessage = pinnedMessageRef.current;
+      const previousKey = previousPinnedMessage
+        ? `${String(previousPinnedMessage.messageId || "")}:${String(previousPinnedMessage.pinnedAt || "")}:${String(previousPinnedMessage.pinnedBy || "")}`
+        : "";
+      const nextKey = nextPinnedMessage
+        ? `${String(nextPinnedMessage.messageId || "")}:${String(nextPinnedMessage.pinnedAt || "")}:${String(nextPinnedMessage.pinnedBy || "")}`
+        : "";
+
+      if (previousKey === nextKey) return;
+
+      const normalizedActorId = String(
+        updatedBy || nextPinnedMessage?.pinnedBy || user?.id || "",
+      ).trim();
+      const action = nextPinnedMessage ? "pin" : "unpin";
+      const targetPinnedMessage = nextPinnedMessage || previousPinnedMessage;
+      const targetMessageId = String(
+        targetPinnedMessage?.messageId || "",
+      ).trim();
+      if (!targetMessageId) return;
+
+      const createdAt =
+        action === "pin" && String(nextPinnedMessage?.pinnedAt || "").trim()
+          ? String(nextPinnedMessage.pinnedAt)
+          : new Date().toISOString();
+      const eventKey =
+        action === "pin"
+          ? `pin:${conversationId}:${normalizedActorId}:${targetMessageId}:${String(nextPinnedMessage?.pinnedAt || "")}`
+          : `unpin:${conversationId}:${normalizedActorId}:${targetMessageId}:${String(previousPinnedMessage?.pinnedAt || "")}`;
+
+      const nextEntries = appendPinHistoryEntry({
+        eventKey,
+        conversationId,
+        actorId: normalizedActorId,
+        actorName: resolvePinActorName(normalizedActorId),
+        action,
+        previewText: getPinnedMessagePreview(targetPinnedMessage),
+        targetMessageId,
+        createdAt,
+      });
+
+      setPinHistoryEntries(nextEntries);
+    },
+    [
+      conversationId,
+      getPinnedMessagePreview,
+      resolvePinActorName,
+      user?.id,
+    ],
+  );
+
   const handlePinMessage = async (messageId: string) => {
     if (!conversationId || !activeConversation) return;
 
@@ -1302,12 +1450,10 @@ export default function ChatRoom() {
         result.group?.groupSettings?.pinnedMessage ||
         null;
 
+      appendPinnedHistory(nextPinned, user?.id);
       useChatStore.getState().updateConversation(conversationId, {
         groupSettings: buildPinnedSettings(nextPinned),
       });
-      socketService
-        .getSocket()
-        ?.emit("chat:sync_pinned_message", { conversationId });
       addToast("Đã ghim tin nhắn", "success", 2000);
     } catch (error: any) {
       addToast(error?.message || "Không thể ghim tin nhắn", "error", 4000);
@@ -1336,12 +1482,10 @@ export default function ChatRoom() {
         await unpinConversationMessage(conversationId);
       }
 
+      appendPinnedHistory(null, user?.id);
       useChatStore.getState().updateConversation(conversationId, {
         groupSettings: buildPinnedSettings(null),
       });
-      socketService
-        .getSocket()
-        ?.emit("chat:sync_pinned_message", { conversationId });
       addToast("Đã bỏ ghim tin nhắn", "success", 2000);
     } catch (error: any) {
       addToast(error?.message || "Không thể bỏ ghim tin nhắn", "error", 4000);
@@ -1349,6 +1493,36 @@ export default function ChatRoom() {
       setIsPinningMessage(false);
     }
   };
+
+  useEffect(() => {
+    if (!conversationId || !user?.id) return;
+
+    const socket = socketService.getSocket() || socketService.connect(user.id);
+    if (!socket) return;
+
+    const onPinnedMessage = ({
+      conversationId: incomingConversationId,
+      pinnedMessage: nextPinnedMessage,
+      updatedBy,
+    }: {
+      conversationId: string;
+      pinnedMessage: any | null;
+      updatedBy?: string;
+    }) => {
+      if (String(incomingConversationId) !== String(conversationId)) return;
+      appendPinnedHistory(nextPinnedMessage || null, updatedBy);
+      // Update conversation state to reflect pin/unpin changes from other users
+      useChatStore.getState().updateConversation(conversationId, {
+        groupSettings: buildPinnedSettings(nextPinnedMessage || null),
+      });
+    };
+
+    socket.on("chat:pinned_message", onPinnedMessage);
+
+    return () => {
+      socket.off("chat:pinned_message", onPinnedMessage);
+    };
+  }, [appendPinnedHistory, conversationId, user?.id]);
 
   const getOtherParticipant = () => {
     if (!activeConversation || activeConversation.type === "group") return null;
@@ -1566,6 +1740,10 @@ export default function ChatRoom() {
       : activeConversation?.type === "private";
   const pinnedMessage =
     activeConversation?.groupSettings?.pinnedMessage || null;
+  const conversationBackground = String(activeConversation?.background || "").trim();
+  const usesImageBackground = isImageBackground(conversationBackground);
+  const chatAreaBackgroundColor =
+    getSolidBackgroundColor(conversationBackground) || undefined;
 
   const handleUpdateNickname = async () => {
     if (!conversationId || !user) return;
@@ -2174,12 +2352,20 @@ export default function ChatRoom() {
       )}
 
       {/* Messages */}
-      <div className="flex-1 relative overflow-hidden flex flex-col">
+      <div
+        className="flex-1 relative overflow-hidden flex flex-col"
+        style={{
+          background:
+            !usesImageBackground && conversationBackground
+              ? conversationBackground
+              : chatAreaBackgroundColor,
+        }}
+      >
         {/* Custom Background */}
-        {activeConversation?.background && (
+        {usesImageBackground && (
           <div
             className="absolute inset-0 z-0 bg-cover bg-center pointer-events-none"
-            style={{ backgroundImage: `url(${activeConversation.background})` }}
+            style={{ backgroundImage: `url(${conversationBackground})` }}
           >
             <div className="absolute inset-0 bg-white/70 dark:bg-black/70" />
           </div>
@@ -2191,16 +2377,21 @@ export default function ChatRoom() {
           onReachTop={pagination.loadMore}
           className="relative z-10"
         >
-          {(() => {
-            const filteredMessages = messages.filter((msg) => {
-              if (!debouncedSearchQuery) return true;
+            {(() => {
+              const filteredMessages = displayMessages.filter((msg) => {
+                if (!debouncedSearchQuery) return true;
 
-              const query = debouncedSearchQuery.toLowerCase();
+                const query = debouncedSearchQuery.toLowerCase();
 
-              // Search text messages
-              if (msg.type === "text" && msg.content.text) {
-                return msg.content.text.toLowerCase().includes(query);
-              }
+                if (isPinHistoryMessage(msg)) {
+                  const bannerText = `${String((msg as any).metadata?.actorName || "")} ${String((msg as any).metadata?.previewText || "")}`.toLowerCase();
+                  return bannerText.includes(query);
+                }
+
+                // Search text messages
+                if (msg.type === "text" && msg.content.text) {
+                  return msg.content.text.toLowerCase().includes(query);
+                }
 
               // Search file names
               if (msg.type === "file" && msg.content.fileName) {
@@ -2235,10 +2426,15 @@ export default function ChatRoom() {
             return (
               <>
                 {filteredMessages.map((msg, index) => {
+                  if (isPinHistoryMessage(msg)) {
+                    return <PinHistoryBanner key={msg.id} message={msg} />;
+                  }
+
                   const isSent = msg.senderId === user?.id;
                   const showAvatar =
                     !isSent &&
                     (index === 0 ||
+                      isPinHistoryMessage(filteredMessages[index - 1] as any) ||
                       filteredMessages[index - 1].senderId !== msg.senderId);
                   const sender = activeConversation?.participants.find(
                     (p) => String(p.userId) === String(msg.senderId),

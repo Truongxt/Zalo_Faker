@@ -136,12 +136,26 @@ const parseCallPayload = (value: unknown): ParsedCallPayload | null => {
     return textCandidate ? parseCallPayload(textCandidate) : null
 }
 
+const looksLikeMediaUrl = (value: string): boolean => {
+    const normalized = value.trim()
+    if (!normalized) return false
+
+    if (/^https?:\/\//i.test(normalized)) return true
+    if (/^data:image\//i.test(normalized)) return true
+    if (/^blob:/i.test(normalized)) return true
+    if (/^\/(uploads|images|media|stickers)\//i.test(normalized)) return true
+
+    return /\.(png|jpe?g|gif|webp|svg|avif)(\?.*)?$/i.test(normalized)
+}
+
 const normalizeContent = (rawContent: any) => {
     const parsedCall = parseCallPayload(rawContent)
 
     if (typeof rawContent === 'string') {
+        const mediaUrl = looksLikeMediaUrl(rawContent) ? rawContent : undefined
         return {
-            text: rawContent,
+            text: mediaUrl ? undefined : rawContent,
+            mediaUrl,
             callType: parsedCall?.callType,
             callStatus: parsedCall?.callStatus,
             duration: parsedCall?.duration,
