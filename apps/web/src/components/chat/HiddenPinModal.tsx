@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { X, Lock, RefreshCw, KeyRound, ShieldCheck } from "lucide-react";
+import { X, RefreshCw, KeyRound, ShieldCheck } from "lucide-react";
 import { useAuthStore } from "@/stores/authStore";
 import authService from "@/services/auth";
 

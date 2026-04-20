@@ -34,8 +34,9 @@ import { GrayToast } from "@/components/ui";
 
 import { ChatOptionsModal } from "@/components/chat/ChatOptionsModal";
 import { PinHistoryBanner } from "@/components/chat/PinHistoryBanner";
+import { PollMessageCard } from "@/components/chat/PollMessageCard";
 import { ForwardMessageModal } from "@/components/chat/ForwardMessageModal";
-import type { Message } from "@/types";
+import type { Message, PollContent } from "@/types";
 import { API_URL } from "@/constants/config";
 import { STICKER_URLS } from "@/constants/stickers";
 import {
@@ -45,6 +46,7 @@ import {
   mergeMessagesWithPinHistory,
   type PinHistoryEntry,
 } from "@/lib/pinHistory";
+import { addPollOptionMessage, removePollOptionMessage, votePollMessage } from "@/services/chat";
 
 const REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "😡"];
 
@@ -146,6 +148,11 @@ const getSolidBackgroundColor = (value?: string | null) => {
 const getPinnedMessagePreview = (message: any) => {
   if (!message) return "Tin nhắn đã ghim";
 
+  if (message.type === "poll") {
+    const question = String(message.content?.question || "").trim();
+    return question ? `[Binh chon] ${question}` : "[Binh chon]";
+  }
+
   if (message.metadata?.isAnnouncement) {
     const announceText = String(message.content?.text || "").trim();
     return announceText ? `[Thông báo] ${announceText}` : "[Thông báo]";
@@ -196,6 +203,10 @@ const getMessagePreviewText = (message: Message | null | undefined) => {
   if (message.isDeleted) return "Tin nhắn đã thu hồi";
 
   switch (message.type) {
+    case "poll":
+      return String((message.content as PollContent | undefined)?.question || "").trim()
+        ? `[Binh chon] ${String((message.content as PollContent).question).trim()}`
+        : "[Binh chon]";
     case "image":
       return "[Hình ảnh]";
     case "video":
@@ -216,9 +227,9 @@ const getMessagePreviewText = (message: Message | null | undefined) => {
 
       const nestedText = String(
         (message.content as any)?.text ||
-          (message.content as any)?.message ||
-          (message.content as any)?.content ||
-          "",
+        (message.content as any)?.message ||
+        (message.content as any)?.content ||
+        "",
       ).trim();
 
       return nestedText || "Tin nhắn";
@@ -256,8 +267,8 @@ const resolveReplyPreview = (
     return {
       senderName:
         typeof replyTo === "object" &&
-        "senderName" in replyTo &&
-        replyTo.senderName
+          "senderName" in replyTo &&
+          replyTo.senderName
           ? replyTo.senderName
           : "Người dùng",
       content:
@@ -590,6 +601,11 @@ type MessageItemProps = {
   onLongPress: (msg: Message) => void;
   onOpenFilePreview: (target: FilePreviewTarget) => void;
   replyPreview?: ReplyPreview | null;
+  participants?: Array<{ userId: string; fullName?: string; nickname?: string }>;
+  currentUserId?: string | null;
+  onVotePoll: (messageId: string, optionIds: string[]) => Promise<void>;
+  onAddPollOption: (messageId: string, text: string) => Promise<void>;
+  onRemovePollOption: (messageId: string, optionId: string) => Promise<void>;
 };
 
 function MessageItem({
@@ -599,6 +615,11 @@ function MessageItem({
   onLongPress,
   onOpenFilePreview,
   replyPreview = null,
+  participants = [],
+  currentUserId,
+  onVotePoll,
+  onAddPollOption,
+  onRemovePollOption,
 }: MessageItemProps) {
   const [showVoiceTranscript, setShowVoiceTranscript] = useState(false);
   const isAnnouncement = Boolean((msg as any)?.metadata?.isAnnouncement);
@@ -613,26 +634,26 @@ function MessageItem({
   );
   const fallbackVoiceUrl =
     typeof msg.content === "string" &&
-    (/^https?:\/\//i.test(msg.content) || msg.content.startsWith("/"))
+      (/^https?:\/\//i.test(msg.content) || msg.content.startsWith("/"))
       ? msg.content
       : undefined;
   const contentVoiceUrl =
     msg.content && typeof msg.content === "object"
       ? String(
-          (msg.content as any).mediaUrl ||
-            (msg.content as any).url ||
-            (msg.content as any).fileUrl ||
-            "",
-        ).trim() || undefined
+        (msg.content as any).mediaUrl ||
+        (msg.content as any).url ||
+        (msg.content as any).fileUrl ||
+        "",
+      ).trim() || undefined
       : undefined;
   const fallbackVideoUrl =
     typeof msg.content === "string" &&
-    (/^https?:\/\//i.test(msg.content) || msg.content.startsWith("/"))
+      (/^https?:\/\//i.test(msg.content) || msg.content.startsWith("/"))
       ? msg.content
       : typeof msg.content === "object"
         ? String(
-            (msg.content as any).mediaUrl || (msg.content as any).url || "",
-          ).trim() || undefined
+          (msg.content as any).mediaUrl || (msg.content as any).url || "",
+        ).trim() || undefined
         : undefined;
 
   const voiceUrl = getFullMediaUrl(
@@ -646,9 +667,9 @@ function MessageItem({
       : undefined);
   const transcriptFromContent =
     typeof msg.content === "string" &&
-    msg.content.trim() &&
-    !/^https?:\/\//i.test(msg.content) &&
-    msg.content !== "Tin nhắn thoại"
+      msg.content.trim() &&
+      !/^https?:\/\//i.test(msg.content) &&
+      msg.content !== "Tin nhắn thoại"
       ? msg.content.trim()
       : "";
   const voiceTranscript =
@@ -764,6 +785,20 @@ function MessageItem({
     }
 
     switch (msg.type) {
+      case "poll":
+        return (
+          <PollMessageCard
+            messageId={msg.id}
+            content={msg.content as PollContent}
+            currentUserId={currentUserId}
+            participants={participants}
+            isMe={isMe}
+            textColor={textColor}
+            onVote={onVotePoll}
+            onAddOption={onAddPollOption}
+            onRemoveOption={onRemovePollOption}
+          />
+        );
       case "image":
         return (
           <Image
@@ -1234,43 +1269,43 @@ export default function ChatRoomScreen() {
   const canPinInGroup =
     conversation?.type === "group"
       ? (() => {
-          const roleRank: Record<string, number> = {
-            member: 1,
-            deputy: 2,
-            admin: 3,
-          };
-          const scopeRank: Record<string, number> = {
-            all: 1,
-            admin_deputy: 2,
-            admin: 3,
-          };
-          const currentRank = roleRank[myGroupRole] || 0;
-          const requiredRank = scopeRank[pinScope] || Number.MAX_SAFE_INTEGER;
-          return currentRank >= requiredRank;
-        })()
+        const roleRank: Record<string, number> = {
+          member: 1,
+          deputy: 2,
+          admin: 3,
+        };
+        const scopeRank: Record<string, number> = {
+          all: 1,
+          admin_deputy: 2,
+          admin: 3,
+        };
+        const currentRank = roleRank[myGroupRole] || 0;
+        const requiredRank = scopeRank[pinScope] || Number.MAX_SAFE_INTEGER;
+        return currentRank >= requiredRank;
+      })()
       : false;
   const announcementScope = String(
     conversation?.groupSettings?.permissions?.sendAnnouncement ||
-      "admin_deputy",
+    "admin_deputy",
   ).toLowerCase();
   const canSendAnnouncementInGroup =
     conversation?.type === "group"
       ? (() => {
-          const roleRank: Record<string, number> = {
-            member: 1,
-            deputy: 2,
-            admin: 3,
-          };
-          const scopeRank: Record<string, number> = {
-            all: 1,
-            admin_deputy: 2,
-            admin: 3,
-          };
-          const currentRank = roleRank[myGroupRole] || 0;
-          const requiredRank =
-            scopeRank[announcementScope] || Number.MAX_SAFE_INTEGER;
-          return currentRank >= requiredRank;
-        })()
+        const roleRank: Record<string, number> = {
+          member: 1,
+          deputy: 2,
+          admin: 3,
+        };
+        const scopeRank: Record<string, number> = {
+          all: 1,
+          admin_deputy: 2,
+          admin: 3,
+        };
+        const currentRank = roleRank[myGroupRole] || 0;
+        const requiredRank =
+          scopeRank[announcementScope] || Number.MAX_SAFE_INTEGER;
+        return currentRank >= requiredRank;
+      })()
       : false;
   const canPinMessage =
     conversation?.type === "group"
@@ -1292,6 +1327,10 @@ export default function ChatRoomScreen() {
 
   const getPinnedMessagePreview = useCallback((message: any) => {
     if (!message) return "Tin nhắn đã ghim";
+    if (message.type === "poll") {
+      const question = String(message.content?.question || "").trim();
+      return question ? `[Binh chon] ${question}` : "[Binh chon]";
+    }
     if (message.metadata?.isAnnouncement) {
       const announceText = String(message.content?.text || "").trim();
       return announceText ? `[Thông báo] ${announceText}` : "[Thông báo]";
@@ -1842,7 +1881,7 @@ export default function ChatRoomScreen() {
 
         const durationMillis =
           typeof statusBeforeStop?.durationMillis === "number" &&
-          Number.isFinite(statusBeforeStop.durationMillis)
+            Number.isFinite(statusBeforeStop.durationMillis)
             ? statusBeforeStop.durationMillis
             : voiceRecordingSeconds * 1000;
 
@@ -2097,6 +2136,79 @@ export default function ChatRoomScreen() {
     }
   };
 
+  const handleVotePoll = useCallback(
+    async (messageId: string, optionIds: string[]) => {
+      try {
+        const updated = await votePollMessage(messageId, optionIds);
+        useChatStore
+          .getState()
+          .updateMessage(String(updated.conversationId), String(updated.id), updated);
+        GrayToast("Đã cập nhật bình chọn");
+      } catch (error: any) {
+        GrayToast(error?.message || "Không thể cập nhật bình chọn");
+        throw error;
+      }
+    },
+    [],
+  );
+
+  const handleAddPollOption = useCallback(
+    async (messageId: string, text: string) => {
+      try {
+        const updated = await addPollOptionMessage(messageId, text);
+        useChatStore
+          .getState()
+          .updateMessage(String(updated.conversationId), String(updated.id), updated);
+        GrayToast("Đã thêm phương án");
+      } catch (error: any) {
+        GrayToast(error?.message || "Không thể thêm phương án");
+        throw error;
+      }
+    },
+    [],
+  );
+
+  const handleRemovePollOption = useCallback(
+    async (messageId: string, optionId: string) => {
+      try {
+        const updated = await removePollOptionMessage(messageId, optionId);
+        useChatStore
+          .getState()
+          .updateMessage(String(updated.conversationId), String(updated.id), updated);
+        GrayToast("Đã xóa phương án");
+      } catch (error: any) {
+        GrayToast(error?.message || "Không thể xóa phương án");
+        throw error;
+      }
+    },
+    [],
+  );
+
+  const handleOpenMoreActions = useCallback(() => {
+    if (conversation?.type === "group") {
+      Alert.alert("Tùy chọn", undefined, [
+        {
+          text: "Tạo bình chọn",
+          onPress: () =>
+            router.push({
+              pathname: "/(tabs)/chat/create-poll",
+              params: { conversationId: String(convId) },
+            }),
+        },
+        {
+          text: "Gửi file",
+          onPress: () => {
+            void handlePickFile();
+          },
+        },
+        { text: "Hủy", style: "cancel" },
+      ]);
+      return;
+    }
+
+    void handlePickFile();
+  }, [conversation?.type, convId, handlePickFile, router]);
+
   const handleSummarizeConversationInDay = useCallback(async () => {
     if (!convId || isSummarizingConversation) return;
 
@@ -2251,7 +2363,7 @@ export default function ChatRoomScreen() {
       setTimeout(() => {
         handleUpdatePinnedMessage(null);
       }, 100);
-      
+
       GrayToast("Đã bỏ ghim tin nhắn");
     } catch (error: any) {
       GrayToast(error?.message || "Không thể bỏ ghim tin nhắn");
@@ -2277,11 +2389,11 @@ export default function ChatRoomScreen() {
       onPress?: () => void;
       style?: "default" | "destructive" | "cancel";
     }> = [
-      {
-        text: "Thả cảm xúc",
-        onPress: () => setShowReactions(true),
-      },
-    ];
+        {
+          text: "Thả cảm xúc",
+          onPress: () => setShowReactions(true),
+        },
+      ];
 
     if (isMe && !msg.isDeleted) {
       options.push({
@@ -2408,20 +2520,48 @@ export default function ChatRoomScreen() {
       text: string;
       style?: "default" | "cancel" | "destructive";
       onPress?: () => void;
-    }> = [
-      {
-        text: "Đổi hình nền",
-        onPress: () => setShowChatOptions(true),
-      },
-      {
-        text: "Thông tin hội thoại",
+    }> = [];
+
+    if (conversation?.type === "group") {
+      options.push({
+        text: "Quản trị nhóm",
         onPress: () =>
           router.push({
-            pathname: "/(tabs)/chat/conversation-info",
+            pathname: "/(tabs)/chat/group-management",
             params: { conversationId: String(convId) },
           }),
-      },
-    ];
+      });
+    }
+
+    options.push({
+      text: "Tìm tin nhắn",
+      onPress: () => GrayToast("Tính năng đang phát triển"),
+    });
+
+    options.push({
+      text: "Tắt thông báo hội thoại",
+      onPress: () => GrayToast("Tính năng đang phát triển"),
+    });
+
+    options.push({
+      text: "Thông tin hội thoại",
+      onPress: () =>
+        router.push({
+          pathname: "/(tabs)/chat/conversation-info",
+          params: { conversationId: String(convId) },
+        }),
+    });
+
+    options.push({
+      text: "Đổi hình nền",
+      onPress: () => setShowChatOptions(true),
+    });
+
+    options.push({
+      text: "Xóa lịch sử trò chuyện",
+      style: "destructive",
+      onPress: () => GrayToast("Tính năng đang phát triển"),
+    });
 
     if (conversation?.type === "private") {
       options.push({
@@ -2456,6 +2596,11 @@ export default function ChatRoomScreen() {
         onLongPress={handleLongPress}
         onOpenFilePreview={handleOpenFilePreview}
         replyPreview={resolveReplyPreview((item as any).replyTo, convMessages)}
+        participants={conversation?.participants || []}
+        currentUserId={user?.id}
+        onVotePoll={handleVotePoll}
+        onAddPollOption={handleAddPollOption}
+        onRemovePollOption={handleRemovePollOption}
       />
     );
   };
@@ -3008,7 +3153,7 @@ export default function ChatRoomScreen() {
           />
 
           <TouchableOpacity
-            onPress={handlePickFile}
+            onPress={handleOpenMoreActions}
             disabled={Boolean(isMessagingBlocked)}
             style={{
               width: 40,

@@ -17,7 +17,7 @@ interface MessageProps {
 const formatRelativeTime = (value: string) => {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
-    return "Vua xong";
+    return "Vừa xong";
   }
 
   return formatDistanceToNow(date, {
@@ -31,13 +31,13 @@ const formatAttachmentLabel = (
 ) => {
   switch (attachment.type) {
     case "image":
-      return attachment.name || "Hinh anh";
+      return attachment.name || "Hình anh";
     case "video":
       return attachment.name || "Video";
     case "voice":
-      return attachment.name || "Tin nhan giong noi";
+      return attachment.name || "Tin nhắn giọng nói";
     default:
-      return attachment.name || "Tap tin";
+      return attachment.name || "Tập tin";
   }
 };
 
@@ -100,7 +100,7 @@ export function Message({
   const reactions = message.reactions || [];
   const isForwarded = Boolean(message.metadata?.isForwarded);
   const content = message.isDeleted
-    ? "Tin nhan da bi thu hoi"
+    ? "Tin nhắn đã bị thu hồi"
     : message.content;
   const parsedCallPayload =
     parseCallPayload(content) ||
@@ -143,7 +143,7 @@ export function Message({
               className={`mb-2 rounded-2xl border px-3 py-2 ${isSent ? "border-blue-200 bg-blue-50" : "border-gray-200 bg-gray-100"}`}
             >
               <Text className="text-xs font-semibold text-gray-500">
-                Tra loi {message.replyTo.senderName}
+                Trả lời {message.replyTo.senderName}
               </Text>
               <Text className="mt-1 text-sm text-gray-600" numberOfLines={2}>
                 {message.replyTo.content}
@@ -171,7 +171,7 @@ export function Message({
 
                 const getStatusText = () => {
                   if (status === 'finished') return isSent ? 'Cuộc gọi đi' : 'Cuộc gọi đến';
-                  if (status === 'missed') return isSent ? 'Thue bao khong nhac may' : 'Cuộc gọi nhỡ';
+                  if (status === 'missed') return isSent ? 'Thuê bao không nhấc máy' : 'Cuộc gọi nhỡ';
                   if (status === 'rejected') return 'Cuộc gọi bị từ chối';
                   if (status === 'cancelled') return 'Cuộc gọi đã hủy';
                   return 'Cuộc gọi';
@@ -181,14 +181,14 @@ export function Message({
 
                 return (
                   <View className="flex-row items-center gap-3 py-1">
-                    <View 
+                    <View
                       className="w-10 h-10 rounded-full items-center justify-center"
                       style={{ backgroundColor: isMissed ? '#fee2e2' : '#dbeafe' }}
                     >
-                      <Ionicons 
-                        name={isVideo ? "videocam" : "call"} 
-                        size={20} 
-                        color={isMissed ? "#ef4444" : "#3b82f6"} 
+                      <Ionicons
+                        name={isVideo ? "videocam" : "call"}
+                        size={20}
+                        color={isMissed ? "#ef4444" : "#3b82f6"}
                       />
                     </View>
                     <View>
@@ -221,7 +221,7 @@ export function Message({
                   className={`text-[15px] leading-5 ${message.isDeleted ? "italic text-gray-500" : ""}`}
                   style={{ color: bubbleTextColor }}
                 >
-                  {content || "Khong co noi dung"}
+                  {content || "Không có nội dung"}
                 </Text>
               </>
             )}
@@ -250,7 +250,7 @@ export function Message({
               className={`mt-2 flex-row items-center ${isSent ? "justify-end" : "justify-start"}`}
             >
               {message.isEdited && !message.isDeleted ? (
-                <Text className="text-[11px] text-gray-500">Da chinh sua</Text>
+                <Text className="text-[11px] text-gray-500">Đã chỉnh sửa</Text>
               ) : null}
             </View>
           </View>

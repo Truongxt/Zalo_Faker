@@ -114,6 +114,8 @@ const getReplyPreviewText = (message: Message | null | undefined): string => {
   if (message.isDeleted) return "Tin nhan da thu hoi";
 
   switch (message.type) {
+    case "poll":
+      return String((message.content as any)?.question || "").trim() || "[Binh chon]";
     case "image":
       return "[Hinh anh]";
     case "video":
@@ -142,6 +144,16 @@ const getReplyPreviewText = (message: Message | null | undefined): string => {
       return "Tin nhan";
     }
   }
+};
+
+const getConversationPreviewText = (message: Message): string => {
+  if (message.type === "poll") {
+    return String((message.content as any)?.question || "").trim()
+      ? `[Binh chon] ${String((message.content as any).question).trim()}`
+      : "[Binh chon]";
+  }
+
+  return getReplyPreviewText(message);
 };
 
 const normalizeReplyTo = (
@@ -249,7 +261,14 @@ const normalizeMessage = (msg: any): Message => {
 
   const parsedCallPayload = parseCallPayload(rawContent);
   let normalizedContent: any = contentText;
-  if (type === "call") {
+  if (
+    type === "poll" &&
+    rawContent &&
+    typeof rawContent === "object" &&
+    !Array.isArray(rawContent)
+  ) {
+    normalizedContent = rawContent;
+  } else if (type === "call") {
     normalizedContent = parsedCallPayload || rawContent || "";
   } else if (!normalizedContent) {
     if (type === "voice") normalizedContent = "Tin nhan thoai";
@@ -289,6 +308,29 @@ const toServerContent = (type: Message["type"], content: string) => {
   return { mediaUrl: content };
 };
 
+export async function uploadFile(
+  uri: string,
+  name: string,
+  mimeType: string,
+  accessToken: string | null,
+): Promise<string> {
+  const formData = new FormData();
+  formData.append("file", { uri, name, type: mimeType } as any);
+
+  const response = await fetch(`${API_URL}/api/upload`, {
+    method: "POST",
+    headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+    body: formData,
+  });
+
+  if (!response.ok) {
+    throw new Error("Upload that bai");
+  }
+
+  const data = await response.json();
+  return data.url as string;
+}
+
 export const chatService = {
   init() {
     if (isRealtimeInitialized) return;
@@ -304,7 +346,7 @@ export const chatService = {
 
       updateConversation(message.conversationId, {
         lastMessage: {
-          content: message.content || "[Media]",
+          content: getConversationPreviewText(message),
           type: message.type,
           senderId: message.senderId,
           senderName: message.senderName,
@@ -342,6 +384,12 @@ export const chatService = {
           break;
         }
       }
+    });
+
+    socket.on("chat:message_updated", ({ conversationId, message }: { conversationId: string; message: any }) => {
+      if (!conversationId || !message) return;
+      const normalized = normalizeMessage(message);
+      useChatStore.getState().updateMessage(conversationId, normalized.id, normalized);
     });
   },
 
@@ -398,7 +446,7 @@ export const chatService = {
       replyTo?: string;
       metadata?: any;
     },
-  ) {
+  ): Promise<Message | undefined> {
     const { accessToken, user } = useAuthStore.getState();
     const { addMessage, updateMessage, removeMessage, messages } = useChatStore.getState();
 
@@ -447,6 +495,7 @@ export const chatService = {
     };
 
     if (canUseSocket) {
+      let savedMessage: Message | undefined;
       await new Promise<void>((resolve, reject) => {
         socketService.emit(
           "chat:send",
@@ -455,6 +504,7 @@ export const chatService = {
             if (ack?.success && ack.message) {
               const saved = normalizeMessage(ack.message);
               updateMessage(conversationId, tempMessage.id, saved);
+              savedMessage = saved;
               resolve();
             } else {
               console.error("chat:send ack failed:", ack);
@@ -464,7 +514,7 @@ export const chatService = {
           },
         );
       });
-      return;
+      return savedMessage;
     }
 
     try {
@@ -477,6 +527,7 @@ export const chatService = {
       });
       const saved = normalizeMessage(response.data);
       updateMessage(conversationId, tempMessage.id, saved);
+      return saved;
     } catch (error) {
       console.error("Failed to send message:", error);
       removeMessage(conversationId, tempMessage.id);
@@ -533,3 +584,33 @@ export const chatService = {
 };
 
 export default chatService;
+
+export async function votePollMessage(
+  messageId: string,
+  optionIds: string[],
+): Promise<Message> {
+  const response = await apiClient.post(`/api/messages/${messageId}/poll/vote`, {
+    optionIds,
+  });
+  return normalizeMessage(response.data);
+}
+
+export async function addPollOptionMessage(
+  messageId: string,
+  text: string,
+): Promise<Message> {
+  const response = await apiClient.post(`/api/messages/${messageId}/poll/options`, {
+    text,
+  });
+  return normalizeMessage(response.data);
+}
+
+export async function removePollOptionMessage(
+  messageId: string,
+  optionId: string,
+): Promise<Message> {
+  const response = await apiClient.delete(
+    `/api/messages/${messageId}/poll/options/${optionId}`,
+  );
+  return normalizeMessage(response.data);
+}

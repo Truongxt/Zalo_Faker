@@ -46,6 +46,7 @@ import {
   Link2,
   ChevronDown,
   ChevronRight,
+  BarChart3,
 } from "lucide-react";
 import MessageBubble from "@/components/chat/MessageBubble";
 import PinHistoryBanner from "@/components/chat/PinHistoryBanner";
@@ -70,10 +71,14 @@ import {
   updateConversationBackground,
   uploadMedia,
   sendMessage as sendMessageApi,
+  votePoll,
+  addPollOption,
+  removePollOption,
 } from "@/services/api";
 import GroupManagementModal from "@/components/chat/GroupManagementModal";
 import ForwardMessageModal from "@/components/chat/ForwardMessageModal";
 import BackgroundPickerModal from "@/components/chat/BackgroundPickerModal";
+import PollComposerModal from "@/components/chat/PollComposerModal";
 import { useCallStore } from "@/stores/callStore";
 import { friendsService } from "@/services/friendsService";
 import {
@@ -219,6 +224,7 @@ export default function ChatRoom() {
   const [searchMessageQuery, setSearchMessageQuery] = useState("");
   const debouncedSearchQuery = useDebounce(searchMessageQuery, 300);
   const [showGroupManagement, setShowGroupManagement] = useState(false);
+  const [showPollComposer, setShowPollComposer] = useState(false);
   const [forwardMessage, setForwardMessage] = useState<Message | null>(null);
   const [showBackgroundPicker, setShowBackgroundPicker] = useState(false);
   const [announcementMode, setAnnouncementMode] = useState(false);
@@ -352,7 +358,10 @@ export default function ChatRoom() {
   useEffect(() => {
     if (!conversationId) return;
     const msgs = useChatStore.getState().messages[conversationId] || [];
-    if (msgs.length === 0) {
+    const hasBrokenPollCache = msgs.some(
+      (msg) => msg.type === "poll" && !msg.content?.poll,
+    );
+    if (msgs.length === 0 || hasBrokenPollCache) {
       getMessages(conversationId)
         .then((data) => setMessages(conversationId, data))
         .catch((err) => console.error("Load messages error:", err));
@@ -1308,6 +1317,132 @@ export default function ChatRoom() {
     });
   };
 
+  const handleSubmitPoll = useCallback(
+    async (values: {
+      question: string;
+      options: string[];
+      pinToConversation: boolean;
+      anonymousVoters: boolean;
+      hideResultsUntilVote: boolean;
+      allowMultipleChoices: boolean;
+      allowAddOptions: boolean;
+      expiresAt: string | null;
+    }) => {
+      if (!conversationId || !activeConversation || activeConversation.type !== "group") {
+        addToast("Chỉ tạo được bình chọn trong nhóm", "error", 3000);
+        return;
+      }
+
+      const role = String(
+        activeConversation.participants.find(
+          (participant) => String(participant.userId) === String(user?.id),
+        )?.role || "member",
+      ).toLowerCase();
+      const pinScope = String(
+        activeConversation.groupSettings?.permissions?.pinMessage || "admin_deputy",
+      ).toLowerCase();
+      const roleRank: Record<string, number> = {
+        member: 1,
+        deputy: 2,
+        admin: 3,
+      };
+      const scopeRank: Record<string, number> = {
+        all: 1,
+        admin_deputy: 2,
+        admin: 3,
+      };
+      const canPinCreatedPoll =
+        (roleRank[role] || 0) >= (scopeRank[pinScope] || Number.MAX_SAFE_INTEGER);
+
+      try {
+        const saved = await sendMessageApi({
+          conversationId,
+          type: "poll",
+          content: {
+            question: values.question,
+            options: values.options.map((text) => ({ text })),
+            settings: {
+              anonymousVoters: values.anonymousVoters,
+              hideResultsUntilVote: values.hideResultsUntilVote,
+              allowMultipleChoices: values.allowMultipleChoices,
+              allowAddOptions: values.allowAddOptions,
+              expiresAt: values.expiresAt,
+            },
+          },
+        });
+
+        addMessage(conversationId, normalizeMessage(saved));
+
+        if (values.pinToConversation && canPinCreatedPoll) {
+          try {
+            await pinGroupMessage(conversationId, saved.id);
+          } catch (error) {
+            console.error("Pin poll error:", error);
+            addToast("Đã tạo bình chọn nhưng không thể ghim bình chọn", "warning", 3200);
+          }
+        }
+
+        addToast("Đã tạo bình chọn", "success", 2500);
+      } catch (error) {
+        console.error("Create poll error:", error);
+        addToast("Không thể tạo bình chọn lúc này", "error", 3200);
+        throw error;
+      }
+    },
+    [activeConversation, addMessage, addToast, conversationId, user?.id],
+  );
+
+  const handleVotePoll = useCallback(
+    async (messageId: string, optionIds: string[]) => {
+      try {
+        const updated = await votePoll(messageId, optionIds);
+        useChatStore
+          .getState()
+          .updateMessage(String(updated.conversationId), String(updated.id), updated);
+        addToast("Đã cập nhật bình chọn", "success", 2200);
+      } catch (error) {
+        console.error("Vote poll error:", error);
+        addToast("Không thể cập nhật bình chọn", "error", 3200);
+        throw error;
+      }
+    },
+    [addToast],
+  );
+
+  const handleAddPollOption = useCallback(
+    async (messageId: string, text: string) => {
+      try {
+        const updated = await addPollOption(messageId, text);
+        useChatStore
+          .getState()
+          .updateMessage(String(updated.conversationId), String(updated.id), updated);
+        addToast("Đã thêm phương án", "success", 2200);
+      } catch (error) {
+        console.error("Add poll option error:", error);
+        addToast("Không thể thêm phương án", "error", 3200);
+        throw error;
+      }
+    },
+    [addToast],
+  );
+
+  const handleRemovePollOption = useCallback(
+    async (messageId: string, optionId: string) => {
+      try {
+        const updated = await removePollOption(messageId, optionId);
+        useChatStore
+          .getState()
+          .updateMessage(String(updated.conversationId), String(updated.id), updated);
+        addToast("Đã xóa phương án", "success", 2200);
+      } catch (error) {
+        console.error("Remove poll option error:", error);
+        addToast("Không thể xóa phương án", "error", 3200);
+        throw error;
+      }
+    },
+    [addToast],
+  );
+
   const buildPinnedSettings = useCallback(
     (nextPinned: any) => ({
       ...(activeConversation?.groupSettings || {
@@ -1343,12 +1478,12 @@ export default function ChatRoom() {
       return `[File] ${message.content.fileName.trim()}`;
     }
 
-    if (message.type === "image") return "[Hinh anh]";
+    if (message.type === "image") return "[Hình ảnh]";
     if (message.type === "video") return "[Video]";
-    if (message.type === "voice") return "[Tin nhan thoai]";
-    if (message.type === "sticker") return "[Nhan dan]";
-    if (message.type === "file") return "[Tap tin]";
-    return "Tin nhan da ghim";
+    if (message.type === "voice") return "[Tin nhắn thoại]";
+    if (message.type === "sticker") return "[Nhãn dán]";
+    if (message.type === "file") return "[Tập tin]";
+    return "Tin nhắn đã ghim";
   }, []);
 
   const resolvePinActorName = useCallback(
@@ -2324,17 +2459,17 @@ export default function ChatRoom() {
                 {pinnedMessage.metadata?.isAnnouncement
                   ? `[Thông báo] ${pinnedMessage.content?.text || ""}`.trim()
                   : pinnedMessage.content?.text ||
-                    (pinnedMessage.type === "image"
-                      ? "[Hình ảnh]"
-                      : pinnedMessage.type === "video"
-                        ? "[Video]"
-                        : pinnedMessage.type === "voice"
-                          ? "[Tin nhắn thoại]"
-                          : pinnedMessage.type === "sticker"
-                            ? "[Nhãn dán]"
-                            : pinnedMessage.content?.fileName
-                              ? `[File] ${pinnedMessage.content.fileName}`
-                              : "[Tin nhắn]")}
+                  (pinnedMessage.type === "image"
+                    ? "[Hình ảnh]"
+                    : pinnedMessage.type === "video"
+                      ? "[Video]"
+                      : pinnedMessage.type === "voice"
+                        ? "[Tin nhắn thoại]"
+                        : pinnedMessage.type === "sticker"
+                          ? "[Nhãn dán]"
+                          : pinnedMessage.content?.fileName
+                            ? `[File] ${pinnedMessage.content.fileName}`
+                            : "[Tin nhắn]")}
               </p>
             </div>
           </div>
@@ -2377,21 +2512,21 @@ export default function ChatRoom() {
           onReachTop={pagination.loadMore}
           className="relative z-10"
         >
-            {(() => {
-              const filteredMessages = displayMessages.filter((msg) => {
-                if (!debouncedSearchQuery) return true;
+          {(() => {
+            const filteredMessages = displayMessages.filter((msg) => {
+              if (!debouncedSearchQuery) return true;
 
-                const query = debouncedSearchQuery.toLowerCase();
+              const query = debouncedSearchQuery.toLowerCase();
 
-                if (isPinHistoryMessage(msg)) {
-                  const bannerText = `${String((msg as any).metadata?.actorName || "")} ${String((msg as any).metadata?.previewText || "")}`.toLowerCase();
-                  return bannerText.includes(query);
-                }
+              if (isPinHistoryMessage(msg)) {
+                const bannerText = `${String((msg as any).metadata?.actorName || "")} ${String((msg as any).metadata?.previewText || "")}`.toLowerCase();
+                return bannerText.includes(query);
+              }
 
-                // Search text messages
-                if (msg.type === "text" && msg.content.text) {
-                  return msg.content.text.toLowerCase().includes(query);
-                }
+              // Search text messages
+              if (msg.type === "text" && msg.content.text) {
+                return msg.content.text.toLowerCase().includes(query);
+              }
 
               // Search file names
               if (msg.type === "file" && msg.content.fileName) {
@@ -2456,18 +2591,18 @@ export default function ChatRoom() {
                       replySenderName={
                         msg.replyTo
                           ? (() => {
-                              const repliedMsg = messages.find(
-                                (m) => m.id === msg.replyTo,
+                            const repliedMsg = messages.find(
+                              (m) => m.id === msg.replyTo,
+                            );
+                            if (!repliedMsg) return undefined;
+                            const repliedSender =
+                              activeConversation?.participants.find(
+                                (p) =>
+                                  String(p.userId) ===
+                                  String(repliedMsg.senderId),
                               );
-                              if (!repliedMsg) return undefined;
-                              const repliedSender =
-                                activeConversation?.participants.find(
-                                  (p) =>
-                                    String(p.userId) ===
-                                    String(repliedMsg.senderId),
-                                );
-                              return repliedSender?.fullName;
-                            })()
+                            return repliedSender?.fullName;
+                          })()
                           : undefined
                       }
                       onReply={() => setReplyTo(msg.id)}
@@ -2483,6 +2618,10 @@ export default function ChatRoom() {
                         })) ?? []
                       }
                       isGroupChat={activeConversation?.type === "group"}
+                      currentUserId={user?.id}
+                      onVotePoll={handleVotePoll}
+                      onAddPollOption={handleAddPollOption}
+                      onRemovePollOption={handleRemovePollOption}
                     />
                   );
                 })}
@@ -2501,8 +2640,8 @@ export default function ChatRoom() {
           const repliedMsg = messages.find((m) => m.id === replyTo);
           const repliedSender = repliedMsg
             ? activeConversation?.participants.find(
-                (p) => String(p.userId) === String(repliedMsg.senderId),
-              )
+              (p) => String(p.userId) === String(repliedMsg.senderId),
+            )
             : null;
           return (
             <div className="px-4 py-2 bg-gray-50 dark:bg-dark-300 border-t border-gray-200 dark:border-gray-800 flex items-center justify-between">
@@ -2782,15 +2921,26 @@ export default function ChatRoom() {
                     </button>
                   )}
 
+                  {activeConversation?.type === "group" && (
+                    <button
+                      type="button"
+                      onClick={() => setShowPollComposer(true)}
+                      disabled={isMessagingBlocked}
+                      className="rounded-full p-1 text-gray-500 transition-colors hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-gray-700"
+                      title="Tao binh chon"
+                    >
+                      <BarChart3 className="h-5 w-5" />
+                    </button>
+                  )}
+
                   <button
                     type="button"
                     onClick={handleSummarizeConversationInDay}
                     disabled={isSummarizingConversation || !conversationId}
-                    className={`p-1 rounded-full transition-colors ${
-                      dailySummary
-                        ? "bg-primary-100 text-primary-500"
-                        : "hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500"
-                    } disabled:opacity-40 disabled:cursor-not-allowed`}
+                    className={`p-1 rounded-full transition-colors ${dailySummary
+                      ? "bg-primary-100 text-primary-500"
+                      : "hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500"
+                      } disabled:opacity-40 disabled:cursor-not-allowed`}
                     title={
                       isSummarizingConversation
                         ? "Đang tóm tắt..."
@@ -2813,14 +2963,13 @@ export default function ChatRoom() {
                         (activeConversation?.type === "group" &&
                           !canSendMediaInGroup)
                       }
-                      className={`p-1 rounded-full transition-colors ${
-                        showStickerPicker
-                          ? "bg-primary-100 text-primary-500"
-                          : "hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500"
-                      } disabled:opacity-40 disabled:cursor-not-allowed`}
+                      className={`p-1 rounded-full transition-colors ${showStickerPicker
+                        ? "bg-primary-100 text-primary-500"
+                        : "hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500"
+                        } disabled:opacity-40 disabled:cursor-not-allowed`}
                       title={
                         activeConversation?.type === "group" &&
-                        !canSendMediaInGroup
+                          !canSendMediaInGroup
                           ? "Bạn không có quyền gửi media"
                           : "Nhãn dán"
                       }
@@ -2840,11 +2989,10 @@ export default function ChatRoom() {
                     type="button"
                     onClick={() => setShowEmojiPicker(!showEmojiPicker)}
                     disabled={isMessagingBlocked}
-                    className={`p-1 rounded-full transition-colors ${
-                      showEmojiPicker
-                        ? "bg-primary-100 text-primary-500"
-                        : "hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500"
-                    } disabled:opacity-40 disabled:cursor-not-allowed`}
+                    className={`p-1 rounded-full transition-colors ${showEmojiPicker
+                      ? "bg-primary-100 text-primary-500"
+                      : "hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500"
+                      } disabled:opacity-40 disabled:cursor-not-allowed`}
                   >
                     <SmileIcon className="w-5 h-5" />
                   </button>
@@ -3301,6 +3449,14 @@ export default function ChatRoom() {
         isOpen={showGroupManagement}
         onClose={() => setShowGroupManagement(false)}
         group={activeConversation}
+      />
+
+      <PollComposerModal
+        open={showPollComposer}
+        onClose={() => setShowPollComposer(false)}
+        onSubmit={handleSubmitPoll}
+        canPinInConversation={Boolean(canPinMessage)}
+        conversationName={activeConversation?.name}
       />
 
       <ForwardMessageModal
