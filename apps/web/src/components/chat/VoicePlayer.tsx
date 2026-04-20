@@ -11,8 +11,8 @@ export default function VoicePlayer({ src, duration: initialDuration }: VoicePla
     const [isPlaying, setIsPlaying] = useState(false)
     const [currentTime, setCurrentTime] = useState(0)
     const [duration, setDuration] = useState(initialDuration || 0)
-    const [isLoading, setIsLoading] = useState(true)
-    const [error, setError] = useState<string | null>(null)
+    const [isLoading, setIsLoading] = useState(!!src)
+    const [error, setError] = useState<string | null>(!src ? 'Cannot load audio' : null)
 
     // Format time helper
     const formatTime = (time: number) => {

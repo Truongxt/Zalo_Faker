@@ -101,8 +101,26 @@ const backfillVoiceTranscripts = async (messages = []) => {
 }
 
 const createMessage = async (message) => {
-    const enrichedMessage = await enrichVoiceMessageWithTranscript(message)
-    return await messageModel.createMessage(enrichedMessage)
+    let messageToSave = message;
+    if (String(message.type) === "voice") {
+        messageToSave = {
+            ...messageToSave,
+            metadata: {
+                ...(isObject(message.metadata) ? message.metadata : {}),
+                transcriptStatus: "processing"
+            }
+        };
+    }
+    const saved = await messageModel.createMessage(messageToSave);
+    
+    if (String(saved.type) === "voice") {
+        // Fire and forget transcript in background so we don't block socket/HTTP responses
+        enrichAndPersistTranscript(saved).catch(err => {
+            console.warn("Background transcript failed:", err?.message || err);
+        });
+    }
+
+    return saved;
 }
 
 const getMessage = async (id) => {
