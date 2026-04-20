@@ -10,10 +10,10 @@ type PreviewContent = {
 
 type PreviewMetadata =
   | {
-      isAnnouncement?: boolean;
-      isImportant?: boolean;
-      isForwarded?: boolean;
-    }
+    isAnnouncement?: boolean;
+    isImportant?: boolean;
+    isForwarded?: boolean;
+  }
   | null
   | undefined;
 
@@ -83,11 +83,11 @@ const parseCallPayload = (
 
 const getCallPreviewText = (payload: ParsedCallPayload) => {
   const suffix = payload.callType === "video" ? " video" : "";
-  if (payload.status === "finished") return `Cuoc goi${suffix}`;
-  if (payload.status === "missed") return `Cuoc goi nho${suffix}`;
-  if (payload.status === "rejected") return "Cuoc goi bi tu choi";
-  if (payload.status === "cancelled") return "Cuoc goi da huy";
-  return payload.callType === "video" ? "Cuoc goi video" : "Cuoc goi";
+  if (payload.status === "finished") return `Cuộc gọi${suffix}`;
+  if (payload.status === "missed") return `Cuộc gọi nhỡ${suffix}`;
+  if (payload.status === "rejected") return "Cuộc gọi đã từ chối";
+  if (payload.status === "cancelled") return "Cuộc gọi đã hủy";
+  return payload.callType === "video" ? "Cuộc gọi video" : "Cuộc gọi";
 };
 
 export const getMessagePreviewText = ({
@@ -110,8 +110,8 @@ export const getMessagePreviewText = ({
   const callPreview =
     type === "call" || callPayload
       ? getCallPreviewText(
-          callPayload || { callType: "audio", status: "finished" },
-        )
+        callPayload || { callType: "audio", status: "finished" },
+      )
       : "";
 
   const baseText =
@@ -126,8 +126,7 @@ export const getMessagePreviewText = ({
           : type === "sticker"
             ? "[Nhan dan]"
             : type === "file"
-              ? `[File] ${
-                  typeof content === "object" && content ? content.fileName || "" : ""
+              ? `[File] ${typeof content === "object" && content ? content.fileName || "" : ""
                 }`.trim()
               : "[Tin nhan]");
 

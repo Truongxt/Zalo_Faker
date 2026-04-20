@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Header } from "@/components/ui";
 import { Colors } from "@/constants/colors";
 import { socketService } from "@/lib/socket";
+import { groupCallInviteStore } from "@/lib/groupCallInviteStore";
 import { useAuthStore } from "@/stores/authStore";
 
 type MenuItem = {
@@ -65,6 +66,20 @@ export default function TabsLayout() {
       const callerName = data?.callerName || "Nguoi dung";
       const callTypeLabel = data?.callType === "video" ? "video" : "thoai";
       const isGroupCall = data?.isGroupCall === true;
+      const conversationId = String(data?.conversationId || "");
+      const roomId = String(data?.roomId || "");
+
+      if (isGroupCall && conversationId && roomId) {
+        groupCallInviteStore.set({
+          conversationId,
+          roomId,
+          callType: data?.callType === "video" ? "video" : "audio",
+          hostUserId: String(data?.hostUserId || data?.fromUserId || ""),
+          callerName: String(callerName || ""),
+          callerAvatar: data?.callerAvatar || null,
+          updatedAt: Date.now(),
+        });
+      }
 
       Alert.alert(
         "Cuoc goi den",
@@ -74,11 +89,13 @@ export default function TabsLayout() {
             text: "Tu choi",
             style: "cancel",
             onPress: () => {
-              socketService.emit("video:reject-call", {
-                toUserId: isGroupCall ? undefined : data?.fromUserId,
-                conversationId: data?.conversationId,
-                isGroupCall,
-              });
+              if (!isGroupCall) {
+                socketService.emit("video:reject-call", {
+                  toUserId: data?.fromUserId,
+                  conversationId: data?.conversationId,
+                  isGroupCall: false,
+                });
+              }
               incomingHandledRef.current = null;
             },
           },
@@ -91,16 +108,17 @@ export default function TabsLayout() {
                 params: {
                   callId,
                   callType: data?.callType || "audio",
-                  conversationId: String(data?.conversationId || ""),
-                  fromUserId: String(data?.fromUserId || ""),
+                  conversationId,
+                  fromUserId: String(data?.fromUserId || data?.hostUserId || ""),
                   toUserId: String(user.id),
                   toUserName: user.fullName || "",
                   toUserAvatar: user.avatarUrl || "",
                   callerName: callerName,
                   callerAvatar: data?.callerAvatar || "",
                   isCaller: "false",
-                  autoAccept: "true",
+                  autoAccept: isGroupCall ? "false" : "true",
                   isGroupCall: isGroupCall ? "true" : "false",
+                  roomId,
                 },
               });
               incomingHandledRef.current = null;
@@ -110,9 +128,21 @@ export default function TabsLayout() {
       );
     };
 
+    // Handle new-style group call invite (from web clients using group:create + group:invite)
+    const handleGroupIncoming = (data: any) => {
+      // Convert to the same format as video:incoming-call
+      handleIncomingCall({
+        ...data,
+        fromUserId: data?.hostUserId,
+        isGroupCall: true,
+      });
+    };
+
     socket.on("video:incoming-call", handleIncomingCall);
+    socket.on("group:incoming", handleGroupIncoming);
     return () => {
       socket.off("video:incoming-call", handleIncomingCall);
+      socket.off("group:incoming", handleGroupIncoming);
     };
   }, [router, user?.id, user?.fullName, user?.avatarUrl]);
 

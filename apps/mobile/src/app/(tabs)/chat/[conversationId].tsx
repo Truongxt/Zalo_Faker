@@ -29,6 +29,7 @@ import { chatService } from "@/services/chat";
 import { pinGroupMessage, unpinGroupMessage, renameGroup } from "@/services/groupService";
 import { conversationService, friendsService, userService } from "@/services";
 import { socketService } from "@/lib/socket";
+import { groupCallInviteStore } from "@/lib/groupCallInviteStore";
 import { Avatar } from "@/components/ui/Avatar";
 import { GrayToast } from "@/components/ui";
 
@@ -1597,6 +1598,32 @@ export default function ChatRoomScreen() {
       }
 
       const isGroup = conversation?.type === "group";
+      if (isGroup) {
+        const activeInvite = groupCallInviteStore.get(String(convId));
+        if (activeInvite?.roomId) {
+          const callId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+          router.push({
+            pathname: "/call/[callId]",
+            params: {
+              callId,
+              callType: activeInvite.callType || callType,
+              conversationId: convId,
+              fromUserId: String(activeInvite.hostUserId || ""),
+              toUserId: String(user.id),
+              toUserName: conversation.name || "NhÃ³m",
+              toUserAvatar: conversation.avatarUrl || "",
+              callerName: activeInvite.callerName || "NgÆ°á»i dÃ¹ng",
+              callerAvatar: activeInvite.callerAvatar || "",
+              isCaller: "false",
+              autoAccept: "true",
+              isGroupCall: "true",
+              roomId: activeInvite.roomId,
+            },
+          });
+          return;
+        }
+      }
+
       const callId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
       router.push({
