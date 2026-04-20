@@ -35,6 +35,7 @@ import { GrayToast } from "@/components/ui";
 import { ChatOptionsModal } from "@/components/chat/ChatOptionsModal";
 import { PollMessageCard } from "@/components/chat/PollMessageCard";
 import { ForwardMessageModal } from "@/components/chat/ForwardMessageModal";
+import { MessageActionModal, type MessageActionItem } from "@/components/chat/MessageActionModal";
 import type { Message, PollContent } from "@/types";
 import { API_URL } from "@/constants/config";
 import { STICKER_URLS } from "@/constants/stickers";
@@ -1222,6 +1223,8 @@ export default function ChatRoomScreen() {
   const [showStickerPicker, setShowStickerPicker] = useState(false);
   const [showReactions, setShowReactions] = useState(false);
   const [selectedMsg, setSelectedMsg] = useState<Message | null>(null);
+  const [messageActions, setMessageActions] = useState<MessageActionItem[]>([]);
+  const [showMessageActions, setShowMessageActions] = useState(false);
   const [forwardMessage, setForwardMessage] = useState<Message | null>(null);
   const [showChatOptions, setShowChatOptions] = useState(false);
   const [replyToMessageId, setReplyToMessageId] = useState<string | null>(null);
@@ -2378,12 +2381,9 @@ export default function ChatRoomScreen() {
       pinnedMessage && String(pinnedMessage.messageId) === String(msg.id),
     );
 
-    const options: Array<{
-      text: string;
-      onPress?: () => void;
-      style?: "default" | "destructive" | "cancel";
-    }> = [
+    const options: MessageActionItem[] = [
         {
+          key: "react",
           text: "Thả cảm xúc",
           onPress: () => setShowReactions(true),
         },
@@ -2391,6 +2391,7 @@ export default function ChatRoomScreen() {
 
     if (isMe && !msg.isDeleted) {
       options.push({
+        key: "recall",
         text: "Thu hồi tin nhắn",
         style: "destructive",
         onPress: () => {
@@ -2419,6 +2420,7 @@ export default function ChatRoomScreen() {
 
     if (!msg.isDeleted && canPinMessage) {
       options.push({
+        key: isPinnedMessage ? "unpin" : "pin",
         text: isPinnedMessage ? "Bỏ ghim tin nhắn" : "Ghim tin nhắn",
         onPress: () => {
           if (isPinnedMessage) {
@@ -2432,17 +2434,20 @@ export default function ChatRoomScreen() {
 
     if (!msg.isDeleted) {
       options.push({
+        key: "reply",
         text: "Trả lời",
         onPress: () => setReplyToMessageId(msg.id),
       });
       options.push({
+        key: "forward",
         text: "Chuyển tiếp",
         onPress: () => setForwardMessage(msg),
       });
     }
 
-    options.push({ text: "Hủy", style: "cancel" });
-    Alert.alert("Tùy chọn", undefined, options);
+    options.push({ key: "cancel", text: "Hủy", style: "cancel" });
+    setMessageActions(options);
+    setShowMessageActions(true);
   };
 
   const handleReact = async (emoji: string) => {
@@ -3006,6 +3011,11 @@ export default function ChatRoomScreen() {
         visible={!!forwardMessage}
         onClose={() => setForwardMessage(null)}
         message={forwardMessage}
+      />
+      <MessageActionModal
+        visible={showMessageActions}
+        options={messageActions}
+        onClose={() => setShowMessageActions(false)}
       />
       {conversation && (
         <ChatOptionsModal
