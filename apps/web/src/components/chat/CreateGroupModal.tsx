@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { X, Search, Users, Check, Camera } from 'lucide-react'
+import { X, Search, Check, Camera } from 'lucide-react'
 import { createGroup, getFriends } from '@/services/api'
 import { useAuthStore } from '@/stores/authStore'
 import { useChatStore } from '@/stores/chatStore'

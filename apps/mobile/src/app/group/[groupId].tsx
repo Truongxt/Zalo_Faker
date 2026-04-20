@@ -568,7 +568,6 @@ export default function GroupChatScreen() {
       }
     },
     [
-      appendPinnedHistory,
       canPinInGroup,
       convId,
       groupId,
@@ -1179,7 +1178,7 @@ export default function GroupChatScreen() {
       setIsSending(true);
       const url = await uploadFile(
         asset.uri,
-        asset.name || "avatar.jpg",
+        asset.fileName || "avatar.jpg",
         asset.mimeType || "image/jpeg",
         accessToken,
       );
@@ -1489,6 +1488,8 @@ export default function GroupChatScreen() {
           visible={showChatOptions}
           onClose={() => setShowChatOptions(false)}
           conversation={conversation}
+          onStartSearch={() => {}}
+          onDeleteHistory={() => {}}
         />
       )}
 
