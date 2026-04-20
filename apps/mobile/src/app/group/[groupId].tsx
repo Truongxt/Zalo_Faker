@@ -23,6 +23,7 @@ import { Avatar } from "@/components/ui/Avatar";
 import { GrayToast } from "@/components/ui";
 import { ChatOptionsModal } from "@/components/chat/ChatOptionsModal";
 import { ForwardMessageModal } from "@/components/chat/ForwardMessageModal";
+import { MessageActionModal, type MessageActionItem } from "@/components/chat/MessageActionModal";
 import { PinHistoryBanner } from "@/components/chat/PinHistoryBanner";
 import { VoiceMessagePlayer } from "@/components/chat/VoiceMessagePlayer";
 import { Audio } from "expo-av";
@@ -222,6 +223,8 @@ export default function GroupChatScreen() {
   const [showStickerPicker, setShowStickerPicker] = useState(false);
   const [showReactions, setShowReactions] = useState(false);
   const [selectedMsg, setSelectedMsg] = useState<Message | null>(null);
+  const [messageActions, setMessageActions] = useState<MessageActionItem[]>([]);
+  const [showMessageActions, setShowMessageActions] = useState(false);
   const [forwardMessage, setForwardMessage] = useState<Message | null>(null);
   const [showChatOptions, setShowChatOptions] = useState(false);
   const [isRecordingVoice, setIsRecordingVoice] = useState(false);
@@ -568,7 +571,6 @@ export default function GroupChatScreen() {
       }
     },
     [
-      appendPinnedHistory,
       canPinInGroup,
       convId,
       groupId,
@@ -910,12 +912,13 @@ export default function GroupChatScreen() {
     );
     setSelectedMsg(msg);
 
-    const opts: any[] = [
-      { text: "Thả cảm xúc", onPress: () => setShowReactions(true) },
+    const opts: MessageActionItem[] = [
+      { key: "react", text: "Thả cảm xúc", onPress: () => setShowReactions(true) },
     ];
 
     if (isMe && !msg.isDeleted) {
       opts.push({
+        key: "recall",
         text: "Thu hồi tin nhắn",
         style: "destructive",
         onPress: () => {
@@ -931,6 +934,7 @@ export default function GroupChatScreen() {
 
     if (!msg.isDeleted && canPinInGroup) {
       opts.push({
+        key: isPinnedMessage ? "unpin" : "pin",
         text: isPinnedMessage ? "Bỏ ghim tin nhắn" : "Ghim tin nhắn",
         onPress: () => {
           if (isPinnedMessage) {
@@ -944,17 +948,20 @@ export default function GroupChatScreen() {
 
     if (!msg.isDeleted) {
       opts.push({
+        key: "reply",
         text: "Trả lời",
         onPress: () => setReplyToMessageId(msg.id),
       });
       opts.push({
+        key: "forward",
         text: "Chuyển tiếp",
         onPress: () => setForwardMessage(msg),
       });
     }
 
-    opts.push({ text: "Hủy", style: "cancel" });
-    Alert.alert("Tùy chọn", undefined, opts);
+    opts.push({ key: "cancel", text: "Hủy", style: "cancel" });
+    setMessageActions(opts);
+    setShowMessageActions(true);
   };
 
   const handleReact = async (emoji: string) => {
@@ -1179,7 +1186,7 @@ export default function GroupChatScreen() {
       setIsSending(true);
       const url = await uploadFile(
         asset.uri,
-        asset.name || "avatar.jpg",
+        asset.fileName || "avatar.jpg",
         asset.mimeType || "image/jpeg",
         accessToken,
       );
@@ -1484,11 +1491,18 @@ export default function GroupChatScreen() {
         onClose={() => setForwardMessage(null)}
         message={forwardMessage}
       />
+      <MessageActionModal
+        visible={showMessageActions}
+        options={messageActions}
+        onClose={() => setShowMessageActions(false)}
+      />
       {conversation && (
         <ChatOptionsModal
           visible={showChatOptions}
           onClose={() => setShowChatOptions(false)}
           conversation={conversation}
+          onStartSearch={() => {}}
+          onDeleteHistory={() => {}}
         />
       )}
 

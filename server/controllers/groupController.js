@@ -367,7 +367,8 @@ const GroupController = {
   leaveGroup: async (req, res) => {
     try {
       const result = await GroupService.leaveGroup(req.params.id, {
-        userId: getRequesterId(req)
+        userId: getRequesterId(req),
+        newAdminUserId: req.body.newAdminUserId
       });
       await createSystemMessage(req, req.params.id, "đã rời nhóm");
       return res.json(result);

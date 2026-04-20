@@ -295,11 +295,47 @@ const removeGroupMember = async (groupId: string, data: { userId: string, remove
     return response.json();
 }
 
-const leaveGroup = async (groupId: string, data: { userId: string }) => {
+const leaveGroup = async (groupId: string, data: { userId: string; newAdminUserId?: string }) => {
     if (!groupId || groupId === 'undefined') throw new Error('Invalid Group ID');
     const response = await fetchWithAuth(`/groups/${groupId}/leave`, {
         method: 'PUT',
         body: JSON.stringify(data)
+    });
+    return response.json();
+}
+
+const transferAdmin = async (groupId: string, data: { userId: string; newAdminUserId: string }) => {
+    if (!groupId || groupId === 'undefined') throw new Error('Invalid Group ID');
+    const response = await fetchWithAuth(`/groups/${groupId}/transfer-admin`, {
+        method: 'PUT',
+        body: JSON.stringify(data)
+    });
+    return response.json();
+}
+
+const appointDeputy = async (groupId: string, data: { userId: string; deputyUserId: string }) => {
+    if (!groupId || groupId === 'undefined') throw new Error('Invalid Group ID');
+    const response = await fetchWithAuth(`/groups/${groupId}/appoint-deputy`, {
+        method: 'PUT',
+        body: JSON.stringify(data)
+    });
+    return response.json();
+}
+
+const revokeDeputy = async (groupId: string, data: { userId: string; deputyUserId: string }) => {
+    if (!groupId || groupId === 'undefined') throw new Error('Invalid Group ID');
+    const response = await fetchWithAuth(`/groups/${groupId}/revoke-deputy`, {
+        method: 'PUT',
+        body: JSON.stringify(data)
+    });
+    return response.json();
+}
+
+const dissolveGroup = async (groupId: string, data?: { userId?: string }) => {
+    if (!groupId || groupId === 'undefined') throw new Error('Invalid Group ID');
+    const response = await fetchWithAuth(`/groups/${groupId}`, {
+        method: 'DELETE',
+        body: JSON.stringify(data || {})
     });
     return response.json();
 }
@@ -610,6 +646,10 @@ export {
     addGroupMember,
     removeGroupMember,
     leaveGroup,
+    transferAdmin,
+    appointDeputy,
+    revokeDeputy,
+    dissolveGroup,
     getGroupSettings,
     rotateGroupInviteCode,
     updateGroupInviteSettings,

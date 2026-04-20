@@ -19,6 +19,10 @@ import {
   addGroupMember,
   removeGroupMember,
   leaveGroup,
+  transferAdmin,
+  appointDeputy,
+  revokeDeputy,
+  dissolveGroup,
   getGroupSettings,
   rotateGroupInviteCode,
   updateGroupInviteSettings,
@@ -133,6 +137,16 @@ export default function GroupManagementScreen() {
     (u) => !group.participants.some((p) => String(p.userId) === String(u.id || u._id || u.userId))
   );
 
+  const transferCandidates = group.participants.filter(
+    (participant) => String(participant.userId) !== String(user.id),
+  );
+
+  const syncParticipants = (participants: any[] | undefined) => {
+    if (participants) {
+      updateConversation(id, { participants });
+    }
+  };
+
   const handleRename = useCallback(() => {
     if (!group) return;
     Alert.prompt(
@@ -181,7 +195,7 @@ export default function GroupManagementScreen() {
       setIsLoading(true);
       const url = await uploadFile(
         asset.uri,
-        asset.name || "avatar.jpg",
+        asset.fileName || "avatar.jpg",
         asset.mimeType || "image/jpeg",
         accessToken,
       );
@@ -305,7 +319,138 @@ export default function GroupManagementScreen() {
     ]);
   };
 
+  const handleTransferAdmin = async (newAdminUserId: string) => {
+    try {
+      setIsLoading(true);
+      const res = await transferAdmin(id, {
+        userId: String(user.id),
+        newAdminUserId,
+      });
+      syncParticipants(res.group?.participants);
+      GrayToast("Đã chuyển quyền trưởng nhóm");
+    } catch (error: any) {
+      GrayToast(error.message || "Không thể chuyển quyền trưởng nhóm");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleToggleDeputy = async (participant: any) => {
+    const isDeputy = participant.role === "deputy";
+    try {
+      setIsLoading(true);
+      const res = isDeputy
+        ? await revokeDeputy(id, {
+            userId: String(user.id),
+            deputyUserId: String(participant.userId),
+          })
+        : await appointDeputy(id, {
+            userId: String(user.id),
+            deputyUserId: String(participant.userId),
+          });
+      syncParticipants(res.group?.participants);
+      GrayToast(isDeputy ? "Đã thu hồi quyền phó nhóm" : "Đã cấp quyền phó nhóm");
+    } catch (error: any) {
+      GrayToast(error.message || "Không thể cập nhật quyền phó nhóm");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleMemberActions = (participant: any) => {
+    const isMe = String(participant.userId) === String(user.id);
+    if (isMe) return;
+
+    const participantName = getParticipantName(participant.userId, participant.nickname);
+    const options: Array<{ text: string; style?: "cancel" | "destructive"; onPress?: () => void }> = [];
+
+    if (isAdmin) {
+      options.push({
+        text: participant.role === "deputy" ? "Thu hồi quyền phó nhóm" : "Cấp quyền phó nhóm",
+        onPress: () => {
+          void handleToggleDeputy(participant);
+        },
+      });
+      options.push({
+        text: "Chuyển quyền trưởng nhóm",
+        onPress: () => {
+          Alert.alert(
+            "Chuyển quyền trưởng nhóm",
+            `Chuyển quyền trưởng nhóm cho ${participantName}?`,
+            [
+              { text: "Hủy", style: "cancel" },
+              {
+                text: "Chuyển quyền",
+                onPress: () => {
+                  void handleTransferAdmin(String(participant.userId));
+                },
+              },
+            ],
+          );
+        },
+      });
+      options.push({
+        text: "Xóa khỏi nhóm",
+        style: "destructive",
+        onPress: () => {
+          void handleRemoveMember(String(participant.userId));
+        },
+      });
+    } else if (currentUserParticipant?.role === "deputy" && participant.role === "member") {
+      options.push({
+        text: "Xóa khỏi nhóm",
+        style: "destructive",
+        onPress: () => {
+          void handleRemoveMember(String(participant.userId));
+        },
+      });
+    }
+
+    options.push({ text: "Hủy", style: "cancel" });
+    Alert.alert(participantName, "Chọn thao tác", options);
+  };
+
+  const finalizeGroupExit = () => {
+    setActiveConversation(null);
+    removeConversation(id);
+    router.replace("/(tabs)/chat/chats");
+  };
+
   const handleLeaveGroup = async () => {
+    if (isAdmin) {
+      if (transferCandidates.length === 0) {
+        GrayToast("Bạn cần chọn trưởng nhóm mới trước khi rời nhóm");
+        return;
+      }
+
+      Alert.alert(
+        "Chuyển quyền trước khi rời nhóm",
+        "Hãy chọn một thành viên để chuyển quyền trưởng nhóm.",
+        [
+          ...transferCandidates.map((participant) => ({
+            text: getParticipantName(participant.userId, participant.nickname),
+            onPress: async () => {
+              try {
+                setIsLoading(true);
+                await leaveGroup(id, {
+                  userId: String(user.id),
+                  newAdminUserId: String(participant.userId),
+                });
+                GrayToast("Đã chuyển quyền trưởng nhóm và rời nhóm");
+                finalizeGroupExit();
+              } catch (error: any) {
+                GrayToast(error.message || "Không thể rời nhóm");
+              } finally {
+                setIsLoading(false);
+              }
+            },
+          })),
+          { text: "Hủy", style: "cancel" },
+        ],
+      );
+      return;
+    }
+
     Alert.alert("Rời nhóm", "Bạn có chắc muốn rời nhóm này?", [
       { text: "Hủy", style: "cancel" },
       {
@@ -315,11 +460,31 @@ export default function GroupManagementScreen() {
           try {
             setIsLoading(true);
             await leaveGroup(id, { userId: String(user.id) });
-            setActiveConversation(null);
-            removeConversation(id);
-            router.replace("/(tabs)/chat/chats");
+            finalizeGroupExit();
           } catch (error: any) {
             GrayToast(error.message || "Lỗi khi rời nhóm");
+          } finally {
+            setIsLoading(false);
+          }
+        },
+      },
+    ]);
+  };
+
+  const handleDissolveGroup = () => {
+    Alert.alert("Giải tán nhóm", "Bạn có chắc muốn giải tán nhóm này?", [
+      { text: "Hủy", style: "cancel" },
+      {
+        text: "Giải tán",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            setIsLoading(true);
+            await dissolveGroup(id, { userId: String(user.id) });
+            GrayToast("Đã giải tán nhóm");
+            finalizeGroupExit();
+          } catch (error: any) {
+            GrayToast(error.message || "Không thể giải tán nhóm");
           } finally {
             setIsLoading(false);
           }
@@ -405,7 +570,7 @@ export default function GroupManagementScreen() {
           <TouchableOpacity onPress={handleAvatarChange} style={{ marginBottom: 12 }}>
             <View>
               <Avatar uri={group?.avatar} name={group?.name} size={80} />
-              <View style={{ position: "absolute", bottom: 0, right: 0, backgroundColor: "#3B82F6", borderRadius: 15, padding: 6, borderSize: 2, borderColor: "#FFF" }}>
+              <View style={{ position: "absolute", bottom: 0, right: 0, backgroundColor: "#3B82F6", borderRadius: 15, padding: 6, borderWidth: 2, borderColor: "#FFF" }}>
                 <Ionicons name="camera" size={18} color="#FFF" />
               </View>
             </View>
@@ -561,7 +726,10 @@ export default function GroupManagementScreen() {
 
           {group.participants.map((p) => {
             const isMe = String(p.userId) === String(user.id);
-            const canRemove = !isMe && canReviewRequests;
+            const canManage =
+              !isMe &&
+              (isAdmin ||
+                (currentUserParticipant?.role === "deputy" && p.role === "member"));
             return (
               <View key={p.userId} style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "#F3F4F6" }}>
                 <View>
@@ -572,9 +740,9 @@ export default function GroupManagementScreen() {
                     {p.role === "admin" ? "Trưởng nhóm" : p.role === "deputy" ? "Phó nhóm" : "Thành viên"}
                   </Text>
                 </View>
-                {canRemove && (
-                  <TouchableOpacity onPress={() => handleRemoveMember(p.userId)} style={{ padding: 4 }}>
-                    <Ionicons name="person-remove" size={18} color="#EF4444" />
+                {canManage && (
+                  <TouchableOpacity onPress={() => handleMemberActions(p)} style={{ padding: 4 }}>
+                    <Ionicons name="ellipsis-horizontal" size={20} color="#6B7280" />
                   </TouchableOpacity>
                 )}
               </View>
@@ -582,13 +750,23 @@ export default function GroupManagementScreen() {
           })}
         </View>
 
+        {isAdmin && (
+          <TouchableOpacity
+            onPress={handleDissolveGroup}
+            disabled={isLoading}
+            style={{ backgroundColor: "#FFF7ED", borderColor: "#FDBA74", borderWidth: 1, paddingVertical: 14, borderRadius: 12, alignItems: "center", marginBottom: 12 }}
+          >
+            <Text style={{ color: "#EA580C", fontSize: 15, fontWeight: "600" }}>Giải tán nhóm</Text>
+          </TouchableOpacity>
+        )}
+
         {/* Nút rời nhóm */}
         <TouchableOpacity
           onPress={handleLeaveGroup}
           disabled={isLoading || group.participants.length === 1}
           style={{ backgroundColor: "#FEF2F2", borderColor: "#FECACA", borderWidth: 1, paddingVertical: 14, borderRadius: 12, alignItems: "center", marginBottom: 40 }}
         >
-          <Text style={{ color: "#EF4444", fontSize: 15, fontWeight: "600" }}>Rời nhóm</Text>
+          <Text style={{ color: "#EF4444", fontSize: 15, fontWeight: "600" }}>{isAdmin ? "Chuyển quyền và rời nhóm" : "Rời nhóm"}</Text>
         </TouchableOpacity>
       </ScrollView>
 

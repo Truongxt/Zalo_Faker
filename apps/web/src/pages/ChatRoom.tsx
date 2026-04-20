@@ -1599,6 +1599,9 @@ export default function ChatRoom() {
     [activeConversation?.participants, user?.fullName, user?.id],
   );
 
+  void getPinnedMessagePreview;
+  void resolvePinActorName;
+
 
 
   const handlePinMessage = async (messageId: string) => {
@@ -1679,7 +1682,7 @@ export default function ChatRoom() {
     const onPinnedMessage = ({
       conversationId: incomingConversationId,
       pinnedMessage: nextPinnedMessage,
-      updatedBy,
+      updatedBy: _updatedBy,
     }: {
       conversationId: string;
       pinnedMessage: any | null;
