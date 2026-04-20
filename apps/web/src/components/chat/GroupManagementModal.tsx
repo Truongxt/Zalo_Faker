@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, useRef, type ChangeEvent, type ReactNode } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
     X, UserPlus, LogOut, UserMinus, Link2, RefreshCw, Pin, Megaphone,
     Copy, Users, Settings2, ClipboardCheck, Crown, Shield, CheckCircle2,
-    XCircle, ChevronDown, UserCheck
+    XCircle, ChevronDown, UserCheck, Edit2, Check, Camera
 } from 'lucide-react'
 import { useAuthStore } from '@/stores/authStore'
 import { useChatStore, Conversation, GroupPermissionScope } from '@/stores/chatStore'
@@ -10,13 +11,20 @@ import {
     addGroupMember,
     removeGroupMember,
     leaveGroup,
-    getUsers,
+    transferAdmin,
+    appointDeputy,
+    revokeDeputy,
+    dissolveGroup,
+    getFriends,
     getGroupSettings,
     rotateGroupInviteCode,
     updateGroupInviteSettings,
     getGroupJoinRequests,
     reviewGroupJoinRequest,
     updateGroupPermissions,
+    renameGroup,
+    updateGroupAvatar,
+    uploadMedia,
 } from '@/services/api'
 
 interface GroupManagementModalProps {
@@ -97,6 +105,7 @@ const getRoleConfig = (role: string) => {
 }
 
 export default function GroupManagementModal({ isOpen, onClose, group }: GroupManagementModalProps) {
+    const navigate = useNavigate()
     const { user } = useAuthStore()
     const { updateConversation, removeConversation, setActiveConversation } = useChatStore()
 
@@ -106,19 +115,27 @@ export default function GroupManagementModal({ isOpen, onClose, group }: GroupMa
     const [isLoading, setIsLoading] = useState(false)
     const [settings, setSettings] = useState<LocalGroupSettings>(fallbackSettings)
     const [copiedField, setCopiedField] = useState<'code' | 'link' | null>(null)
+    const [isEditingName, setIsEditingName] = useState(false)
+    const [newName, setNewName] = useState('')
+    const [selectedAdminTransferUserId, setSelectedAdminTransferUserId] = useState('')
+    const [showAdminLeavePanel, setShowAdminLeavePanel] = useState(false)
+    const fileInputRef = useRef<HTMLInputElement>(null)
 
     useEffect(() => {
         if (!isOpen || !group || !user) return
 
         const loadUsersAndSettings = async () => {
             try {
-                const [users, latestSettings, joinRequests] = await Promise.all([
-                    getUsers(),
+                const [friendsData, latestSettings, joinRequests] = await Promise.all([
+                    getFriends(user.id),
                     group.id && group.id !== 'undefined' ? getGroupSettings(group.id) : null,
                     group.id && group.id !== 'undefined' ? getGroupJoinRequests(group.id).catch(() => ({ requests: [] })) : { requests: [] },
                 ])
 
-                setAllUsers(users || [])
+                const uniqueFriends = Array.from(
+                    new Map((friendsData || []).map((f: any) => [String(f.id || f.userId || f._id), f])).values()
+                )
+                setAllUsers(uniqueFriends as any[])
                 
                 if (latestSettings) {
                     setSettings({
@@ -159,6 +176,13 @@ export default function GroupManagementModal({ isOpen, onClose, group }: GroupMa
         loadUsersAndSettings()
     }, [isOpen, group?.id, user?.id, updateConversation])
 
+    useEffect(() => {
+        if (!isOpen) {
+            setShowAdminLeavePanel(false)
+            setSelectedAdminTransferUserId('')
+        }
+    }, [isOpen, group?.id])
+
     const participantsMap = useMemo(() => {
         const map = new Map<string, any>()
         allUsers.forEach((u) => {
@@ -177,6 +201,16 @@ export default function GroupManagementModal({ isOpen, onClose, group }: GroupMa
     const availableUsersToAdd = allUsers.filter((u) =>
         !group.participants.some((p) => p.userId === getUserId(u))
     )
+
+    const transferCandidates = group.participants.filter(
+        (participant) => String(participant.userId) !== String(user.id)
+    )
+
+    const syncParticipants = (participants: Conversation['participants'] | undefined) => {
+        if (participants) {
+            updateConversation(group.id, { participants })
+        }
+    }
 
     const copyToClipboard = async (value: string, field: 'code' | 'link') => {
         if (!value) return
@@ -234,9 +268,7 @@ export default function GroupManagementModal({ isOpen, onClose, group }: GroupMa
         try {
             setIsLoading(true)
             const res = await removeGroupMember(group.id, { userId: user.id, removeUserId })
-            if (res.group?.participants) {
-                updateConversation(group.id, { participants: res.group.participants })
-            }
+            syncParticipants(res.group?.participants)
         } catch (error: any) {
             alert(error.message || 'Lỗi khi xóa thành viên')
         } finally {
@@ -244,16 +276,113 @@ export default function GroupManagementModal({ isOpen, onClose, group }: GroupMa
         }
     }
 
+    const finalizeGroupExit = () => {
+        setActiveConversation(null)
+        removeConversation(group.id)
+        onClose()
+        navigate('/chat')
+    }
+
+    const handleTransferAdmin = async (newAdminUserId: string) => {
+        const targetParticipant = group.participants.find(
+            (participant) => String(participant.userId) === String(newAdminUserId)
+        )
+        const targetName =
+            targetParticipant?.fullName ||
+            participantsMap.get(String(newAdminUserId))?.fullName ||
+            participantsMap.get(String(newAdminUserId))?.userName ||
+            'thành viên này'
+
+        if (!confirm(`Chuyển quyền trưởng nhóm cho ${targetName}?`)) return
+
+        try {
+            setIsLoading(true)
+            const res = await transferAdmin(group.id, { userId: user.id, newAdminUserId })
+            syncParticipants(res.group?.participants)
+            if (String(selectedAdminTransferUserId) === String(newAdminUserId)) {
+                setSelectedAdminTransferUserId('')
+            }
+        } catch (error: any) {
+            alert(error.message || 'Không thể chuyển quyền trưởng nhóm')
+        } finally {
+            setIsLoading(false)
+        }
+    }
+
+    const handleToggleDeputy = async (participant: Conversation['participants'][number]) => {
+        const isDeputy = participant.role === 'deputy'
+
+        try {
+            setIsLoading(true)
+            const res = isDeputy
+                ? await revokeDeputy(group.id, {
+                    userId: user.id,
+                    deputyUserId: String(participant.userId),
+                })
+                : await appointDeputy(group.id, {
+                    userId: user.id,
+                    deputyUserId: String(participant.userId),
+                })
+            syncParticipants(res.group?.participants)
+        } catch (error: any) {
+            alert(
+                error.message ||
+                (isDeputy ? 'Không thể thu hồi quyền phó nhóm' : 'Không thể cấp quyền phó nhóm')
+            )
+        } finally {
+            setIsLoading(false)
+        }
+    }
+
     const handleLeaveGroup = async () => {
+        if (isAdmin && !showAdminLeavePanel) {
+            setShowAdminLeavePanel(true)
+            return
+        }
+
+        return handleLeaveGroupWithAdminRules()
         if (!confirm('Bạn có chắc muốn rời nhóm này?')) return
         try {
             setIsLoading(true)
-            await leaveGroup(group.id, { userId: user.id })
-            setActiveConversation(null)
-            removeConversation(group.id)
-            onClose()
+            return
         } catch (error: any) {
             alert(error.message || 'Lỗi khi rời nhóm')
+        } finally {
+            setIsLoading(false)
+        }
+    }
+
+    const handleLeaveGroupWithAdminRules = async () => {
+        if (!confirm('Bạn có chắc muốn rời nhóm này?')) return
+        if (isAdmin && !selectedAdminTransferUserId) {
+            alert('Hãy chọn một trưởng nhóm mới trước khi rời nhóm.')
+            return
+        }
+
+        try {
+            setIsLoading(true)
+            await leaveGroup(group.id, {
+                userId: user.id,
+                newAdminUserId: isAdmin ? selectedAdminTransferUserId : undefined,
+            })
+            setShowAdminLeavePanel(false)
+            finalizeGroupExit()
+        } catch (error: any) {
+            alert(error.message || 'Lỗi khi rời nhóm')
+        } finally {
+            setIsLoading(false)
+        }
+    }
+
+    const handleDissolveGroup = async () => {
+        if (!confirm('Bạn có chắc muốn giải tán nhóm này?')) return
+
+        try {
+            setIsLoading(true)
+            await dissolveGroup(group.id, { userId: user.id })
+            finalizeGroupExit()
+        } catch (error: any) {
+            alert(error.message || 'Không thể giải tán nhóm')
         } finally {
             setIsLoading(false)
         }
@@ -349,6 +478,48 @@ export default function GroupManagementModal({ isOpen, onClose, group }: GroupMa
         return userInfo?.fullName || userInfo?.userName || `User ${requestUserId}`
     }
 
+    const handleStartEditingName = () => {
+        setNewName(group.name || '')
+        setIsEditingName(true)
+    }
+
+    const handleSaveName = async () => {
+        if (!newName.trim() || newName === group.name) {
+            setIsEditingName(false)
+            return
+        }
+
+        try {
+            setIsLoading(true)
+            await renameGroup(group.id, newName.trim())
+            updateConversation(group.id, { name: newName.trim() })
+            setIsEditingName(false)
+        } catch (error: any) {
+            alert(error.message || 'Không thể đổi tên nhóm')
+        } finally {
+            setIsLoading(false)
+        }
+    }
+
+    const handleAvatarChange = async (e: ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0]
+        if (!file) return
+
+        try {
+            setIsLoading(true)
+            const uploadRes = await uploadMedia(file)
+            const avatarUrl = uploadRes.url
+
+            await updateGroupAvatar(group.id, { avatar: avatarUrl })
+            updateConversation(group.id, { avatar: avatarUrl })
+        } catch (error: any) {
+            alert(error.message || 'Không thể đổi ảnh đại diện')
+        } finally {
+            setIsLoading(false)
+            if (fileInputRef.current) fileInputRef.current.value = ''
+        }
+    }
+
     return (
         <div
             className="fixed inset-0 z-50 flex items-center justify-center p-4"
@@ -361,12 +532,58 @@ export default function GroupManagementModal({ isOpen, onClose, group }: GroupMa
                 {/* Header */}
                 <div className="relative flex items-center justify-between px-5 py-4 bg-gradient-to-r from-primary-600 to-primary-500 flex-shrink-0">
                     <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 rounded-xl bg-white/20 backdrop-blur-sm flex items-center justify-center">
-                            <Settings2 className="w-5 h-5 text-white" />
-                        </div>
-                        <div>
-                            <h2 className="text-base font-bold text-white leading-tight">Quản trị nhóm</h2>
-                            <p className="text-xs text-primary-100 truncate max-w-[200px]">{group.name || 'Nhóm của bạn'}</p>
+                        <input
+                            type="file"
+                            ref={fileInputRef}
+                            className="hidden"
+                            accept="image/*"
+                            onChange={handleAvatarChange}
+                        />
+                        <button
+                            onClick={() => fileInputRef.current?.click()}
+                            className="group relative w-10 h-10 rounded-xl overflow-hidden bg-white/20 backdrop-blur-sm flex items-center justify-center border border-white/30 hover:border-white/60 transition-all shadow-lg"
+                        >
+                            {group.avatar ? (
+                                <img src={group.avatar} alt="" className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300" />
+                            ) : (
+                                <Settings2 className="w-5 h-5 text-white group-hover:scale-110 transition-transform" />
+                            )}
+                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                                <Camera className="w-4 h-4 text-white" />
+                            </div>
+                        </button>
+                        <div className="flex-1">
+                            {isEditingName ? (
+                                <div className="flex items-center gap-2">
+                                    <input
+                                        type="text"
+                                        className="flex-1 bg-white/20 text-white placeholder-white/60 border-none rounded-lg px-2 py-1 text-sm focus:ring-2 focus:ring-white/30 focus:outline-none"
+                                        value={newName}
+                                        onChange={(e) => setNewName(e.target.value)}
+                                        autoFocus
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') handleSaveName()
+                                            if (e.key === 'Escape') setIsEditingName(false)
+                                        }}
+                                    />
+                                    <button onClick={handleSaveName} className="p-1 hover:bg-white/20 rounded">
+                                        <Check className="w-4 h-4 text-white" />
+                                    </button>
+                                </div>
+                            ) : (
+                                <div className="flex items-center gap-2">
+                                    <div className="min-w-0">
+                                        <h2 className="text-base font-bold text-white leading-tight">Quản trị nhóm</h2>
+                                        <p className="text-xs text-primary-100 truncate max-w-[200px]">{group.name || 'Nhóm của bạn'}</p>
+                                    </div>
+                                    <button
+                                        onClick={handleStartEditingName}
+                                        className="p-1 hover:bg-white/20 rounded opacity-70 hover:opacity-100"
+                                    >
+                                        <Edit2 className="w-3 h-3 text-white" />
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     </div>
                     <button
@@ -629,7 +846,11 @@ export default function GroupManagementModal({ isOpen, onClose, group }: GroupMa
                         <div className="px-3 py-2 space-y-0.5">
                             {group.participants.map((participant) => {
                                 const isMe = participant.userId === user.id
-                                const canRemove = !isMe && (currentUserParticipant?.role === 'admin' || currentUserParticipant?.role === 'deputy')
+                                const canManage =
+                                    !isMe &&
+                                    (isAdmin ||
+                                        (currentUserParticipant?.role === 'deputy' && participant.role === 'member'))
+                                const canRemove = canManage
                                 const name = getParticipantName(participant)
                                 const roleConfig = getRoleConfig(participant.role || 'member')
                                 const RoleIcon = roleConfig.icon
@@ -668,6 +889,25 @@ export default function GroupManagementModal({ isOpen, onClose, group }: GroupMa
                                             </div>
                                         </div>
 
+                                        {canManage && isAdmin && (
+                                            <div className="mr-2 flex flex-col items-end gap-1.5">
+                                                <button
+                                                    onClick={() => handleToggleDeputy(participant)}
+                                                    disabled={isLoading}
+                                                    className="px-2.5 py-1 text-[11px] font-semibold rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors disabled:opacity-50"
+                                                >
+                                                    {participant.role === 'deputy' ? 'Thu hồi phó nhóm' : 'Cấp phó nhóm'}
+                                                </button>
+                                                <button
+                                                    onClick={() => handleTransferAdmin(String(participant.userId))}
+                                                    disabled={isLoading}
+                                                    className="px-2.5 py-1 text-[11px] font-semibold rounded-lg bg-amber-50 text-amber-600 hover:bg-amber-100 transition-colors disabled:opacity-50"
+                                                >
+                                                    Chuyển trưởng nhóm
+                                                </button>
+                                            </div>
+                                        )}
+
                                         {/* Remove button */}
                                         {canRemove && (
                                             <button
@@ -687,7 +927,64 @@ export default function GroupManagementModal({ isOpen, onClose, group }: GroupMa
                 </div>
 
                 {/* Footer */}
-                <div className="px-4 py-3 bg-white dark:bg-gray-900 border-t border-gray-100 dark:border-gray-800 flex-shrink-0">
+                <div className="px-4 py-3 bg-white dark:bg-gray-900 border-t border-gray-100 dark:border-gray-800 flex-shrink-0 space-y-3">
+                    {isAdmin && showAdminLeavePanel && (
+                        <div className="space-y-2">
+                            <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">
+                                    Rời nhóm với quyền trưởng nhóm
+                                </p>
+                                <p className="mt-1 text-xs text-amber-700/90">
+                                    Bạn phải chọn một thành viên để chuyển quyền trưởng nhóm trước khi rời nhóm.
+                                </p>
+                            </div>
+                            <div className="relative">
+                                <select
+                                    className="w-full appearance-none rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary-500/30"
+                                    value={selectedAdminTransferUserId}
+                                    onChange={(e) => setSelectedAdminTransferUserId(e.target.value)}
+                                >
+                                    <option value="">-- Chọn trưởng nhóm mới --</option>
+                                    {transferCandidates.map((participant) => (
+                                        <option key={participant.userId} value={String(participant.userId)}>
+                                            {getParticipantName(participant)}
+                                        </option>
+                                    ))}
+                                </select>
+                                <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                            </div>
+                            <button
+                                onClick={() => {
+                                    setShowAdminLeavePanel(false)
+                                    setSelectedAdminTransferUserId('')
+                                }}
+                                disabled={isLoading}
+                                className="w-full py-2.5 rounded-xl text-sm font-medium border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-40"
+                            >
+                                Hủy chuyển quyền
+                            </button>
+                            <button
+                                onClick={() => {
+                                    setShowAdminLeavePanel(false)
+                                    setSelectedAdminTransferUserId('')
+                                }}
+                                disabled={isLoading}
+                                className="hidden"
+                            >
+                                Giải tán nhóm
+                            </button>
+                        </div>
+                    )}
+                    {isAdmin && (
+                        <button
+                            onClick={handleDissolveGroup}
+                            disabled={isLoading}
+                            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold text-orange-600 border border-orange-200 bg-orange-50 hover:bg-orange-100 transition-colors disabled:opacity-40"
+                        >
+                            <XCircle className="w-4 h-4" />
+                            Giải tán nhóm
+                        </button>
+                    )}
                     <button
                         onClick={handleLeaveGroup}
                         disabled={isLoading || group.participants.length === 1}

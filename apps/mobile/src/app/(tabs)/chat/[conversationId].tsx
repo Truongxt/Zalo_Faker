@@ -26,27 +26,22 @@ import { Ionicons } from "@expo/vector-icons";
 import { useChatStore } from "@/stores/chatStore";
 import { useAuthStore } from "@/stores/authStore";
 import { chatService } from "@/services/chat";
-import { pinGroupMessage, unpinGroupMessage } from "@/services/groupService";
+import { pinGroupMessage, unpinGroupMessage, renameGroup } from "@/services/groupService";
 import { conversationService, friendsService, userService } from "@/services";
 import { socketService } from "@/lib/socket";
+import { groupCallInviteStore } from "@/lib/groupCallInviteStore";
 import { Avatar } from "@/components/ui/Avatar";
 import { GrayToast } from "@/components/ui";
 
 import { ChatOptionsModal } from "@/components/chat/ChatOptionsModal";
-import { PinHistoryBanner } from "@/components/chat/PinHistoryBanner";
 import { PollMessageCard } from "@/components/chat/PollMessageCard";
 import { ForwardMessageModal } from "@/components/chat/ForwardMessageModal";
+import { MessageActionModal, type MessageActionItem } from "@/components/chat/MessageActionModal";
 import type { Message, PollContent } from "@/types";
 import { API_URL } from "@/constants/config";
 import { STICKER_URLS } from "@/constants/stickers";
-import {
-  appendPinHistoryEntry,
-  isPinHistoryMessage,
-  loadPinHistoryEntries,
-  mergeMessagesWithPinHistory,
-  type PinHistoryEntry,
-} from "@/lib/pinHistory";
-import { addPollOptionMessage, removePollOptionMessage, votePollMessage } from "@/services/chat";
+
+import { addPollOptionMessage, removePollOptionMessage, votePollMessage, uploadFile } from "@/services/chat";
 
 const REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "😡"];
 
@@ -284,26 +279,7 @@ const resolveReplyPreview = (
   };
 };
 
-/** Upload a single file (image / document / voice) to server */
-async function uploadFile(
-  uri: string,
-  name: string,
-  mimeType: string,
-  accessToken: string | null,
-): Promise<string> {
-  const formData = new FormData();
-  formData.append("file", { uri, name, type: mimeType } as any);
 
-  const res = await fetch(`${API_URL}/api/upload`, {
-    method: "POST",
-    headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
-    body: formData,
-  });
-
-  if (!res.ok) throw new Error("Upload thất bại");
-  const data = await res.json();
-  return data.url as string;
-}
 
 function formatTime(iso: string) {
   const d = new Date(iso);
@@ -623,6 +599,59 @@ function MessageItem({
 }: MessageItemProps) {
   const [showVoiceTranscript, setShowVoiceTranscript] = useState(false);
   const isAnnouncement = Boolean((msg as any)?.metadata?.isAnnouncement);
+  
+  if (msg.type === 'system' || isAnnouncement) {
+    const action = (msg.metadata as any)?.action;
+    const isPinAction = action === 'pin' || action === 'unpin';
+    
+    const getIconName = () => {
+      if (action === 'pin' || action === 'unpin') return 'pricetag';
+      if (action === 'rename_group') return 'create';
+      if (action === 'update_avatar') return 'image';
+      if (action === 'add_member') return 'person-add';
+      if (action === 'remove_member') return 'person-remove';
+      if (action === 'update_permissions') return 'lock-closed';
+      if (action === 'update_settings') return 'settings';
+      return 'information-circle';
+    };
+
+    return (
+      <View style={{ flexDirection: 'row', justifyContent: 'center', marginVertical: 10, width: '100%' }}>
+        <View style={{ 
+          flexDirection: 'row', 
+          alignItems: 'center', 
+          gap: 8, 
+          paddingHorizontal: 12, 
+          paddingVertical: 6, 
+          borderRadius: 20, 
+          borderWidth: 1, 
+          borderColor: '#E2E8F0', 
+          backgroundColor: '#FFFFFF',
+          shadowColor: "#000",
+          shadowOffset: { width: 0, height: 1 },
+          shadowOpacity: 0.05,
+          shadowRadius: 2,
+          elevation: 1,
+          maxWidth: '92%'
+        }}>
+          <View style={{ 
+            width: 24, 
+            height: 24, 
+            borderRadius: 12, 
+            alignItems: 'center', 
+            justifyContent: 'center', 
+            backgroundColor: isPinAction ? '#FFF7ED' : '#EFF6FF' 
+          }}>
+            <Ionicons name={getIconName() as any} size={12} color={isPinAction ? '#F97316' : '#3B82F6'} />
+          </View>
+          <Text style={{ fontSize: 13, color: '#64748B', fontWeight: '500' }}>
+             {typeof msg.content === 'object' ? (msg.content as any)?.text || '' : String(msg.content || '')}
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
   const bg = isAnnouncement ? "#FFF7E6" : isMe ? "#0068FF" : "#F3F4F6";
   const textColor = isAnnouncement ? "#111827" : isMe ? "#fff" : "#111827";
   const showSenderMeta = !isMe && !isGroupedWithPrevious;
@@ -1190,18 +1219,20 @@ export default function ChatRoomScreen() {
   const [text, setText] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchMessageQuery, setSearchMessageQuery] = useState("");
   const [showStickerPicker, setShowStickerPicker] = useState(false);
   const [showReactions, setShowReactions] = useState(false);
   const [selectedMsg, setSelectedMsg] = useState<Message | null>(null);
+  const [messageActions, setMessageActions] = useState<MessageActionItem[]>([]);
+  const [showMessageActions, setShowMessageActions] = useState(false);
   const [forwardMessage, setForwardMessage] = useState<Message | null>(null);
   const [showChatOptions, setShowChatOptions] = useState(false);
   const [replyToMessageId, setReplyToMessageId] = useState<string | null>(null);
   const [announcementMode, setAnnouncementMode] = useState(false);
   const [isRecordingVoice, setIsRecordingVoice] = useState(false);
   const [voiceRecordingSeconds, setVoiceRecordingSeconds] = useState(0);
-  const [pinHistoryEntries, setPinHistoryEntries] = useState<PinHistoryEntry[]>(
-    [],
-  );
+
   const [isSummarizingConversation, setIsSummarizingConversation] =
     useState(false);
   const [dailySummary, setDailySummary] = useState<{
@@ -1312,10 +1343,15 @@ export default function ChatRoomScreen() {
       ? canPinInGroup
       : conversation?.type === "private";
   const pinnedMessage = conversation?.groupSettings?.pinnedMessage || null;
-  const displayMessages = useMemo(
-    () => mergeMessagesWithPinHistory(convMessages, pinHistoryEntries),
-    [convMessages, pinHistoryEntries],
-  );
+  const filteredMessages = useMemo(() => {
+    if (!searchMessageQuery.trim()) return convMessages;
+    return convMessages.filter((msg) => {
+      const text = String((msg.content as any)?.text || msg.content || "").toLowerCase();
+      return text.includes(searchMessageQuery.toLowerCase());
+    });
+  }, [convMessages, searchMessageQuery]);
+
+  const displayMessages = filteredMessages;
   const activeReplyPreview = replyToMessageId
     ? resolveReplyPreview(replyToMessageId, convMessages)
     : null;
@@ -1548,64 +1584,9 @@ export default function ChatRoomScreen() {
     [convMessages, conversation?.participants, user?.fullName, user?.id],
   );
 
-  const loadPinHistory = useCallback(async () => {
-    if (!convId) {
-      setPinHistoryEntries([]);
-      return;
-    }
 
-    const entries = await loadPinHistoryEntries(convId);
-    setPinHistoryEntries(entries);
-  }, [convId]);
 
-  const appendPinnedHistory = useCallback(
-    async (nextPinnedMessage: any | null, updatedBy?: string) => {
-      if (!convId) return;
 
-      const previousPinnedMessage = pinnedMessageRef.current;
-      const previousKey = previousPinnedMessage
-        ? `${String(previousPinnedMessage.messageId || "")}:${String(previousPinnedMessage.pinnedAt || "")}:${String(previousPinnedMessage.pinnedBy || "")}`
-        : "";
-      const nextKey = nextPinnedMessage
-        ? `${String(nextPinnedMessage.messageId || "")}:${String(nextPinnedMessage.pinnedAt || "")}:${String(nextPinnedMessage.pinnedBy || "")}`
-        : "";
-
-      if (previousKey === nextKey) return;
-
-      const normalizedActorId = String(
-        updatedBy || nextPinnedMessage?.pinnedBy || user?.id || "",
-      ).trim();
-      const action = nextPinnedMessage ? "pin" : "unpin";
-      const targetPinnedMessage = nextPinnedMessage || previousPinnedMessage;
-      const targetMessageId = String(
-        targetPinnedMessage?.messageId || "",
-      ).trim();
-      if (!targetMessageId) return;
-
-      const createdAt =
-        action === "pin" && String(nextPinnedMessage?.pinnedAt || "").trim()
-          ? String(nextPinnedMessage.pinnedAt)
-          : new Date().toISOString();
-      const eventKey =
-        action === "pin"
-          ? `pin:${convId}:${normalizedActorId}:${targetMessageId}:${String(nextPinnedMessage?.pinnedAt || "")}`
-          : `unpin:${convId}:${normalizedActorId}:${targetMessageId}:${String(previousPinnedMessage?.pinnedAt || "")}`;
-
-      const nextEntries = await appendPinHistoryEntry({
-        eventKey,
-        conversationId: convId,
-        actorId: normalizedActorId,
-        actorName: resolvePinActorName(normalizedActorId),
-        action,
-        previewText: getPinnedMessagePreview(targetPinnedMessage),
-        targetMessageId,
-        createdAt,
-      });
-
-      setPinHistoryEntries(nextEntries);
-    },
-    [convId, getPinnedMessagePreview, resolvePinActorName, user?.id],
-  );
 
   const startCall = useCallback(
     (callType: "audio" | "video") => {
@@ -1620,6 +1601,32 @@ export default function ChatRoomScreen() {
       }
 
       const isGroup = conversation?.type === "group";
+      if (isGroup) {
+        const activeInvite = groupCallInviteStore.get(String(convId));
+        if (activeInvite?.roomId) {
+          const callId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+          router.push({
+            pathname: "/call/[callId]",
+            params: {
+              callId,
+              callType: activeInvite.callType || callType,
+              conversationId: convId,
+              fromUserId: String(activeInvite.hostUserId || ""),
+              toUserId: String(user.id),
+              toUserName: conversation.name || "NhÃ³m",
+              toUserAvatar: conversation.avatarUrl || "",
+              callerName: activeInvite.callerName || "NgÆ°á»i dÃ¹ng",
+              callerAvatar: activeInvite.callerAvatar || "",
+              isCaller: "false",
+              autoAccept: "true",
+              isGroupCall: "true",
+              roomId: activeInvite.roomId,
+            },
+          });
+          return;
+        }
+      }
+
       const callId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
       router.push({
@@ -1719,10 +1726,6 @@ export default function ChatRoomScreen() {
   useEffect(() => {
     pinnedMessageRef.current = pinnedMessage;
   }, [pinnedMessage]);
-
-  useEffect(() => {
-    void loadPinHistory();
-  }, [loadPinHistory]);
 
   // Join socket room + listeners
   useEffect(() => {
@@ -2287,16 +2290,39 @@ export default function ChatRoomScreen() {
       updatedBy?: string;
     }) => {
       if (String(incomingConversationId) !== String(convId)) return;
-      void appendPinnedHistory(nextPinnedMessage || null, updatedBy);
+      // void appendPinnedHistory(nextPinnedMessage || null, updatedBy);
       handleUpdatePinnedMessage(nextPinnedMessage || null);
     };
 
     socket.on("chat:pinned_message", onPinnedMessage);
 
+    const onUpdateConversation = ({
+      id: incomingId,
+      name: nextName,
+      avatar: nextAvatar,
+    }: {
+      id: string;
+      name?: string;
+      avatar?: string;
+    }) => {
+      if (String(incomingId) !== String(convId)) return;
+      
+      const updateData: any = {};
+      if (nextName !== undefined) updateData.name = nextName;
+      if (nextAvatar !== undefined) updateData.avatar = nextAvatar;
+      
+      if (Object.keys(updateData).length > 0) {
+        useChatStore.getState().updateConversation(convId, updateData);
+      }
+    };
+
+    socket.on("chat:update_conversation", onUpdateConversation);
+
     return () => {
       socket.off("chat:pinned_message", onPinnedMessage);
+      socket.off("chat:update_conversation", onUpdateConversation);
     };
-  }, [appendPinnedHistory, convId, handleUpdatePinnedMessage, user]);
+  }, [convId, handleUpdatePinnedMessage, user]);
 
   const handlePinMessage = useCallback(
     async (message: Message) => {
@@ -2325,7 +2351,7 @@ export default function ChatRoomScreen() {
           (result as any)?.conversation?.groupSettings?.pinnedMessage ||
           (result as any)?.group?.groupSettings?.pinnedMessage ||
           null;
-        await appendPinnedHistory(nextPinned, user?.id);
+        // await appendPinnedHistory(nextPinned, user?.id);
         handleUpdatePinnedMessage(nextPinned);
 
         GrayToast("Đã ghim tin nhắn");
@@ -2334,7 +2360,6 @@ export default function ChatRoomScreen() {
       }
     },
     [
-      appendPinnedHistory,
       canPinInGroup,
       convId,
       conversation,
@@ -2358,7 +2383,7 @@ export default function ChatRoomScreen() {
       }
 
       // Record history BEFORE state update so previousPinnedMessage is still available
-      await appendPinnedHistory(null, user?.id);
+      // await appendPinnedHistory(null, user?.id);
       // Delay state update to allow socket listener to use old pinnedMessageRef
       setTimeout(() => {
         handleUpdatePinnedMessage(null);
@@ -2369,7 +2394,6 @@ export default function ChatRoomScreen() {
       GrayToast(error?.message || "Không thể bỏ ghim tin nhắn");
     }
   }, [
-    appendPinnedHistory,
     canPinInGroup,
     convId,
     conversation,
@@ -2384,12 +2408,9 @@ export default function ChatRoomScreen() {
       pinnedMessage && String(pinnedMessage.messageId) === String(msg.id),
     );
 
-    const options: Array<{
-      text: string;
-      onPress?: () => void;
-      style?: "default" | "destructive" | "cancel";
-    }> = [
+    const options: MessageActionItem[] = [
         {
+          key: "react",
           text: "Thả cảm xúc",
           onPress: () => setShowReactions(true),
         },
@@ -2397,6 +2418,7 @@ export default function ChatRoomScreen() {
 
     if (isMe && !msg.isDeleted) {
       options.push({
+        key: "recall",
         text: "Thu hồi tin nhắn",
         style: "destructive",
         onPress: () => {
@@ -2425,6 +2447,7 @@ export default function ChatRoomScreen() {
 
     if (!msg.isDeleted && canPinMessage) {
       options.push({
+        key: isPinnedMessage ? "unpin" : "pin",
         text: isPinnedMessage ? "Bỏ ghim tin nhắn" : "Ghim tin nhắn",
         onPress: () => {
           if (isPinnedMessage) {
@@ -2438,17 +2461,20 @@ export default function ChatRoomScreen() {
 
     if (!msg.isDeleted) {
       options.push({
+        key: "reply",
         text: "Trả lời",
         onPress: () => setReplyToMessageId(msg.id),
       });
       options.push({
+        key: "forward",
         text: "Chuyển tiếp",
         onPress: () => setForwardMessage(msg),
       });
     }
 
-    options.push({ text: "Hủy", style: "cancel" });
-    Alert.alert("Tùy chọn", undefined, options);
+    options.push({ key: "cancel", text: "Hủy", style: "cancel" });
+    setMessageActions(options);
+    setShowMessageActions(true);
   };
 
   const handleReact = async (emoji: string) => {
@@ -2515,12 +2541,79 @@ export default function ChatRoomScreen() {
     );
   };
 
+  const handleDeleteHistory = useCallback(() => {
+    Alert.alert(
+      "Xóa lịch sử",
+      "Bạn có chắc muốn xóa toàn bộ tin nhắn trong cuộc trò chuyện này? Thao tác này không thể hoàn tác.",
+      [
+        { text: "Hủy", style: "cancel" },
+        {
+          text: "Xóa",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              setIsSending(true);
+              await conversationService.deleteHistory(convId);
+              useChatStore.getState().setMessages(convId, []);
+              GrayToast("Đã xóa lịch sử trò chuyện");
+            } catch (error: any) {
+              GrayToast(error?.message || "Không thể xóa lịch sử");
+            } finally {
+              setIsSending(false);
+            }
+          },
+        },
+      ],
+      { cancelable: true },
+    );
+  }, [convId]);
+
+  const handleToggleMute = useCallback(async () => {
+    if (!convId || !user || !conversation) return;
+
+    const myParticipant = conversation.participants?.find(
+      (p) => String(p.userId) === String(user.id)
+    ) as any;
+    const isCurrentlyMuted = myParticipant?.isMuted || false;
+
+    try {
+      setIsSending(true);
+      await conversationService.updateParticipantSetting(convId, user.id, {
+        isMuted: !isCurrentlyMuted,
+      });
+      
+      const nextParticipants = conversation.participants.map((p) => {
+        if (String(p.userId) === String(user.id)) {
+          return { ...p, isMuted: !isCurrentlyMuted };
+        }
+        return p;
+      });
+
+      useChatStore.getState().updateConversation(convId, {
+        participants: nextParticipants,
+      });
+
+      GrayToast(
+        !isCurrentlyMuted ? "Đã tắt thông báo" : "Đã bật thông báo"
+      );
+    } catch (error: any) {
+      GrayToast(error?.message || "Không thể thực hiện");
+    } finally {
+      setIsSending(false);
+    }
+  }, [convId, conversation, user]);
+
   const handleHeaderMenuPress = () => {
     const options: Array<{
       text: string;
       style?: "default" | "cancel" | "destructive";
       onPress?: () => void;
     }> = [];
+
+    const myParticipant = conversation?.participants?.find(
+        (p) => String(p.userId) === String(user?.id)
+    ) as any;
+    const isCurrentlyMuted = myParticipant?.isMuted || false;
 
     if (conversation?.type === "group") {
       options.push({
@@ -2535,12 +2628,12 @@ export default function ChatRoomScreen() {
 
     options.push({
       text: "Tìm tin nhắn",
-      onPress: () => GrayToast("Tính năng đang phát triển"),
+      onPress: () => setIsSearching(true),
     });
 
     options.push({
-      text: "Tắt thông báo hội thoại",
-      onPress: () => GrayToast("Tính năng đang phát triển"),
+      text: isCurrentlyMuted ? "Bật thông báo" : "Tắt thông báo",
+      onPress: handleToggleMute,
     });
 
     options.push({
@@ -2560,7 +2653,7 @@ export default function ChatRoomScreen() {
     options.push({
       text: "Xóa lịch sử trò chuyện",
       style: "destructive",
-      onPress: () => GrayToast("Tính năng đang phát triển"),
+      onPress: handleDeleteHistory,
     });
 
     if (conversation?.type === "private") {
@@ -2576,14 +2669,11 @@ export default function ChatRoomScreen() {
   };
 
   const renderMessage = ({ item, index }: { item: Message; index: number }) => {
-    if (isPinHistoryMessage(item)) {
-      return <PinHistoryBanner message={item} />;
-    }
+
 
     const previousMessage = index > 0 ? displayMessages[index - 1] : null;
     const isGroupedWithPrevious =
       Boolean(previousMessage) &&
-      !isPinHistoryMessage(previousMessage) &&
       previousMessage!.senderId === item.senderId &&
       !previousMessage!.isDeleted &&
       !item.isDeleted;
@@ -2634,7 +2724,36 @@ export default function ChatRoomScreen() {
 
         <Avatar name={convName} uri={convAvatar} size={40} />
 
-        <View style={{ flex: 1, marginLeft: 8 }}>
+        <TouchableOpacity 
+          style={{ flex: 1, marginLeft: 8 }}
+          onPress={() => {
+            if (conversation?.type !== 'group') return;
+            Alert.prompt(
+              "Đổi tên nhóm",
+              "Nhập tên mới cho nhóm của bạn",
+              [
+                { text: "Hủy", style: "cancel" },
+                {
+                  text: "Đổi tên",
+                  onPress: async (newName) => {
+                    if (!newName?.trim()) return;
+                    try {
+                      setIsSending(true);
+                      await renameGroup(convId, newName.trim());
+                      useChatStore.getState().updateConversation(convId, { name: newName.trim() });
+                    } catch (error: any) {
+                      Alert.alert("Lỗi", error.message || "Không thể đổi tên nhóm");
+                    } finally {
+                      setIsSending(false);
+                    }
+                  }
+                }
+              ],
+              "plain-text",
+              convName || ""
+            );
+          }}
+        >
           <Text
             style={{ fontWeight: "700", fontSize: 17, color: "#111827" }}
             numberOfLines={1}
@@ -2659,7 +2778,7 @@ export default function ChatRoomScreen() {
               {conversation.participants?.length || 0} thành viên
             </Text>
           )}
-        </View>
+        </TouchableOpacity>
 
         <TouchableOpacity
           style={{ padding: 4 }}
@@ -2683,6 +2802,52 @@ export default function ChatRoomScreen() {
           <Ionicons name="ellipsis-vertical" size={20} color="#6B7280" />
         </TouchableOpacity>
       </View>
+
+      {/* Search Bar */}
+      {isSearching && (
+        <View style={{ 
+          flexDirection: "row", 
+          alignItems: "center", 
+          paddingHorizontal: 12, 
+          paddingVertical: 8, 
+          backgroundColor: "#F3F4F6", 
+          borderBottomWidth: 1, 
+          borderBottomColor: "#E5E7EB" 
+        }}>
+          <View style={{ 
+            flex: 1, 
+            flexDirection: "row", 
+            alignItems: "center", 
+            backgroundColor: "#fff", 
+            borderRadius: 8, 
+            paddingHorizontal: 10, 
+            height: 36 
+          }}>
+            <Ionicons name="search-outline" size={18} color="#9CA3AF" />
+            <TextInput
+              autoFocus
+              value={searchMessageQuery}
+              onChangeText={setSearchMessageQuery}
+              placeholder="Tìm tin nhắn..."
+              style={{ flex: 1, height: "100%", marginLeft: 8, fontSize: 14 }}
+            />
+            {searchMessageQuery.length > 0 && (
+              <TouchableOpacity onPress={() => setSearchMessageQuery("")}>
+                <Ionicons name="close-circle" size={18} color="#9CA3AF" />
+              </TouchableOpacity>
+            )}
+          </View>
+          <TouchableOpacity 
+            onPress={() => {
+              setIsSearching(false);
+              setSearchMessageQuery("");
+            }} 
+            style={{ marginLeft: 12 }}
+          >
+            <Text style={{ color: "#0068FF", fontWeight: "600" }}>Hủy</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* Pinned Message */}
       {pinnedMessage && (
@@ -2874,11 +3039,18 @@ export default function ChatRoomScreen() {
         onClose={() => setForwardMessage(null)}
         message={forwardMessage}
       />
+      <MessageActionModal
+        visible={showMessageActions}
+        options={messageActions}
+        onClose={() => setShowMessageActions(false)}
+      />
       {conversation && (
         <ChatOptionsModal
           visible={showChatOptions}
           onClose={() => setShowChatOptions(false)}
           conversation={conversation}
+          onStartSearch={() => setIsSearching(true)}
+          onDeleteHistory={handleDeleteHistory}
         />
       )}
 

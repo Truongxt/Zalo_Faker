@@ -245,19 +245,14 @@ const normalizeMessageMetadata = (rawMetadata: unknown): Message['metadata'] => 
         return null
     }
 
-    const metadata = rawMetadata as Record<string, unknown>
+    const metadata = rawMetadata as Record<string, any>
 
     return {
+        ...metadata,
         isAnnouncement: Boolean(metadata.isAnnouncement),
         isImportant: Boolean(metadata.isImportant),
         isForwarded: Boolean(metadata.isForwarded),
-        forwardedFromMessageId: typeof metadata.forwardedFromMessageId === 'string' ? metadata.forwardedFromMessageId : undefined,
-        forwardedAt: typeof metadata.forwardedAt === 'string' ? metadata.forwardedAt : undefined,
-        transcript: typeof metadata.transcript === 'string' ? metadata.transcript : undefined,
-        transcriptStatus: typeof metadata.transcriptStatus === 'string' ? metadata.transcriptStatus : undefined,
-        transcriptUpdatedAt: typeof metadata.transcriptUpdatedAt === 'string' ? metadata.transcriptUpdatedAt : undefined,
-        transcriptProvider: typeof metadata.transcriptProvider === 'string' ? metadata.transcriptProvider : undefined,
-    }
+    } as any
 }
 
 export const normalizeMessage = (msg: any): Message => ({

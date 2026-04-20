@@ -98,7 +98,7 @@ const generateInviteCode = (length = 8) => {
 
 const defaultPermissions = () => ({
   sendMedia: GROUP_PERMISSION_SCOPES.ALL,
-  pinMessage: GROUP_PERMISSION_SCOPES.ADMIN_DEPUTY,
+  pinMessage: GROUP_PERMISSION_SCOPES.ALL,
   sendAnnouncement: GROUP_PERMISSION_SCOPES.ADMIN_DEPUTY
 });
 
@@ -817,7 +817,7 @@ const GroupService = {
     };
   },
 
-  async leaveGroup(id, { userId }) {
+  async leaveGroup(id, { userId, newAdminUserId }) {
     if (!userId) {
       throw createError("userId is required", 400);
     }
@@ -829,13 +829,32 @@ const GroupService = {
       throw createError("Cannot leave group because you are the last member", 400);
     }
 
-    if (member.role === GROUP_ROLES.ADMIN) {
-      throw createError("Admin must transfer admin role before leaving the group", 400);
-    }
-
-    const updatedParticipants = group.participants.filter(
+    let updatedParticipants = group.participants.filter(
       (participant) => participant.userId !== userId
     );
+    let transferredAdminTo = null;
+
+    if (member.role === GROUP_ROLES.ADMIN) {
+      if (!newAdminUserId) {
+        throw createError("Admin must choose a new admin before leaving the group", 400);
+      }
+
+      if (String(newAdminUserId) === String(userId)) {
+        throw createError("New admin must be another group member", 400);
+      }
+
+      const nextAdmin = findParticipant(group, newAdminUserId);
+      if (!nextAdmin) {
+        throw createError("Target user is not in this group", 404);
+      }
+
+      updatedParticipants = updateParticipantRole(
+        updatedParticipants,
+        newAdminUserId,
+        GROUP_ROLES.ADMIN
+      );
+      transferredAdminTo = String(newAdminUserId);
+    }
 
     const updated = await GroupRepository.update(id, {
       participants: updatedParticipants
@@ -843,7 +862,8 @@ const GroupService = {
 
     return {
       message: "You left the group successfully",
-      group: updated
+      group: updated,
+      transferredAdminTo
     };
   },
 

@@ -5,9 +5,10 @@ import { PhoneOff, Mic, MicOff, Video, VideoOff } from 'lucide-react';
 import { socketService } from '@/lib/socket';
 
 const AUDIO_RECORDER_MIME_CANDIDATES = [
+  'audio/mp4;codecs=mp4a.40.2',
+  'audio/mp4',
   'audio/webm;codecs=opus',
   'audio/webm',
-  'audio/mp4',
   'audio/ogg;codecs=opus',
 ];
 
@@ -19,7 +20,63 @@ const pickSupportedRecorderMimeType = (): string | undefined => {
   return AUDIO_RECORDER_MIME_CANDIDATES.find((mimeType) => MediaRecorder.isTypeSupported(mimeType));
 };
 
-// Helper to convert base64 to Blob if needed for other purposes, but most logic now uses ArrayBuffer for streaming.
+const mergeFloat32Chunks = (chunks: Float32Array[]): Float32Array => {
+  const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+  const merged = new Float32Array(totalLength);
+  let offset = 0;
+  chunks.forEach((chunk) => {
+    merged.set(chunk, offset);
+    offset += chunk.length;
+  });
+  return merged;
+};
+
+const audioBufferToWavBlob = (pcmData: Float32Array, sampleRate: number): Blob => {
+  const bytesPerSample = 2;
+  const blockAlign = bytesPerSample;
+  const byteRate = sampleRate * blockAlign;
+  const dataSize = pcmData.length * bytesPerSample;
+  const buffer = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(buffer);
+
+  const writeString = (offset: number, value: string) => {
+    for (let i = 0; i < value.length; i += 1) {
+      view.setUint8(offset + i, value.charCodeAt(i));
+    }
+  };
+
+  writeString(0, 'RIFF');
+  view.setUint32(4, 36 + dataSize, true);
+  writeString(8, 'WAVE');
+  writeString(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, byteRate, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, 16, true);
+  writeString(36, 'data');
+  view.setUint32(40, dataSize, true);
+
+  let writeOffset = 44;
+  for (let i = 0; i < pcmData.length; i += 1) {
+    const sample = Math.max(-1, Math.min(1, pcmData[i]));
+    const intSample = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
+    view.setInt16(writeOffset, intSample, true);
+    writeOffset += 2;
+  }
+
+  return new Blob([buffer], { type: 'audio/wav' });
+};
+
+const blobToDataUrl = (blob: Blob): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
 
 export default function VideoCallModal() {
   const {
@@ -42,9 +99,11 @@ export default function VideoCallModal() {
   const [remoteFrames, setRemoteFrames] = useState<Record<string, string>>({});
   const streamIntervalRef = useRef<any>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioCaptureCleanupRef = useRef<(() => void) | null>(null);
   const activeAudioPlayersRef = useRef<Set<HTMLAudioElement>>(new Set());
   const audioObjectUrlsRef = useRef<Set<string>>(new Set());
   const audioContextRef = useRef<AudioContext | null>(null);
+  const outboundAudioChunkCountRef = useRef(0);
 
   const targetUserId = callData?.isCaller ? callData?.toUserId : callData?.fromUserId;
 
@@ -113,6 +172,10 @@ export default function VideoCallModal() {
     if (streamIntervalRef.current) clearInterval(streamIntervalRef.current);
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop();
+    }
+    if (audioCaptureCleanupRef.current) {
+      audioCaptureCleanupRef.current();
+      audioCaptureCleanupRef.current = null;
     }
     cleanupRemoteAudioPlayers();
     
@@ -354,6 +417,11 @@ export default function VideoCallModal() {
 
         // 3. Start real-time audio chunking (optional, do not fail whole call if codec unsupported)
         try {
+          if (audioCaptureCleanupRef.current) {
+            audioCaptureCleanupRef.current();
+            audioCaptureCleanupRef.current = null;
+          }
+
           const audioTracks = stream.getAudioTracks();
           if (!audioTracks.length) {
             console.warn('[WEB] No audio track available to record');
@@ -362,18 +430,26 @@ export default function VideoCallModal() {
 
           const audioOnlyStream = new MediaStream(audioTracks);
           const preferredMimeType = pickSupportedRecorderMimeType();
-          const recorder = preferredMimeType
-            ? new MediaRecorder(audioOnlyStream, { mimeType: preferredMimeType })
-            : new MediaRecorder(audioOnlyStream);
+          if (preferredMimeType) {
+            console.log('[WEB] Audio recorder mime type:', preferredMimeType);
+          } else {
+            console.warn('[WEB] Browser did not report a preferred audio recorder mime type');
+          }
+          const forceWavForMobileCompatibility = true;
+          const canUseMp4Recorder = !forceWavForMobileCompatibility
+            && Boolean(preferredMimeType && preferredMimeType.includes('mp4'));
 
-          mediaRecorderRef.current = recorder;
-          
-          recorder.ondataavailable = async (event) => {
-            if (event.data.size > 0 && socket && (callData.isGroupCall || targetUserId) && isRemoteAcceptedRef.current) {
-              const chunkMimeType = event.data.type || recorder.mimeType || preferredMimeType || '';
-              const reader = new FileReader();
-              reader.onloadend = () => {
-                const base64Audio = reader.result as string;
+          if (canUseMp4Recorder) {
+            audioCaptureCleanupRef.current = null;
+            const recorder = new MediaRecorder(audioOnlyStream, { mimeType: preferredMimeType });
+            mediaRecorderRef.current = recorder;
+
+            recorder.ondataavailable = async (event) => {
+              if (event.data.size > 0 && socket && (callData.isGroupCall || targetUserId) && isRemoteAcceptedRef.current) {
+                const chunkMimeType = event.data.type || recorder.mimeType || preferredMimeType || 'audio/mp4';
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                  const base64Audio = reader.result as string;
                 socket.emit('video:audio-frame', {
                   toUserId: callData.isGroupCall ? undefined : targetUserId,
                   fromUserId: user.id,
@@ -382,40 +458,120 @@ export default function VideoCallModal() {
                   audio: base64Audio,
                   audioMimeType: chunkMimeType,
                 });
+                outboundAudioChunkCountRef.current += 1;
+                if (outboundAudioChunkCountRef.current % 5 === 0) {
+                  console.log('[WEB] Sent audio chunks:', outboundAudioChunkCountRef.current, 'mime:', chunkMimeType);
+                }
               };
-              reader.readAsDataURL(event.data);
-            }
-          };
-
-          const runStandaloneCycle = () => {
-            if (!mounted || !isRemoteAcceptedRef.current) {
-               if (mounted) setTimeout(runStandaloneCycle, 1000);
-               return;
-            }
-            
-            try {
-              if (recorder.state === 'inactive') {
-                recorder.start();
-                // Record for 1.5 seconds per chunk
-                setTimeout(() => {
-                  if (recorder.state === 'recording') {
-                    recorder.stop();
-                  }
-                }, 1500);
+                reader.readAsDataURL(event.data);
               }
-            } catch (e) {
-              console.warn('[WEB] Recorder cycle error:', e);
-            }
-          };
+            };
 
-          recorder.onstop = () => {
-             if (mounted) {
-                // Small gap to prevent overlapping starts
+            const runStandaloneCycle = () => {
+              if (!mounted || !isRemoteAcceptedRef.current) {
+                if (mounted) setTimeout(runStandaloneCycle, 1000);
+                return;
+              }
+
+              try {
+                if (recorder.state === 'inactive') {
+                  recorder.start();
+                  setTimeout(() => {
+                    if (recorder.state === 'recording') {
+                      recorder.stop();
+                    }
+                  }, 1200);
+                }
+              } catch (e) {
+                console.warn('[WEB] Recorder cycle error:', e);
+              }
+            };
+
+            recorder.onstop = () => {
+              if (mounted) {
                 setTimeout(runStandaloneCycle, 100);
-             }
-          };
+              }
+            };
 
-          runStandaloneCycle();
+            runStandaloneCycle();
+          } else {
+            console.warn('[WEB] Using WAV fallback audio pipeline for mobile compatibility');
+            const captureContext = new AudioContext();
+            if (captureContext.state === 'suspended') {
+              try {
+                await captureContext.resume();
+              } catch (resumeErr) {
+                console.warn('[WEB] Failed to resume capture AudioContext:', resumeErr);
+              }
+            }
+            const sourceNode = captureContext.createMediaStreamSource(audioOnlyStream);
+            const processorNode = captureContext.createScriptProcessor(4096, 1, 1);
+            const silentGain = captureContext.createGain();
+            silentGain.gain.value = 0;
+
+            const pcmChunks: Float32Array[] = [];
+            sourceNode.connect(processorNode);
+            processorNode.connect(silentGain);
+            silentGain.connect(captureContext.destination);
+
+            processorNode.onaudioprocess = (event) => {
+              const channelData = event.inputBuffer.getChannelData(0);
+              pcmChunks.push(new Float32Array(channelData));
+            };
+
+            const intervalId = window.setInterval(async () => {
+              if (!mounted) return;
+              if (!socket || (!callData.isGroupCall && !targetUserId)) return;
+              if (!isRemoteAcceptedRef.current) {
+                pcmChunks.length = 0;
+                return;
+              }
+              if (!pcmChunks.length) return;
+
+              try {
+                const merged = mergeFloat32Chunks(pcmChunks.splice(0, pcmChunks.length));
+                const wavBlob = audioBufferToWavBlob(merged, captureContext.sampleRate);
+                const base64Audio = await blobToDataUrl(wavBlob);
+                socket.emit('video:audio-frame', {
+                  toUserId: callData.isGroupCall ? undefined : targetUserId,
+                  fromUserId: user.id,
+                  conversationId: callData.conversationId,
+                  isGroupCall: callData.isGroupCall,
+                  audio: base64Audio,
+                  audioMimeType: 'audio/wav',
+                });
+                outboundAudioChunkCountRef.current += 1;
+                if (outboundAudioChunkCountRef.current % 5 === 0) {
+                  console.log('[WEB] Sent audio chunks:', outboundAudioChunkCountRef.current, 'mime: audio/wav');
+                }
+              } catch (fallbackErr) {
+                console.warn('[WEB] WAV fallback emit failed:', fallbackErr);
+              }
+            }, 1200);
+
+            audioCaptureCleanupRef.current = () => {
+              window.clearInterval(intervalId);
+              processorNode.onaudioprocess = null;
+              try {
+                sourceNode.disconnect();
+              } catch {
+                // noop
+              }
+              try {
+                processorNode.disconnect();
+              } catch {
+                // noop
+              }
+              try {
+                silentGain.disconnect();
+              } catch {
+                // noop
+              }
+              captureContext.close().catch(() => {
+                // noop
+              });
+            };
+          }
         } catch (audioErr) {
           console.warn('[WEB] MediaRecorder unavailable, continue call without audio chunk relay:', audioErr);
         }
@@ -433,6 +589,10 @@ export default function VideoCallModal() {
       if (streamIntervalRef.current) clearInterval(streamIntervalRef.current);
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
         mediaRecorderRef.current.stop();
+      }
+      if (audioCaptureCleanupRef.current) {
+        audioCaptureCleanupRef.current();
+        audioCaptureCleanupRef.current = null;
       }
       cleanupRemoteAudioPlayers();
       socket?.off('video:call-answered', handleCallAnswered);

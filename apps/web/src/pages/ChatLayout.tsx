@@ -8,6 +8,8 @@ import { socketService } from "@/lib/socket";
 import { getMessagePreviewText } from "@/lib/messagePreview";
 import IncomingCallModal from "@/components/chat/IncomingCallModal";
 import VideoCallModal from "@/components/chat/VideoCallModal";
+import GroupCallModal from "@/components/chat/GroupCallModal";
+import GroupCallIncomingModal from "@/components/chat/GroupCallIncomingModal";
 import { useCallStore } from "@/stores/callStore";
 
 const SIDEBAR_WIDTH_STORAGE_KEY = "chat-sidebar-width";
@@ -212,12 +214,29 @@ export default function ChatLayout() {
         updateMessage(data.conversationId, String(normalized.id), normalized);
       };
 
+      const handleIncomingGroupCall = (data: any) => {
+        // Don't show if we're already in a group call
+        const currentGroupCall = useCallStore.getState().groupCall;
+        if (currentGroupCall.callStatus !== 'idle') return;
+
+        useCallStore.getState().setIncomingGroupCall({
+          roomId: data.roomId,
+          conversationId: data.conversationId,
+          callType: data.callType || 'audio',
+          callerName: data.callerName || 'Cuộc gọi nhóm',
+          callerAvatar: data.callerAvatar || null,
+          hostUserId: data.hostUserId,
+          participantCount: data.participantCount || 0,
+        });
+      };
+
       const socket = socketService.getSocket();
       if (socket) {
         console.log("[socket] attaching global listeners:", socket.id);
         socket.on("video:incoming-call", handleIncomingCall);
         socket.on("video:call-ended", handleCallEnded);
         socket.on("video:call-rejected", handleCallRejected);
+        socket.on("group:incoming", handleIncomingGroupCall);
         socket.on("chat:message", handleNewMessageGlobal);
         socket.on("chat:recalled", handleRecalledGlobal);
         socket.on("chat:reaction", handleReactionGlobal);
@@ -232,6 +251,7 @@ export default function ChatLayout() {
         socket.off("video:incoming-call");
         socket.off("video:call-ended");
         socket.off("video:call-rejected");
+        socket.off("group:incoming");
         socket.off("chat:message");
         socket.off("chat:recalled");
         socket.off("chat:reaction");
@@ -352,6 +372,8 @@ export default function ChatLayout() {
 
       <IncomingCallModal />
       <VideoCallModal />
+      <GroupCallModal />
+      <GroupCallIncomingModal />
     </div>
   );
 }

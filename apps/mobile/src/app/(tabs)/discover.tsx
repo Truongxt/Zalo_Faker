@@ -133,13 +133,13 @@ export default function DiscoverScreen() {
   };
 
   const handleDeleteThread = (conversationId: string, title: string) => {
-    Alert.alert("Xoa hoi thoai", `Ban co chac muon xoa thread \"${title}\"?`, [
+    Alert.alert("Xóa hội thoại", `Bạn có chắc muốn xóa thread \"${title}\"?`, [
       {
-        text: "Huy",
+        text: "Hủy",
         style: "cancel",
       },
       {
-        text: "Xoa",
+        text: "Xóa",
         style: "destructive",
         onPress: async () => {
           try {
@@ -393,11 +393,10 @@ export default function DiscoverScreen() {
             <TouchableOpacity
               onPress={() => setShowHistoryThreads((prev) => !prev)}
               disabled={isSending}
-              className={`mr-2 h-9 w-9 items-center justify-center rounded-full border ${
-                showHistoryThreads
-                  ? "border-amber-300 bg-amber-50"
-                  : "border-slate-200 bg-white"
-              }`}
+              className={`mr-2 h-9 w-9 items-center justify-center rounded-full border ${showHistoryThreads
+                ? "border-amber-300 bg-amber-50"
+                : "border-slate-200 bg-white"
+                }`}
             >
               <Ionicons
                 name="time-outline"
@@ -408,11 +407,10 @@ export default function DiscoverScreen() {
             <TouchableOpacity
               onPress={handleCreateNewConversation}
               disabled={isSending}
-              className={`h-9 w-9 items-center justify-center rounded-full border ${
-                isSending
-                  ? "border-slate-200 bg-slate-100"
-                  : "border-blue-200 bg-blue-50"
-              }`}
+              className={`h-9 w-9 items-center justify-center rounded-full border ${isSending
+                ? "border-slate-200 bg-slate-100"
+                : "border-blue-200 bg-blue-50"
+                }`}
             >
               <Text
                 className={`${isSending ? "text-slate-300" : "text-blue-600"}`}
@@ -441,19 +439,17 @@ export default function DiscoverScreen() {
                   onPress={() => loadConversationMessages(tab.id)}
                   onLongPress={() => handleDeleteThread(tab.id, tab.title)}
                   delayLongPress={250}
-                  className={`mr-2 rounded-full border px-3 py-1.5 ${
-                    isActive
-                      ? "border-blue-500 bg-blue-50"
-                      : "border-slate-200 bg-white"
-                  }`}
+                  className={`mr-2 rounded-full border px-3 py-1.5 ${isActive
+                    ? "border-blue-500 bg-blue-50"
+                    : "border-slate-200 bg-white"
+                    }`}
                   disabled={isSending || isLoadingHistory}
                 >
                   <Text
-                    className={`text-xs ${
-                      isActive
-                        ? "font-semibold text-blue-700"
-                        : "text-slate-600"
-                    }`}
+                    className={`text-xs ${isActive
+                      ? "font-semibold text-blue-700"
+                      : "text-slate-600"
+                      }`}
                   >
                     {tab.title}
                   </Text>
@@ -474,9 +470,8 @@ export default function DiscoverScreen() {
           return (
             <View className={`mb-3 ${isUser ? "items-end" : "items-start"}`}>
               <View
-                className={`max-w-[85%] rounded-2xl px-4 py-3 ${
-                  isUser ? "bg-blue-500" : "border border-slate-200 bg-white"
-                }`}
+                className={`max-w-[85%] rounded-2xl px-4 py-3 ${isUser ? "bg-blue-500" : "border border-slate-200 bg-white"
+                  }`}
               >
                 <Text className={`${isUser ? "text-white" : "text-slate-800"}`}>
                   {item.text}
@@ -502,9 +497,8 @@ export default function DiscoverScreen() {
           <TouchableOpacity
             onPress={handleSend}
             disabled={!canSend}
-            className={`ml-2 h-10 w-10 items-center justify-center rounded-full ${
-              canSend ? "bg-blue-500" : "bg-slate-300"
-            }`}
+            className={`ml-2 h-10 w-10 items-center justify-center rounded-full ${canSend ? "bg-blue-500" : "bg-slate-300"
+              }`}
           >
             {isSending ? (
               <ActivityIndicator size="small" color="#fff" />

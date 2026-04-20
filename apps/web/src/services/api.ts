@@ -295,11 +295,47 @@ const removeGroupMember = async (groupId: string, data: { userId: string, remove
     return response.json();
 }
 
-const leaveGroup = async (groupId: string, data: { userId: string }) => {
+const leaveGroup = async (groupId: string, data: { userId: string; newAdminUserId?: string }) => {
     if (!groupId || groupId === 'undefined') throw new Error('Invalid Group ID');
     const response = await fetchWithAuth(`/groups/${groupId}/leave`, {
         method: 'PUT',
         body: JSON.stringify(data)
+    });
+    return response.json();
+}
+
+const transferAdmin = async (groupId: string, data: { userId: string; newAdminUserId: string }) => {
+    if (!groupId || groupId === 'undefined') throw new Error('Invalid Group ID');
+    const response = await fetchWithAuth(`/groups/${groupId}/transfer-admin`, {
+        method: 'PUT',
+        body: JSON.stringify(data)
+    });
+    return response.json();
+}
+
+const appointDeputy = async (groupId: string, data: { userId: string; deputyUserId: string }) => {
+    if (!groupId || groupId === 'undefined') throw new Error('Invalid Group ID');
+    const response = await fetchWithAuth(`/groups/${groupId}/appoint-deputy`, {
+        method: 'PUT',
+        body: JSON.stringify(data)
+    });
+    return response.json();
+}
+
+const revokeDeputy = async (groupId: string, data: { userId: string; deputyUserId: string }) => {
+    if (!groupId || groupId === 'undefined') throw new Error('Invalid Group ID');
+    const response = await fetchWithAuth(`/groups/${groupId}/revoke-deputy`, {
+        method: 'PUT',
+        body: JSON.stringify(data)
+    });
+    return response.json();
+}
+
+const dissolveGroup = async (groupId: string, data?: { userId?: string }) => {
+    if (!groupId || groupId === 'undefined') throw new Error('Invalid Group ID');
+    const response = await fetchWithAuth(`/groups/${groupId}`, {
+        method: 'DELETE',
+        body: JSON.stringify(data || {})
     });
     return response.json();
 }
@@ -366,9 +402,10 @@ const deleteChatHistory = async (conversationId: string) => {
 }
 
 const createGroup = async (data: any) => {
+    const isFormData = data instanceof FormData;
     const response = await fetchWithAuth(`/groups`, {
         method: "POST",
-        body: JSON.stringify(data)
+        body: isFormData ? data : JSON.stringify(data)
     });
     return await response.json();
 }
@@ -474,6 +511,23 @@ const pinConversationMessage = async (conversationId: string, messageId: string)
 const unpinConversationMessage = async (conversationId: string) => {
     const response = await fetchWithAuth(`/conversations/${conversationId}/pin-message`, {
         method: "DELETE"
+    });
+    return response.json();
+}
+
+const renameGroup = async (groupId: string, name: string) => {
+    const response = await fetchWithAuth(`/groups/${groupId}/rename`, {
+        method: "PUT",
+        body: JSON.stringify({ name })
+    });
+    return response.json();
+}
+
+const updateGroupAvatar = async (groupId: string, avatarData: FormData | { avatar: string }) => {
+    const isFormData = avatarData instanceof FormData;
+    const response = await fetchWithAuth(`/groups/${groupId}/avatar`, {
+        method: "PUT",
+        body: isFormData ? avatarData : JSON.stringify(avatarData)
     });
     return response.json();
 }
@@ -592,6 +646,10 @@ export {
     addGroupMember,
     removeGroupMember,
     leaveGroup,
+    transferAdmin,
+    appointDeputy,
+    revokeDeputy,
+    dissolveGroup,
     getGroupSettings,
     rotateGroupInviteCode,
     updateGroupInviteSettings,
@@ -615,5 +673,7 @@ export {
     getFriends,
     askAssistant,
     getAssistantHistory,
-    deleteAssistantConversationHistory
+    deleteAssistantConversationHistory,
+    renameGroup,
+    updateGroupAvatar
 }

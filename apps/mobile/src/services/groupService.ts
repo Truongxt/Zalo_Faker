@@ -187,12 +187,80 @@ export const removeGroupMember = async (
 
 export const leaveGroup = async (
   groupId: string,
-  payload: { userId?: string },
+  payload: { userId?: string; newAdminUserId?: string },
 ) =>
   apiFetch<{
     message: string;
     group: any;
+    transferredAdminTo?: string | null;
   }>(`/api/groups/${groupId}/leave`, {
     method: "PUT",
     body: payload,
+  });
+
+export const transferAdmin = async (
+  groupId: string,
+  payload: { userId?: string; newAdminUserId: string },
+) =>
+  apiFetch<{
+    message: string;
+    group: any;
+  }>(`/api/groups/${groupId}/transfer-admin`, {
+    method: "PUT",
+    body: payload,
+  });
+
+export const appointDeputy = async (
+  groupId: string,
+  payload: { userId?: string; deputyUserId: string },
+) =>
+  apiFetch<{
+    message: string;
+    group: any;
+  }>(`/api/groups/${groupId}/appoint-deputy`, {
+    method: "PUT",
+    body: payload,
+  });
+
+export const revokeDeputy = async (
+  groupId: string,
+  payload: { userId?: string; deputyUserId: string },
+) =>
+  apiFetch<{
+    message: string;
+    group: any;
+  }>(`/api/groups/${groupId}/revoke-deputy`, {
+    method: "PUT",
+    body: payload,
+  });
+
+export const dissolveGroup = async (
+  groupId: string,
+  payload?: { userId?: string },
+) =>
+  apiFetch<{
+    message: string;
+    groupId: string;
+    deletedMessages: number;
+  }>(`/api/groups/${groupId}`, {
+    method: "DELETE",
+    body: payload,
+  });
+
+export const renameGroup = async (groupId: string, name: string) =>
+  apiFetch<{
+    message: string;
+    group: any;
+  }>(`/api/groups/${groupId}/rename`, {
+    method: "PUT",
+    body: { name },
+  });
+
+export const updateGroupAvatar = async (groupId: string, avatar: string) =>
+  apiFetch<{
+    message: string;
+    group: any;
+  }>(`/api/groups/${groupId}/avatar`, {
+    method: "PUT",
+    body: { avatar },
   });

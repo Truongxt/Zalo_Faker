@@ -12,6 +12,9 @@ import {
   Pin,
   Phone,
   Video,
+  Info,
+  Users,
+  X,
 } from "lucide-react";
 import VoicePlayer from "./VoicePlayer";
 import PollMessageCard from "./PollMessageCard";
@@ -287,7 +290,6 @@ export default function MessageBubble({
     useState<FilePreviewTarget | null>(null);
   const reactionRef = useRef<HTMLDivElement>(null);
   const confirmRef = useRef<HTMLDivElement>(null);
-  const isAnnouncement = Boolean(message.metadata?.isAnnouncement);
   const isForwarded = Boolean(message.metadata?.isForwarded);
   const reactions = Array.isArray(message.reactions) ? message.reactions : [];
   const readBy = Array.isArray(message.readBy) ? message.readBy : [];
@@ -336,9 +338,9 @@ export default function MessageBubble({
     if (status === "missed") {
       return isSent ? "Thue bao khong nhac may" : `Cuoc goi nho${suffix}`;
     }
-    if (status === "rejected") return "Cuoc goi bi tu choi";
-    if (status === "cancelled") return "Cuoc goi da huy";
-    return callType === "video" ? "Cuoc goi video" : "Cuoc goi";
+    if (status === "rejected") return "Cuộc gọi bị từ chối";
+    if (status === "cancelled") return "Cuộc gọi đã hủy";
+    return callType === "video" ? "Cuộc gọi video" : "Cuộc gọi";
   };
 
   const renderCallContent = () => {
@@ -614,247 +616,290 @@ export default function MessageBubble({
     );
   }
 
+  if (message.type === 'system' || (message.metadata as any)?.isAnnouncement) {
+    const action = (message.metadata as any)?.action;
+    const isPinAction = action === 'pin' || action === 'unpin';
+
+    const getIcon = () => {
+      if (isPinAction) return <Pin className="w-3 h-3" />;
+      if (action === 'rename_group') return <Users className="w-3 h-3" />;
+      if (action === 'add_member') return <Users className="w-3 h-3" />;
+      if (action === 'remove_member') return <X className="w-3 h-3" />;
+      return <Info className="w-3 h-3" />;
+    };
+
+    return (
+      <div className="flex justify-center my-3 w-full group relative">
+        <div className="max-w-[92%] flex items-center gap-2 px-3 py-1.5 text-[12.5px] rounded-full border border-slate-200 dark:border-gray-800 bg-white dark:bg-dark-300 shadow-sm animate-fade-in transition-all group-hover:shadow-md">
+          <span className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 ${isPinAction ? 'bg-orange-50 text-orange-500 dark:bg-orange-900/30' : 'bg-blue-50 text-blue-500 dark:bg-blue-900/30'}`}>
+            {getIcon()}
+          </span>
+          <p className="text-slate-500 dark:text-gray-400 font-medium whitespace-pre-wrap">
+            {typeof content?.text === 'string' ? content.text : typeof message.content === 'object' ? (message.content as any)?.text || '' : String(message.content || '')}
+          </p>
+        </div>
+
+        {/* System Message Actions */}
+        <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 absolute left-[calc(50%+150px)] top-1/2 -translate-y-1/2 ml-2">
+          {!message.isDeleted && (
+            <button
+              onClick={onForward}
+              className="p-1 px-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-[11px] text-gray-500 flex items-center gap-1 border border-transparent hover:border-gray-200 dark:hover:border-gray-700"
+              title="Chuyển tiếp"
+            >
+              <Share className="w-3 h-3" />
+            </button>
+          )}
+          {!message.isDeleted && canPin && (
+            <button
+              onClick={onPin}
+              className="p-1 px-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-[11px] text-gray-500 flex items-center gap-1 border border-transparent hover:border-gray-200 dark:hover:border-gray-700"
+              title="Ghim"
+            >
+              <Pin className="w-3 h-3" />
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <>
       <div
         className={`flex ${isSent ? "justify-end" : "justify-start"} group mb-4`}
       >
-      <div
-        className={`flex items-end gap-2 max-w-[75%] ${isSent ? "flex-row-reverse" : ""}`}
-      >
-        {/* Avatar for received messages */}
-        {!isSent &&
-          showAvatar &&
-          (senderAvatar ? (
-            <img
-              src={senderAvatar}
-              alt={senderName || ""}
-              className="w-8 h-8 rounded-full object-cover flex-shrink-0"
-            />
-          ) : (
-            <div className="w-8 h-8 rounded-full bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center flex-shrink-0">
-              <span className="text-xs font-medium text-primary-600 dark:text-primary-400">
-                {(senderName || "?").charAt(0).toUpperCase()}
-              </span>
-            </div>
-          ))}
-        {!isSent && !showAvatar && <div className="w-8" />}
-
         <div
-          className={`flex flex-col relative ${isSent ? "items-end" : "items-start"} max-w-full`}
+          className={`flex items-end gap-2 max-w-[75%] ${isSent ? "flex-row-reverse" : ""}`}
         >
-          {/* Reply reference */}
-          {replyMessage && (
-            <div
-              className={`mb-1 px-3 py-1.5 rounded-lg text-xs bg-black/5 dark:bg-white/5 border-l-2 border-primary-500 ${isSent ? "ml-auto" : "mr-auto"} max-w-full`}
-            >
-              <p className="font-medium text-primary-500 truncate">
-                {replySenderName || "Người dùng"}
-              </p>
-              <p className="text-gray-500 dark:text-gray-400 truncate">
-                {replyMessage.isDeleted
-                  ? "Tin nhắn đã bị xóa"
-                  : replyMessage.content?.text || "[Media]"}
-              </p>
-            </div>
-          )}
+          {/* Avatar for received messages */}
+          {!isSent &&
+            showAvatar &&
+            (senderAvatar ? (
+              <img
+                src={senderAvatar}
+                alt={senderName || ""}
+                className="w-8 h-8 rounded-full object-cover flex-shrink-0"
+              />
+            ) : (
+              <div className="w-8 h-8 rounded-full bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center flex-shrink-0">
+                <span className="text-xs font-medium text-primary-600 dark:text-primary-400">
+                  {(senderName || "?").charAt(0).toUpperCase()}
+                </span>
+              </div>
+            ))}
+          {!isSent && !showAvatar && <div className="w-8" />}
 
-          {/* Message bubble */}
           <div
-            className={`message-bubble ${isSent ? "message-sent" : "message-received"} ${isAnnouncement ? "border border-amber-300 dark:border-amber-700 bg-amber-50/90 dark:bg-amber-900/20" : ""}`}
+            className={`flex flex-col relative ${isSent ? "items-end" : "items-start"} max-w-full`}
           >
-            {isForwarded && (
-              <div className="mb-1.5 inline-flex items-center gap-1 rounded-full bg-slate-100 dark:bg-slate-800/70 px-2 py-0.5 text-[11px] font-semibold text-slate-500 dark:text-slate-400">
-                <Share className="w-3 h-3" />
-                Đã chuyển tiếp
+            {/* Reply reference */}
+            {replyMessage && (
+              <div
+                className={`mb-1 px-3 py-1.5 rounded-lg text-xs bg-black/5 dark:bg-white/5 border-l-2 border-primary-500 ${isSent ? "ml-auto" : "mr-auto"} max-w-full`}
+              >
+                <p className="font-medium text-primary-500 truncate">
+                  {replySenderName || "Người dùng"}
+                </p>
+                <p className="text-gray-500 dark:text-gray-400 truncate">
+                  {replyMessage.isDeleted
+                    ? "Tin nhắn đã bị xóa"
+                    : replyMessage.content?.text || "[Media]"}
+                </p>
               </div>
             )}
-            {isAnnouncement && (
-              <div className="mb-1.5 inline-flex items-center rounded-full bg-amber-100 dark:bg-amber-900/40 px-2 py-0.5 text-[11px] font-semibold text-amber-700 dark:text-amber-300">
-                Thông báo
-              </div>
-            )}
-            {renderContent()}
-          </div>
 
-          {/* Reactions display */}
-          {reactions.length > 0 && (
+            {/* Message bubble */}
             <div
-              className={`flex gap-0.5 mt-0.5 ${isSent ? "justify-end" : "justify-start"}`}
+              className={`message-bubble ${isSent ? "message-sent" : "message-received"}`}
             >
-              <div className="flex items-center gap-0.5 bg-white dark:bg-dark-300 rounded-full px-1.5 py-0.5 shadow-sm border border-gray-100 dark:border-gray-700">
-                {[...new Set(reactions.map((r) => r.emoji))]
-                  .slice(0, 3)
-                  .map((emoji, i) => (
-                    <span key={i} className="text-sm">
-                      {emoji}
+              {isForwarded && (
+                <div className="mb-1.5 inline-flex items-center gap-1 rounded-full bg-slate-100 dark:bg-slate-800/70 px-2 py-0.5 text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+                  <Share className="w-3 h-3" />
+                  Đã chuyển tiếp
+                </div>
+              )}
+              {renderContent()}
+            </div>
+
+            {/* Reactions display */}
+            {reactions.length > 0 && (
+              <div
+                className={`flex gap-0.5 mt-0.5 ${isSent ? "justify-end" : "justify-start"}`}
+              >
+                <div className="flex items-center gap-0.5 bg-white dark:bg-dark-300 rounded-full px-1.5 py-0.5 shadow-sm border border-gray-100 dark:border-gray-700">
+                  {[...new Set(reactions.map((r) => r.emoji))]
+                    .slice(0, 3)
+                    .map((emoji, i) => (
+                      <span key={i} className="text-sm">
+                        {emoji}
+                      </span>
+                    ))}
+                  {reactions.length > 1 && (
+                    <span className="text-xs text-gray-500 ml-0.5">
+                      {reactions.length}
                     </span>
-                  ))}
-                {reactions.length > 1 && (
-                  <span className="text-xs text-gray-500 ml-0.5">
-                    {reactions.length}
-                  </span>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Time and status */}
-          <div
-            className={`flex items-center gap-1 mt-1 ${isSent ? "justify-end" : "justify-start"}`}
-          >
-            <span className="text-[10px] text-gray-500 dark:text-gray-400">
-              {formatDistanceToNow(new Date(message.createdAt), {
-                addSuffix: false,
-                locale: vi,
-              })}
-            </span>
-            {isSent && (
-              <div
-                className="group/receipt relative"
-                title={readBy.length > 0 ? getReadReceiptInfo() : "Đã gửi"}
-              >
-                {readBy.length > 0 ? (
-                  <>
-                    <CheckCheck className="w-3 h-3 text-primary-500 cursor-help" />
-                    {/* Tooltip on hover */}
-                    <div className="absolute bottom-full right-0 mb-2 hidden group-hover/receipt:block z-50">
-                      <div className="bg-gray-900 dark:bg-gray-800 text-white text-xs rounded px-2 py-1 whitespace-nowrap shadow-lg">
-                        {isGroupChat && participants.length > 0 ? (
-                          readBy.length === participants.length ? (
-                            <span>
-                              {readBy.length === 1
-                                ? `1 người đã đọc`
-                                : `Tất cả ${readBy.length} người đã đọc`}
-                            </span>
-                          ) : (
-                            <span>
-                              {readBy.length}/{participants.length} người đã đọc
-                            </span>
-                          )
-                        ) : (
-                          <span>Đã được đọc</span>
-                        )}
-                      </div>
-                    </div>
-                  </>
-                ) : (
-                  <Check className="w-3 h-3 text-gray-400" />
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Actions (shown on hover) */}
-        <div
-          className={`opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5 ${isSent ? "flex-row-reverse" : ""}`}
-        >
-          <button
-            onClick={onReply}
-            className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition-colors"
-            title="Trả lời"
-          >
-            <Reply className="w-4 h-4 text-gray-500" />
-          </button>
-
-          {!message.isDeleted && (
-            <button
-              onClick={onForward}
-              className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition-colors"
-              title="Chuyển tiếp"
-            >
-              <Share className="w-4 h-4 text-gray-500" />
-            </button>
-          )}
-
-          {!message.isDeleted && canPin && (
-            <button
-              onClick={onPin}
-              className="p-1.5 hover:bg-yellow-100 dark:hover:bg-yellow-900/30 rounded-full transition-colors"
-              title="Ghim tin nhắn"
-            >
-              <Pin className="w-4 h-4 text-yellow-500" />
-            </button>
-          )}
-
-          {/* Reaction button with mini picker */}
-          <div className="relative" ref={reactionRef}>
-            <button
-              onClick={() => setShowReactionPicker(!showReactionPicker)}
-              className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition-colors"
-              title="Thả cảm xúc"
-            >
-              <SmilePlus className="w-4 h-4 text-gray-500" />
-            </button>
-
-            {/* Quick reaction picker */}
-            {showReactionPicker && (
-              <div
-                className={`absolute bottom-full mb-1 z-50 ${isSent ? "right-0" : "left-0"}`}
-              >
-                <div className="flex items-center gap-1 bg-white dark:bg-dark-300 rounded-full shadow-lg border border-gray-200 dark:border-gray-700 px-2 py-1.5 animate-scale-in">
-                  {QUICK_REACTIONS.map((emoji) => (
-                    <button
-                      key={emoji}
-                      onClick={() => {
-                        onReact?.(emoji);
-                        setShowReactionPicker(false);
-                      }}
-                      className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-600 transition-transform hover:scale-125 text-lg"
-                    >
-                      {emoji}
-                    </button>
-                  ))}
+                  )}
                 </div>
               </div>
             )}
+
+            {/* Time and status */}
+            <div
+              className={`flex items-center gap-1 mt-1 ${isSent ? "justify-end" : "justify-start"}`}
+            >
+              <span className="text-[10px] text-gray-500 dark:text-gray-400">
+                {formatDistanceToNow(new Date(message.createdAt), {
+                  addSuffix: false,
+                  locale: vi,
+                })}
+              </span>
+              {isSent && (
+                <div
+                  className="group/receipt relative"
+                  title={readBy.length > 0 ? getReadReceiptInfo() : "Đã gửi"}
+                >
+                  {readBy.length > 0 ? (
+                    <>
+                      <CheckCheck className="w-3 h-3 text-primary-500 cursor-help" />
+                      {/* Tooltip on hover */}
+                      <div className="absolute bottom-full right-0 mb-2 hidden group-hover/receipt:block z-50">
+                        <div className="bg-gray-900 dark:bg-gray-800 text-white text-xs rounded px-2 py-1 whitespace-nowrap shadow-lg">
+                          {isGroupChat && participants.length > 0 ? (
+                            readBy.length === participants.length ? (
+                              <span>
+                                {readBy.length === 1
+                                  ? `1 người đã đọc`
+                                  : `Tất cả ${readBy.length} người đã đọc`}
+                              </span>
+                            ) : (
+                              <span>
+                                {readBy.length}/{participants.length} người đã đọc
+                              </span>
+                            )
+                          ) : (
+                            <span>Đã được đọc</span>
+                          )}
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <Check className="w-3 h-3 text-gray-400" />
+                  )}
+                </div>
+              )}
+            </div>
           </div>
 
-          {/* Recall button — chỉ hiện với tin nhắn của mình */}
-          {isSent && !message.isDeleted && (
-            <div className="relative" ref={confirmRef}>
+          {/* Actions (shown on hover) */}
+          <div
+            className={`opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5 ${isSent ? "flex-row-reverse" : ""}`}
+          >
+            <button
+              onClick={onReply}
+              className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition-colors"
+              title="Trả lời"
+            >
+              <Reply className="w-4 h-4 text-gray-500" />
+            </button>
+
+            {!message.isDeleted && (
               <button
-                onClick={() => setShowConfirmRecall(true)}
-                className="p-1.5 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-full transition-colors"
-                title="Thu hồi tin nhắn"
+                onClick={onForward}
+                className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition-colors"
+                title="Chuyển tiếp"
               >
-                <Trash2 className="w-4 h-4 text-red-500" />
+                <Share className="w-4 h-4 text-gray-500" />
+              </button>
+            )}
+
+            {!message.isDeleted && canPin && (
+              <button
+                onClick={onPin}
+                className="p-1.5 hover:bg-yellow-100 dark:hover:bg-yellow-900/30 rounded-full transition-colors"
+                title="Ghim tin nhắn"
+              >
+                <Pin className="w-4 h-4 text-yellow-500" />
+              </button>
+            )}
+
+            {/* Reaction button with mini picker */}
+            <div className="relative" ref={reactionRef}>
+              <button
+                onClick={() => setShowReactionPicker(!showReactionPicker)}
+                className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition-colors"
+                title="Thả cảm xúc"
+              >
+                <SmilePlus className="w-4 h-4 text-gray-500" />
               </button>
 
-              {/* Confirm recall dialog */}
-              {showConfirmRecall && (
+              {/* Quick reaction picker */}
+              {showReactionPicker && (
                 <div
                   className={`absolute bottom-full mb-1 z-50 ${isSent ? "right-0" : "left-0"}`}
                 >
-                  <div className="bg-white dark:bg-dark-300 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-3 min-w-[200px] animate-scale-in">
-                    <p className="text-sm text-gray-700 dark:text-gray-300 mb-3">
-                      Thu hồi tin nhắn này?
-                    </p>
-                    <div className="flex gap-2 justify-end">
+                  <div className="flex items-center gap-1 bg-white dark:bg-dark-300 rounded-full shadow-lg border border-gray-200 dark:border-gray-700 px-2 py-1.5 animate-scale-in">
+                    {QUICK_REACTIONS.map((emoji) => (
                       <button
-                        onClick={() => setShowConfirmRecall(false)}
-                        className="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-                      >
-                        Hủy
-                      </button>
-                      <button
+                        key={emoji}
                         onClick={() => {
-                          onRecall?.();
-                          setShowConfirmRecall(false);
+                          onReact?.(emoji);
+                          setShowReactionPicker(false);
                         }}
-                        className="px-3 py-1.5 text-sm text-white bg-red-500 hover:bg-red-600 rounded-lg transition-colors"
+                        className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-600 transition-transform hover:scale-125 text-lg"
                       >
-                        Thu hồi
+                        {emoji}
                       </button>
-                    </div>
+                    ))}
                   </div>
                 </div>
               )}
             </div>
-          )}
+
+            {/* Recall button — chỉ hiện với tin nhắn của mình */}
+            {isSent && !message.isDeleted && (
+              <div className="relative" ref={confirmRef}>
+                <button
+                  onClick={() => setShowConfirmRecall(true)}
+                  className="p-1.5 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-full transition-colors"
+                  title="Thu hồi tin nhắn"
+                >
+                  <Trash2 className="w-4 h-4 text-red-500" />
+                </button>
+
+                {/* Confirm recall dialog */}
+                {showConfirmRecall && (
+                  <div
+                    className={`absolute bottom-full mb-1 z-50 ${isSent ? "right-0" : "left-0"}`}
+                  >
+                    <div className="bg-white dark:bg-dark-300 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-3 min-w-[200px] animate-scale-in">
+                      <p className="text-sm text-gray-700 dark:text-gray-300 mb-3">
+                        Thu hồi tin nhắn này?
+                      </p>
+                      <div className="flex gap-2 justify-end">
+                        <button
+                          onClick={() => setShowConfirmRecall(false)}
+                          className="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                        >
+                          Hủy
+                        </button>
+                        <button
+                          onClick={() => {
+                            onRecall?.();
+                            setShowConfirmRecall(false);
+                          }}
+                          className="px-3 py-1.5 text-sm text-white bg-red-500 hover:bg-red-600 rounded-lg transition-colors"
+                        >
+                          Thu hồi
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
-      </div>
       </div>
 
       {activeFilePreview && (

@@ -8,6 +8,7 @@ const friendService = require("../services/friendService");
 const userRepository = require("../repository/userRepository");
 const { verifyAccessToken } = require("../utils/jwt");
 const { redisClient, getIsRedisReady, safeGet } = require("../utils/redisClient");
+const groupCallManager = require("../services/groupCallManager");
 
 const PRESENCE_TTL_SECONDS = 90;
 const PRESENCE_HEARTBEAT_MS = 30000;
@@ -95,21 +96,21 @@ const parseCallPayload = (content) => {
     typeof content.text === "string"
       ? content.text
       : typeof content.message === "string"
-      ? content.message
-      : typeof content.content === "string"
-      ? content.content
-      : "";
+        ? content.message
+        : typeof content.content === "string"
+          ? content.content
+          : "";
 
   return nestedText ? parseCallPayload(nestedText) : null;
 };
 
 const getCallPreviewText = (callPayload) => {
   const suffix = callPayload.callType === "video" ? " video" : "";
-  if (callPayload.status === "finished") return `Cuoc goi${suffix}`;
-  if (callPayload.status === "missed") return `Cuoc goi nho${suffix}`;
-  if (callPayload.status === "rejected") return "Cuoc goi bi tu choi";
-  if (callPayload.status === "cancelled") return "Cuoc goi da huy";
-  return callPayload.callType === "video" ? "Cuoc goi video" : "Cuoc goi";
+  if (callPayload.status === "finished") return `Cuộc gọi${suffix}`;
+  if (callPayload.status === "missed") return `Cuộc gọi nhỡ${suffix}`;
+  if (callPayload.status === "rejected") return "Cuộc gọi đã từ chối";
+  if (callPayload.status === "cancelled") return "Cuộc gọi đã hủy";
+  return callPayload.callType === "video" ? "Cuộc gọi video" : "Cuộc gọi";
 };
 
 const resolveCallStatus = (status, fallback = "finished") => {
@@ -135,8 +136,8 @@ const getLastMessageText = ({ type, content, metadata }) => {
     typeof content === "string"
       ? content
       : typeof content?.text === "string"
-      ? content.text
-      : "";
+        ? content.text
+        : "";
 
   if (metadata?.isAnnouncement) {
     return `[Thông báo] ${contentText}`.trim();
@@ -246,17 +247,17 @@ module.exports = (socketConfig) => {
     return hasOnlineSocket;
   };
 
-const isMemberOfConversation = (conversation, userId) =>
-  Boolean(conversation?.participants?.some((p) => String(p.userId) === String(userId)));
+  const isMemberOfConversation = (conversation, userId) =>
+    Boolean(conversation?.participants?.some((p) => String(p.userId) === String(userId)));
 
-const getOtherParticipantId = (conversation, userId) => {
-  if (!conversation || conversation.type !== "private") return null;
-  const selfId = String(userId);
-  const otherParticipant = (conversation.participants || []).find(
-    (participant) => String(participant.userId) !== selfId,
-  );
-  return otherParticipant ? Number(otherParticipant.userId) : null;
-};
+  const getOtherParticipantId = (conversation, userId) => {
+    if (!conversation || conversation.type !== "private") return null;
+    const selfId = String(userId);
+    const otherParticipant = (conversation.participants || []).find(
+      (participant) => String(participant.userId) !== selfId,
+    );
+    return otherParticipant ? Number(otherParticipant.userId) : null;
+  };
 
   const ensureConversationMembership = async (conversationId, userId) => {
     const conversation = await conversationService.getConversation(conversationId);
@@ -703,7 +704,8 @@ const getOtherParticipantId = (conversation, userId) => {
 
     socket.on("video:call-user", async (data) => {
       if (data.isGroupCall) {
-        socket.to(toRoomId(data.conversationId)).emit("video:incoming-call", data);
+        // For group calls, signaling is handled via group:create and group:join.
+        // We don't want to emit video:incoming-call (1-1) for group calls.
       } else {
         const delivered = emitToUserRoom(data.toUserId, "video:incoming-call", data);
         if (!delivered) {
@@ -758,14 +760,15 @@ const getOtherParticipantId = (conversation, userId) => {
 
     socket.on("video:frame", async (data) => {
       // Relay video frame (base64 JPEG) from sender to receiver
+      const senderUserId = socket.userId || data?.fromUserId;
       if (data.isGroupCall) {
         socket.to(toRoomId(data.conversationId)).emit("video:frame", {
           ...data,
-          fromUserId: socket.userId,
+          fromUserId: senderUserId,
         });
       } else if (data.toUserId) {
         emitToUserRoom(data.toUserId, "video:frame", {
-          fromUserId: socket.userId,
+          fromUserId: senderUserId,
           conversationId: data.conversationId,
           frame: data.frame,
         });
@@ -774,20 +777,365 @@ const getOtherParticipantId = (conversation, userId) => {
 
     socket.on("video:audio-frame", async (data) => {
       // Relay audio chunk (base64) from sender to receiver
+      const senderUserId = socket.userId || data?.fromUserId;
       if (data.isGroupCall) {
         socket.to(toRoomId(data.conversationId)).emit("video:audio-frame", {
           ...data,
-          fromUserId: socket.userId,
+          fromUserId: senderUserId,
         });
       } else if (data.toUserId) {
         emitToUserRoom(data.toUserId, "video:audio-frame", {
-          fromUserId: socket.userId,
+          fromUserId: senderUserId,
           conversationId: data.conversationId,
           audio: data.audio,
           audioMimeType: data.audioMimeType,
         });
       }
     });
+
+    // ═══════════════════════════════════════════════════════
+    // GROUP CALL — Room Management + WebRTC Signaling
+    // ═══════════════════════════════════════════════════════
+
+    socket.on("group:create", async (data, callback) => {
+      try {
+        const { conversationId, callType, maxParticipants, autoInvite } = data || {};
+        if (!conversationId) {
+          return callback?.({ success: false, error: "conversationId is required" });
+        }
+
+        await ensureConversationMembership(conversationId, socket.userId);
+
+        const room = groupCallManager.createRoom(
+          conversationId,
+          socket.userId,
+          socket.id,
+          callType,
+          maxParticipants,
+        );
+
+        console.log(`[GroupCall] Room created: ${room.roomId} by user ${socket.userId}`);
+        callback?.({
+          success: true,
+          room: groupCallManager.serializeRoom(room),
+        });
+
+        // Auto-invite all conversation members if requested
+        if (autoInvite) {
+          try {
+            const conversation = await conversationModel.getOneConversation(conversationId);
+            if (conversation && Array.isArray(conversation.participants)) {
+              let callerInfo = null;
+              try {
+                callerInfo = await userRepository.getById(socket.userId);
+              } catch (e) { }
+
+              const invitePayload = {
+                roomId: room.roomId,
+                conversationId: room.conversationId,
+                callType: room.callType,
+                hostUserId: room.hostUserId,
+                callerName: callerInfo?.fullName || "Nguoi dung",
+                callerAvatar: callerInfo?.avatarUrl || null,
+                participantCount: room.participants.size,
+                isGroupCall: true,
+              };
+
+              let invitedCount = 0;
+              for (const p of conversation.participants) {
+                const uid = String(p.userId || p);
+                if (uid === socket.userId) continue;
+                if (room.participants.has(uid)) continue;
+                const delivered = emitToUserRoom(uid, "group:incoming", invitePayload);
+                if (delivered) invitedCount++;
+              }
+              console.log(`[GroupCall] Auto-invited ${invitedCount} users to room ${room.roomId}`);
+            }
+          } catch (e) {
+            console.warn("[GroupCall] Auto-invite failed:", e?.message);
+          }
+        }
+      } catch (err) {
+        console.error("group:create error:", err);
+        callback?.({ success: false, error: err.message });
+      }
+    });
+
+    socket.on("group:invite", async (data, callback) => {
+      try {
+        const { roomId, userIds } = data || {};
+        if (!roomId || !Array.isArray(userIds) || userIds.length === 0) {
+          return callback?.({ success: false, error: "roomId and userIds[] are required" });
+        }
+
+        const room = groupCallManager.getRoom(roomId);
+        if (!room) {
+          return callback?.({ success: false, error: "Room not found" });
+        }
+
+        // Get user info for the caller
+        let callerInfo = null;
+        try {
+          callerInfo = await userRepository.getById(socket.userId);
+        } catch (e) {
+          // fallback
+        }
+
+        const invitePayload = {
+          roomId: room.roomId,
+          conversationId: room.conversationId,
+          callType: room.callType,
+          hostUserId: room.hostUserId,
+          callerName: callerInfo?.fullName || "Nguoi dung",
+          callerAvatar: callerInfo?.avatarUrl || null,
+          participantCount: room.participants.size,
+          isGroupCall: true,
+        };
+
+        let invitedCount = 0;
+        for (const targetUserId of userIds) {
+          const uid = String(targetUserId);
+          if (room.participants.has(uid)) continue; // Already in room
+          const delivered = emitToUserRoom(uid, "group:incoming", invitePayload);
+          if (delivered) invitedCount++;
+        }
+
+        console.log(`[GroupCall] Invited ${invitedCount}/${userIds.length} users to room ${roomId}`);
+        callback?.({ success: true, invitedCount });
+      } catch (err) {
+        console.error("group:invite error:", err);
+        callback?.({ success: false, error: err.message });
+      }
+    });
+
+    socket.on("group:join", async (data, callback) => {
+      try {
+        const { roomId } = data || {};
+        if (!roomId) {
+          return callback?.({ success: false, error: "roomId is required" });
+        }
+
+        const room = groupCallManager.getRoom(roomId);
+        if (!room) {
+          return callback?.({ success: false, error: "Room not found" });
+        }
+
+        // Ensure user is member of the conversation
+        await ensureConversationMembership(room.conversationId, socket.userId);
+
+        // Get current participants BEFORE joining (for signaling)
+        const existingParticipants = groupCallManager.getParticipantsArray(roomId)
+          .filter((p) => p.userId !== socket.userId);
+
+        const { isNew } = groupCallManager.joinRoom(roomId, socket.userId, socket.id);
+
+        // Get user info
+        let userInfo = null;
+        try {
+          userInfo = await userRepository.findUserById(socket.userId);
+        } catch (e) {
+          // fallback
+        }
+
+        // Send current participants list to the joining user
+        callback?.({
+          success: true,
+          room: groupCallManager.serializeRoom(room),
+          existingParticipants,
+        });
+
+        if (isNew) {
+          // Notify all other participants that a new user joined
+          const joinPayload = {
+            roomId,
+            userId: socket.userId,
+            userName: userInfo?.fullName || "Nguoi dung",
+            userAvatar: userInfo?.avatarUrl || null,
+            participantCount: room.participants.size,
+          };
+
+          for (const participant of existingParticipants) {
+            emitToUserRoom(participant.userId, "group:user-joined", joinPayload);
+          }
+
+          console.log(`[GroupCall] User ${socket.userId} joined room ${roomId} (${room.participants.size} total)`);
+        }
+      } catch (err) {
+        console.error("group:join error:", err);
+        callback?.({ success: false, error: err.message });
+      }
+    });
+
+    socket.on("group:leave", async (data, callback) => {
+      try {
+        const { roomId } = data || {};
+        if (!roomId) {
+          return callback?.({ success: false, error: "roomId is required" });
+        }
+
+        const room = groupCallManager.getRoom(roomId);
+        if (!room) {
+          return callback?.({ success: true }); // Already gone
+        }
+
+        const conversationId = room.conversationId;
+        const remaining = groupCallManager.leaveRoom(roomId, socket.userId);
+
+        // Notify remaining participants
+        if (remaining && remaining.length > 0) {
+          const leavePayload = {
+            roomId,
+            userId: socket.userId,
+            participantCount: remaining.length,
+            newHostUserId: groupCallManager.getRoom(roomId)?.hostUserId || null,
+          };
+
+          for (const participant of remaining) {
+            emitToUserRoom(participant.userId, "group:user-left", leavePayload);
+          }
+        } else {
+          // Room was destroyed — broadcast to conversation room so clients remove the banner
+          io.to(toRoomId(conversationId)).emit("group:room-ended", {
+            conversationId,
+            roomId,
+          });
+        }
+
+        // Also emit on conversation room for legacy compatibility (mobile)
+        socket.to(toRoomId(conversationId)).emit("video:user-left", {
+          fromUserId: socket.userId,
+          conversationId,
+          isGroupCall: true,
+        });
+
+        console.log(`[GroupCall] User ${socket.userId} left room ${roomId}`);
+        callback?.({ success: true });
+      } catch (err) {
+        console.error("group:leave error:", err);
+        callback?.({ success: false, error: err.message });
+      }
+    });
+
+    socket.on("group:kick", async (data, callback) => {
+      try {
+        const { roomId, targetUserId } = data || {};
+        if (!roomId || !targetUserId) {
+          return callback?.({ success: false, error: "roomId and targetUserId are required" });
+        }
+
+        const { targetSocketId, remaining } = groupCallManager.kickUser(
+          roomId,
+          socket.userId,
+          targetUserId,
+        );
+
+        // Notify kicked user
+        emitToUserRoom(targetUserId, "group:user-kicked", {
+          roomId,
+          kickedBy: socket.userId,
+        });
+
+        // Notify remaining participants
+        if (remaining) {
+          for (const participant of remaining) {
+            emitToUserRoom(participant.userId, "group:user-left", {
+              roomId,
+              userId: targetUserId,
+              kicked: true,
+              participantCount: remaining.length,
+            });
+          }
+        }
+
+        console.log(`[GroupCall] User ${targetUserId} kicked from room ${roomId} by ${socket.userId}`);
+        callback?.({ success: true });
+      } catch (err) {
+        console.error("group:kick error:", err);
+        callback?.({ success: false, error: err.message });
+      }
+    });
+
+    socket.on("group:media-toggle", async (data) => {
+      try {
+        const { roomId, isMuted, isVideoOff } = data || {};
+        if (!roomId) return;
+
+        groupCallManager.updateParticipantMedia(roomId, socket.userId, {
+          isMuted,
+          isVideoOff,
+        });
+
+        const room = groupCallManager.getRoom(roomId);
+        if (!room) return;
+
+        // Broadcast to all other participants
+        for (const [uid, participant] of room.participants) {
+          if (uid === socket.userId) continue;
+          emitToUserRoom(uid, "group:media-changed", {
+            roomId,
+            userId: socket.userId,
+            isMuted,
+            isVideoOff,
+          });
+        }
+      } catch (err) {
+        console.warn("group:media-toggle error:", err?.message);
+      }
+    });
+
+    // WebRTC Signaling for MESH — relay offer/answer/ICE to target user
+    socket.on("webrtc:offer", (data) => {
+      const { toUserId, offer, roomId } = data || {};
+      if (!toUserId || !offer) return;
+      emitToUserRoom(toUserId, "webrtc:offer", {
+        fromUserId: socket.userId,
+        offer,
+        roomId,
+      });
+    });
+
+    socket.on("webrtc:answer", (data) => {
+      const { toUserId, answer, roomId } = data || {};
+      if (!toUserId || !answer) return;
+      emitToUserRoom(toUserId, "webrtc:answer", {
+        fromUserId: socket.userId,
+        answer,
+        roomId,
+      });
+    });
+
+    socket.on("webrtc:ice-candidate", (data) => {
+      const { toUserId, candidate, roomId } = data || {};
+      if (!toUserId || !candidate) return;
+      emitToUserRoom(toUserId, "webrtc:ice-candidate", {
+        fromUserId: socket.userId,
+        candidate,
+        roomId,
+      });
+    });
+
+    // Check if there is an active group call for a conversation
+    socket.on("group:check-active", async (data, callback) => {
+      try {
+        const { conversationId } = data || {};
+        if (!conversationId) {
+          return callback?.({ success: false, error: "conversationId is required" });
+        }
+
+        const room = groupCallManager.getRoomByConversation(conversationId);
+        callback?.({
+          success: true,
+          room: room ? groupCallManager.serializeRoom(room) : null,
+        });
+      } catch (err) {
+        console.error("group:check-active error:", err);
+        callback?.({ success: false, error: err.message });
+      }
+    });
+
+    // ═══════════════════════════════════════════════════════
+    // END GROUP CALL
+    // ═══════════════════════════════════════════════════════
 
     socket.on("presence:get_online_users", async (userIds, callback) => {
       try {
@@ -805,6 +1153,40 @@ const getOtherParticipantId = (conversation, userId) => {
 
     socket.on("disconnect", async () => {
       try {
+        // Group call cleanup — remove user from any active call room
+        const callCleanup = groupCallManager.cleanupBySocketId(socket.id);
+        if (callCleanup) {
+          const { roomId, userId: leftUserId, remaining, conversationId } = callCleanup;
+          if (remaining && remaining.length > 0) {
+            const leavePayload = {
+              roomId,
+              userId: leftUserId,
+              participantCount: remaining.length,
+              newHostUserId: groupCallManager.getRoom(roomId)?.hostUserId || null,
+              disconnected: true,
+            };
+            for (const participant of remaining) {
+              emitToUserRoom(participant.userId, "group:user-left", leavePayload);
+            }
+          } else if (conversationId) {
+            // Room was destroyed — broadcast to conversation room
+            io.to(toRoomId(conversationId)).emit("group:room-ended", {
+              conversationId,
+              roomId,
+            });
+          }
+          // Legacy compatibility for mobile
+          if (conversationId) {
+            socket.to(toRoomId(conversationId)).emit("video:user-left", {
+              fromUserId: leftUserId,
+              conversationId,
+              isGroupCall: true,
+              disconnected: true,
+            });
+          }
+          console.log(`[GroupCall] User ${leftUserId} disconnected, removed from room ${roomId}`);
+        }
+
         if (presenceHeartbeat) {
           clearInterval(presenceHeartbeat);
           presenceHeartbeat = null;
