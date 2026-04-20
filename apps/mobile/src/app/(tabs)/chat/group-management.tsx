@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import {
   Alert,
   ScrollView,
@@ -19,14 +19,19 @@ import {
   addGroupMember,
   removeGroupMember,
   leaveGroup,
-  getUsers,
   getGroupSettings,
   rotateGroupInviteCode,
   updateGroupInviteSettings,
   getGroupJoinRequests,
   reviewGroupJoinRequest,
   updateGroupPermissions,
+  renameGroup,
+  updateGroupAvatar,
 } from "@/services/groupService";
+import * as ImagePicker from "expo-image-picker";
+import { uploadFile } from "@/services/chat";
+import { Avatar } from "@/components/ui/Avatar";
+import { friendsService, userService } from "@/services";
 import type { GroupPermissionScope } from "@/types";
 
 const permissionOptions: Array<{ value: GroupPermissionScope; label: string }> = [
@@ -65,11 +70,22 @@ export default function GroupManagementScreen() {
 
     const loadUsersAndSettings = async () => {
       try {
-        const [users, latestSettings, joinRequests] = await Promise.all([
-          getUsers(),
+        const [relations, latestSettings, joinRequests] = await Promise.all([
+          friendsService.getFriend(user.id),
           getGroupSettings(id),
           getGroupJoinRequests(id).catch(() => ({ requests: [] })),
         ]);
+
+        const friendIds = relations.map((friend) =>
+          String(friend.fromUserId) === String(user.id)
+            ? String(friend.toUserId)
+            : String(friend.fromUserId),
+        );
+
+        const uniqueFriendIds = [...new Set(friendIds)];
+        const users = await Promise.all(
+          uniqueFriendIds.map((friendId) => userService.getUserById(friendId)),
+        );
 
         setAllUsers(users || []);
 
@@ -116,6 +132,69 @@ export default function GroupManagementScreen() {
   const availableUsersToAdd = allUsers.filter(
     (u) => !group.participants.some((p) => String(p.userId) === String(u.id || u._id || u.userId))
   );
+
+  const handleRename = useCallback(() => {
+    if (!group) return;
+    Alert.prompt(
+      "Đổi tên nhóm",
+      "Nhập tên mới cho nhóm của bạn",
+      [
+        { text: "Hủy", style: "cancel" },
+        {
+          text: "Đổi tên",
+          onPress: async (newName) => {
+            if (!newName?.trim()) return;
+            try {
+              setIsLoading(true);
+              await renameGroup(id, newName.trim());
+              updateConversation(id, { name: newName.trim() });
+              GrayToast("Đã đổi tên nhóm");
+            } catch (error: any) {
+              GrayToast(error?.message || "Không thể đổi tên nhóm");
+            } finally {
+              setIsLoading(false);
+            }
+          },
+        },
+      ],
+      "plain-text",
+      group.name
+    );
+  }, [group, id, updateConversation]);
+
+  const handleAvatarChange = async () => {
+    if (!group) return;
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+
+      if (result.canceled || !result.assets[0]) return;
+
+      const asset = result.assets[0];
+      const accessToken = useAuthStore.getState().accessToken;
+      if (!accessToken) return;
+
+      setIsLoading(true);
+      const url = await uploadFile(
+        asset.uri,
+        asset.name || "avatar.jpg",
+        asset.mimeType || "image/jpeg",
+        accessToken,
+      );
+
+      await updateGroupAvatar(id, url);
+      updateConversation(id, { avatar: url });
+      GrayToast("Đã cập nhật ảnh đại diện nhóm");
+    } catch (error: any) {
+      Alert.alert("Lỗi", error.message || "Không thể cập nhật ảnh đại diện");
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const copyToClipboard = async (value: string, message: string) => {
     if (!value) return;
@@ -299,13 +378,46 @@ export default function GroupManagementScreen() {
         >
           <Ionicons name="arrow-back" size={24} color="#FFF" />
         </TouchableOpacity>
-        <View style={{ flex: 1, marginLeft: 4 }}>
-          <Text style={{ fontSize: 18, fontWeight: "700", color: "#FFF" }}>Quản trị nhóm</Text>
-          <Text style={{ fontSize: 13, color: "#DBEAFE" }}>{group.name}</Text>
+        <View style={{ flex: 1, marginLeft: 4, flexDirection: "row", alignItems: "center" }}>
+          <TouchableOpacity onPress={handleAvatarChange} style={{ marginRight: 12 }}>
+            <View>
+              <Avatar uri={group?.avatar} name={group?.name} size={40} />
+              <View style={{ position: "absolute", bottom: -2, right: -2, backgroundColor: "#FFF", borderRadius: 10, padding: 2 }}>
+                <Ionicons name="camera" size={10} color="#3B82F6" />
+              </View>
+            </View>
+          </TouchableOpacity>
+          <View style={{ flex: 1 }}>
+            <View style={{ flexDirection: "row", alignItems: "center" }}>
+              <Text style={{ fontSize: 18, fontWeight: "700", color: "#FFF" }} numberOfLines={1}>{group?.name}</Text>
+              <TouchableOpacity onPress={handleRename} style={{ marginLeft: 6 }}>
+                <Ionicons name="create-outline" size={16} color="#DBEAFE" />
+              </TouchableOpacity>
+            </View>
+            <Text style={{ fontSize: 13, color: "#DBEAFE" }}>Quản trị nhóm</Text>
+          </View>
         </View>
       </View>
 
       <ScrollView contentContainerStyle={{ padding: 16 }}>
+        {/* Thông tin nhóm chi tiết */}
+        <View style={{ backgroundColor: "#FFF", borderRadius: 12, padding: 16, marginBottom: 16, alignItems: "center" }}>
+          <TouchableOpacity onPress={handleAvatarChange} style={{ marginBottom: 12 }}>
+            <View>
+              <Avatar uri={group?.avatar} name={group?.name} size={80} />
+              <View style={{ position: "absolute", bottom: 0, right: 0, backgroundColor: "#3B82F6", borderRadius: 15, padding: 6, borderSize: 2, borderColor: "#FFF" }}>
+                <Ionicons name="camera" size={18} color="#FFF" />
+              </View>
+            </View>
+          </TouchableOpacity>
+          
+          <TouchableOpacity onPress={handleRename} style={{ flexDirection: "row", alignItems: "center", marginBottom: 4 }}>
+            <Text style={{ fontSize: 20, fontWeight: "700", color: "#1F2937", textAlign: "center" }}>{group?.name}</Text>
+            <Ionicons name="create-outline" size={20} color="#3B82F6" style={{ marginLeft: 8 }} />
+          </TouchableOpacity>
+          <Text style={{ fontSize: 13, color: "#6B7280" }}>Chạm vào ảnh hoặc tên để thay đổi</Text>
+        </View>
+
         {/* Link Mời Nhóm */}
         <View style={{ backgroundColor: "#FFF", borderRadius: 12, padding: 16, marginBottom: 16 }}>
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>

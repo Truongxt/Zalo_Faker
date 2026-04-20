@@ -196,3 +196,21 @@ export const leaveGroup = async (
     method: "PUT",
     body: payload,
   });
+
+export const renameGroup = async (groupId: string, name: string) =>
+  apiFetch<{
+    message: string;
+    group: any;
+  }>(`/api/groups/${groupId}/rename`, {
+    method: "PUT",
+    body: { name },
+  });
+
+export const updateGroupAvatar = async (groupId: string, avatar: string) =>
+  apiFetch<{
+    message: string;
+    group: any;
+  }>(`/api/groups/${groupId}/avatar`, {
+    method: "PUT",
+    body: { avatar },
+  });

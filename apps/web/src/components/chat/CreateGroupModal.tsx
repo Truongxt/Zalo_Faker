@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import { X, Search, Users, Check } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { X, Search, Users, Check, Camera } from 'lucide-react'
 import { createGroup, getFriends } from '@/services/api'
 import { useAuthStore } from '@/stores/authStore'
 import { useChatStore } from '@/stores/chatStore'
@@ -21,6 +21,9 @@ export default function CreateGroupModal({ isOpen, onClose }: CreateGroupModalPr
     const [selectedIds, setSelectedIds] = useState<string[]>([])
     const [isLoading, setIsLoading] = useState(false)
     const [isCreating, setIsCreating] = useState(false)
+    const [avatarFile, setAvatarFile] = useState<File | null>(null)
+    const [avatarPreview, setAvatarPreview] = useState<string | null>(null)
+    const fileInputRef = useRef<HTMLInputElement>(null)
 
     // Lấy danh sách bạn bè
     useEffect(() => {
@@ -28,7 +31,10 @@ export default function CreateGroupModal({ isOpen, onClose }: CreateGroupModalPr
             setIsLoading(true)
             getFriends(user.id)
                 .then((data: any) => {
-                    setContacts(data)
+                    const uniqueFriends = Array.from(
+                        new Map((data || []).map((f: any) => [String(f.id || f.userId || f._id), f])).values()
+                    )
+                    setContacts(uniqueFriends as any[])
                 })
                 .catch((err: Error) => console.error('Error fetching friends:', err))
                 .finally(() => setIsLoading(false))
@@ -37,15 +43,28 @@ export default function CreateGroupModal({ isOpen, onClose }: CreateGroupModalPr
             setGroupName('')
             setSearchQuery('')
             setSelectedIds([])
+            setAvatarFile(null)
+            if (avatarPreview) {
+                URL.revokeObjectURL(avatarPreview)
+            }
+            setAvatarPreview(null)
         }
     }, [isOpen, user?.id])
 
-    const filteredContacts = contacts.filter(c => {
-        const name = (c.fullName || c.userName || '').toLowerCase()
-        const query = searchQuery.toLowerCase()
-        const phone = (c.phoneNumber || c.phone || '')
+    const filteredContacts = Array.isArray(contacts) ? contacts.filter(c => {
+        const name = String(c.fullName || c.userName || '').toLowerCase()
+        const query = String(searchQuery || '').toLowerCase()
+        const phone = String(c.phoneNumber || c.phone || '')
         return name.includes(query) || phone.includes(searchQuery)
-    })
+    }) : []
+
+    const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0]
+        if (file) {
+            setAvatarFile(file)
+            setAvatarPreview(URL.createObjectURL(file))
+        }
+    }
 
     const handleToggleSelect = (id: string) => {
         setSelectedIds(prev => 
@@ -66,11 +85,16 @@ export default function CreateGroupModal({ isOpen, onClose }: CreateGroupModalPr
 
         try {
             setIsCreating(true)
-            const newGroup = await createGroup({
-                name: groupName.trim(),
-                memberIds: selectedIds,
-                createdBy: user.id
-            })
+
+            const formData = new FormData()
+            formData.append('name', groupName.trim())
+            formData.append('memberIds', JSON.stringify(selectedIds))
+            formData.append('createdBy', String(user.id))
+            if (avatarFile) {
+                formData.append('image', avatarFile)
+            }
+
+            const newGroup = await createGroup(formData)
 
             // add conversation to store (map _id to id)
             const groupWithId = {
@@ -112,17 +136,36 @@ export default function CreateGroupModal({ isOpen, onClose }: CreateGroupModalPr
                 {/* Body */}
                 <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
                     {/* Input Tên nhóm */}
-                    <div className="flex items-center gap-3">
-                        <div className="w-12 h-12 rounded-full bg-gray-100 dark:bg-dark-300 flex items-center justify-center flex-shrink-0">
-                            <Users className="w-6 h-6 text-gray-400" />
+                    <div className="flex items-center gap-4 bg-white dark:bg-dark-200 p-2 rounded-xl shadow-sm border border-gray-100 dark:border-gray-800">
+                        <div className="relative">
+                            <button
+                                onClick={() => fileInputRef.current?.click()}
+                                className="w-14 h-14 rounded-full bg-gray-100 dark:bg-dark-300 flex items-center justify-center flex-shrink-0 group overflow-hidden border border-dashed border-gray-300 dark:border-gray-600 hover:border-primary-500 transition-colors"
+                            >
+                                {avatarPreview ? (
+                                    <img src={avatarPreview} alt="Avatar preview" className="w-full h-full object-cover" />
+                                ) : (
+                                    <Camera className="w-6 h-6 text-gray-400 group-hover:text-primary-500 transition-colors" />
+                                )}
+                            </button>
+                            <input
+                                type="file"
+                                ref={fileInputRef}
+                                onChange={handleAvatarChange}
+                                accept="image/*"
+                                className="hidden"
+                            />
                         </div>
-                        <input
-                            type="text"
-                            value={groupName}
-                            onChange={e => setGroupName(e.target.value)}
-                            placeholder="Nhập tên nhóm..."
-                            className="flex-1 border-b border-gray-200 dark:border-gray-700 bg-transparent py-2 focus:outline-none focus:border-primary-500 text-gray-900 dark:text-white"
-                        />
+                        <div className="flex-1">
+                            <label className="text-[11px] font-semibold text-primary-500 uppercase tracking-widest mb-1 block">Tên nhóm</label>
+                            <input
+                                type="text"
+                                value={groupName}
+                                onChange={e => setGroupName(e.target.value)}
+                                placeholder="VD: Team mobile, Bạn thân..."
+                                className="w-full border-b border-gray-200 dark:border-gray-700 bg-transparent py-1 focus:outline-none focus:border-primary-500 text-gray-900 dark:text-white transition-colors"
+                            />
+                        </div>
                     </div>
 
                     {/* Search bar */}

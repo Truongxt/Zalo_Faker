@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import React, { useEffect, useMemo, useState, useRef, ChangeEvent, type ReactNode } from 'react'
 import {
     X, UserPlus, LogOut, UserMinus, Link2, RefreshCw, Pin, Megaphone,
     Copy, Users, Settings2, ClipboardCheck, Crown, Shield, CheckCircle2,
-    XCircle, ChevronDown, UserCheck
+    XCircle, ChevronDown, UserCheck, Edit2, Check, Camera
 } from 'lucide-react'
 import { useAuthStore } from '@/stores/authStore'
 import { useChatStore, Conversation, GroupPermissionScope } from '@/stores/chatStore'
@@ -10,13 +10,16 @@ import {
     addGroupMember,
     removeGroupMember,
     leaveGroup,
-    getUsers,
+    getFriends,
     getGroupSettings,
     rotateGroupInviteCode,
     updateGroupInviteSettings,
     getGroupJoinRequests,
     reviewGroupJoinRequest,
     updateGroupPermissions,
+    renameGroup,
+    updateGroupAvatar,
+    uploadMedia,
 } from '@/services/api'
 
 interface GroupManagementModalProps {
@@ -106,19 +109,25 @@ export default function GroupManagementModal({ isOpen, onClose, group }: GroupMa
     const [isLoading, setIsLoading] = useState(false)
     const [settings, setSettings] = useState<LocalGroupSettings>(fallbackSettings)
     const [copiedField, setCopiedField] = useState<'code' | 'link' | null>(null)
+    const [isEditingName, setIsEditingName] = useState(false)
+    const [newName, setNewName] = useState('')
+    const fileInputRef = useRef<HTMLInputElement>(null)
 
     useEffect(() => {
         if (!isOpen || !group || !user) return
 
         const loadUsersAndSettings = async () => {
             try {
-                const [users, latestSettings, joinRequests] = await Promise.all([
-                    getUsers(),
+                const [friendsData, latestSettings, joinRequests] = await Promise.all([
+                    getFriends(user.id),
                     group.id && group.id !== 'undefined' ? getGroupSettings(group.id) : null,
                     group.id && group.id !== 'undefined' ? getGroupJoinRequests(group.id).catch(() => ({ requests: [] })) : { requests: [] },
                 ])
 
-                setAllUsers(users || [])
+                const uniqueFriends = Array.from(
+                    new Map((friendsData || []).map((f: any) => [String(f.id || f.userId || f._id), f])).values()
+                )
+                setAllUsers(uniqueFriends as any[])
                 
                 if (latestSettings) {
                     setSettings({
@@ -349,6 +358,48 @@ export default function GroupManagementModal({ isOpen, onClose, group }: GroupMa
         return userInfo?.fullName || userInfo?.userName || `User ${requestUserId}`
     }
 
+    const handleStartEditingName = () => {
+        setNewName(group.name || '')
+        setIsEditingName(true)
+    }
+
+    const handleSaveName = async () => {
+        if (!newName.trim() || newName === group.name) {
+            setIsEditingName(false)
+            return
+        }
+
+        try {
+            setIsLoading(true)
+            await renameGroup(group.id, newName.trim())
+            updateConversation(group.id, { name: newName.trim() })
+            setIsEditingName(false)
+        } catch (error: any) {
+            alert(error.message || 'Không thể đổi tên nhóm')
+        } finally {
+            setIsLoading(false)
+        }
+    }
+
+    const handleAvatarChange = async (e: ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0]
+        if (!file) return
+
+        try {
+            setIsLoading(true)
+            const uploadRes = await uploadMedia(file)
+            const avatarUrl = uploadRes.url
+
+            await updateGroupAvatar(group.id, { avatar: avatarUrl })
+            updateConversation(group.id, { avatar: avatarUrl })
+        } catch (error: any) {
+            alert(error.message || 'Không thể đổi ảnh đại diện')
+        } finally {
+            setIsLoading(false)
+            if (fileInputRef.current) fileInputRef.current.value = ''
+        }
+    }
+
     return (
         <div
             className="fixed inset-0 z-50 flex items-center justify-center p-4"
@@ -361,12 +412,58 @@ export default function GroupManagementModal({ isOpen, onClose, group }: GroupMa
                 {/* Header */}
                 <div className="relative flex items-center justify-between px-5 py-4 bg-gradient-to-r from-primary-600 to-primary-500 flex-shrink-0">
                     <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 rounded-xl bg-white/20 backdrop-blur-sm flex items-center justify-center">
-                            <Settings2 className="w-5 h-5 text-white" />
-                        </div>
-                        <div>
-                            <h2 className="text-base font-bold text-white leading-tight">Quản trị nhóm</h2>
-                            <p className="text-xs text-primary-100 truncate max-w-[200px]">{group.name || 'Nhóm của bạn'}</p>
+                        <input
+                            type="file"
+                            ref={fileInputRef}
+                            className="hidden"
+                            accept="image/*"
+                            onChange={handleAvatarChange}
+                        />
+                        <button
+                            onClick={() => fileInputRef.current?.click()}
+                            className="group relative w-10 h-10 rounded-xl overflow-hidden bg-white/20 backdrop-blur-sm flex items-center justify-center border border-white/30 hover:border-white/60 transition-all shadow-lg"
+                        >
+                            {group.avatar ? (
+                                <img src={group.avatar} alt="" className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300" />
+                            ) : (
+                                <Settings2 className="w-5 h-5 text-white group-hover:scale-110 transition-transform" />
+                            )}
+                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                                <Camera className="w-4 h-4 text-white" />
+                            </div>
+                        </button>
+                        <div className="flex-1">
+                            {isEditingName ? (
+                                <div className="flex items-center gap-2">
+                                    <input
+                                        type="text"
+                                        className="flex-1 bg-white/20 text-white placeholder-white/60 border-none rounded-lg px-2 py-1 text-sm focus:ring-2 focus:ring-white/30 focus:outline-none"
+                                        value={newName}
+                                        onChange={(e) => setNewName(e.target.value)}
+                                        autoFocus
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') handleSaveName()
+                                            if (e.key === 'Escape') setIsEditingName(false)
+                                        }}
+                                    />
+                                    <button onClick={handleSaveName} className="p-1 hover:bg-white/20 rounded">
+                                        <Check className="w-4 h-4 text-white" />
+                                    </button>
+                                </div>
+                            ) : (
+                                <div className="flex items-center gap-2">
+                                    <div className="min-w-0">
+                                        <h2 className="text-base font-bold text-white leading-tight">Quản trị nhóm</h2>
+                                        <p className="text-xs text-primary-100 truncate max-w-[200px]">{group.name || 'Nhóm của bạn'}</p>
+                                    </div>
+                                    <button
+                                        onClick={handleStartEditingName}
+                                        className="p-1 hover:bg-white/20 rounded opacity-70 hover:opacity-100"
+                                    >
+                                        <Edit2 className="w-3 h-3 text-white" />
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     </div>
                     <button

@@ -1,5 +1,6 @@
 import { Image, View, Text } from "react-native";
-import { useState } from "react";
+import { useState, useMemo } from "react";
+import { API_URL } from "@/constants/config";
 
 interface AvatarProps {
   name?: string;
@@ -15,6 +16,23 @@ export function Avatar({
   isGroup = false,
 }: AvatarProps) {
   const [imageError, setImageError] = useState(false);
+
+  const getFullMediaUrl = (url?: string | null) => {
+    if (!url) return undefined;
+    const trimmed = url.trim();
+    if (!trimmed) return undefined;
+    if (/^https?:\/\//i.test(trimmed)) return trimmed;
+    if (trimmed.startsWith("data:")) return trimmed;
+    if (trimmed.startsWith("/")) {
+      const base = API_URL.replace(/\/+$/, "");
+      return `${base}${trimmed}`;
+    }
+    // Handle cases where it might be relative but not starting with /
+    const base = API_URL.replace(/\/+$/, "");
+    return `${base}/${trimmed}`;
+  };
+
+  const fullUri = useMemo(() => getFullMediaUrl(uri), [uri]);
 
   const initials = (name ?? "User")
     .split(" ")
@@ -37,25 +55,25 @@ export function Avatar({
       .split("")
       .reduce((acc, char) => acc + char.charCodeAt(0), 0) % bgColors.length;
 
-  const hasImageUri = !!uri && uri.trim().length > 0 && !imageError;
+  const hasImage = !!fullUri && !imageError;
 
   return (
     <View
       className={`${bgColors[colorIndex]} rounded-full items-center justify-center`}
       style={{ width: size, height: size, overflow: "hidden" }}
     >
-      {isGroup ? (
-        <Text style={{ fontSize: size * 0.35 }}>👥</Text>
-      ) : hasImageUri ? (
+      {hasImage ? (
         <Image
-          source={{ uri: uri!.trim() }}
+          source={{ uri: fullUri }}
           style={{ width: size, height: size }}
           resizeMode="cover"
           onError={(e) => {
-            console.warn("[Avatar] Image load failed:", uri, e.nativeEvent.error);
+            console.warn("[Avatar] Image load failed:", fullUri, e.nativeEvent.error);
             setImageError(true);
           }}
         />
+      ) : isGroup ? (
+        <Text style={{ fontSize: size * 0.35 }}>👥</Text>
       ) : (
         <Text
           className="text-white font-bold"

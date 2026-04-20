@@ -366,9 +366,10 @@ const deleteChatHistory = async (conversationId: string) => {
 }
 
 const createGroup = async (data: any) => {
+    const isFormData = data instanceof FormData;
     const response = await fetchWithAuth(`/groups`, {
         method: "POST",
-        body: JSON.stringify(data)
+        body: isFormData ? data : JSON.stringify(data)
     });
     return await response.json();
 }
@@ -474,6 +475,23 @@ const pinConversationMessage = async (conversationId: string, messageId: string)
 const unpinConversationMessage = async (conversationId: string) => {
     const response = await fetchWithAuth(`/conversations/${conversationId}/pin-message`, {
         method: "DELETE"
+    });
+    return response.json();
+}
+
+const renameGroup = async (groupId: string, name: string) => {
+    const response = await fetchWithAuth(`/groups/${groupId}/rename`, {
+        method: "PUT",
+        body: JSON.stringify({ name })
+    });
+    return response.json();
+}
+
+const updateGroupAvatar = async (groupId: string, avatarData: FormData | { avatar: string }) => {
+    const isFormData = avatarData instanceof FormData;
+    const response = await fetchWithAuth(`/groups/${groupId}/avatar`, {
+        method: "PUT",
+        body: isFormData ? avatarData : JSON.stringify(avatarData)
     });
     return response.json();
 }
@@ -615,5 +633,7 @@ export {
     getFriends,
     askAssistant,
     getAssistantHistory,
-    deleteAssistantConversationHistory
+    deleteAssistantConversationHistory,
+    renameGroup,
+    updateGroupAvatar
 }
