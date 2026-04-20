@@ -18,12 +18,16 @@ import { useChatStore } from "@/stores/chatStore";
 import { useAuthStore } from "@/stores/authStore";
 import { API_URL } from "@/constants/config";
 import { conversationService, labelService } from "@/services";
+import { renameGroup, updateGroupAvatar } from "@/services/groupService";
+import { uploadFile } from "@/services/chat";
 import type { Label, Conversation } from "@/types";
 
 interface ChatOptionsModalProps {
   visible: boolean;
   onClose: () => void;
   conversation: Conversation;
+  onStartSearch: () => void;
+  onDeleteHistory: () => void;
 }
 
 const PRESET_BACKGROUNDS = [
@@ -39,6 +43,8 @@ export function ChatOptionsModal({
   visible,
   onClose,
   conversation,
+  onStartSearch,
+  onDeleteHistory,
 }: ChatOptionsModalProps) {
   const insets = useSafeAreaInsets();
   const { user, accessToken } = useAuthStore();
@@ -194,6 +200,69 @@ export function ChatOptionsModal({
     }
   };
 
+  const handleRenameGroup = () => {
+    if (conversation.type !== "group") return;
+
+    Alert.prompt(
+      "Đổi tên nhóm",
+      "Nhập tên mới cho nhóm của bạn",
+      [
+        { text: "Hủy", style: "cancel" },
+        {
+          text: "Đổi tên",
+          onPress: async (newName) => {
+            if (!newName?.trim()) return;
+            try {
+              setIsLoading(true);
+              await renameGroup(conversation.id, newName.trim());
+              updateConversation(conversation.id, { name: newName.trim() });
+            } catch (error: any) {
+              Alert.alert("Lỗi", error.message || "Không thể đổi tên nhóm");
+            } finally {
+              setIsLoading(false);
+            }
+          },
+        },
+      ],
+      "plain-text",
+      conversation.name || "",
+    );
+  };
+
+  const handleUpdateAvatar = async () => {
+    if (conversation.type !== "group") return;
+
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+
+      if (result.canceled || !result.assets[0]) return;
+
+      const asset = result.assets[0];
+      const accessToken = useAuthStore.getState().accessToken;
+      if (!accessToken) return;
+
+      setIsLoading(true);
+      const url = await uploadFile(
+        asset.uri,
+        asset.name || "avatar.jpg",
+        asset.mimeType || "image/jpeg",
+        accessToken,
+      );
+
+      await updateGroupAvatar(conversation.id, url);
+      updateConversation(conversation.id, { avatar: url });
+    } catch (error: any) {
+      Alert.alert("Lỗi", error.message || "Không thể cập nhật ảnh đại diện");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
       <View
@@ -255,6 +324,19 @@ export function ChatOptionsModal({
             </View>
 
             <TouchableOpacity
+              style={{ marginBottom: 24, flexDirection: "row", alignItems: "center" }}
+              onPress={() => {
+                onClose();
+                onStartSearch();
+              }}
+            >
+              <Text style={{ fontSize: 16, color: "#111827", flex: 1 }}>
+                Tìm tin nhắn
+              </Text>
+              <Ionicons name="search-outline" size={20} color="#6B7280" />
+            </TouchableOpacity>
+
+            <TouchableOpacity
               style={{ marginBottom: 24 }}
               onPress={() => setActiveTab("background")}
             >
@@ -269,6 +351,40 @@ export function ChatOptionsModal({
             >
               <Text style={{ fontSize: 16, color: "#111827" }}>
                 Phân loại nhãn
+              </Text>
+            </TouchableOpacity>
+
+            {conversation.type === "group" && (
+              <TouchableOpacity
+                style={{ marginBottom: 24 }}
+                onPress={handleRenameGroup}
+              >
+                <Text style={{ fontSize: 16, color: "#111827" }}>
+                  Đổi tên nhóm
+                </Text>
+              </TouchableOpacity>
+            )}
+
+            {conversation.type === "group" && (
+              <TouchableOpacity
+                style={{ marginBottom: 24 }}
+                onPress={handleUpdateAvatar}
+              >
+                <Text style={{ fontSize: 16, color: "#111827" }}>
+                  Đổi ảnh đại diện nhóm
+                </Text>
+              </TouchableOpacity>
+            )}
+
+            <TouchableOpacity
+              style={{ marginTop: 12, borderTopWidth: 1, borderTopColor: "#F3F4F6", paddingTop: 20 }}
+              onPress={() => {
+                onClose();
+                onDeleteHistory();
+              }}
+            >
+              <Text style={{ fontSize: 16, color: "#EF4444" }}>
+                Xóa lịch sử trò chuyện
               </Text>
             </TouchableOpacity>
           </View>

@@ -20,6 +20,11 @@ const MENU_ITEMS: MenuItem[] = [
     label: "Thêm bạn",
     route: "/friends/add",
   },
+  {
+    icon: "people-outline",
+    label: "Tạo nhóm",
+    route: "/group/create",
+  },
 ];
 
 function TabIcon({ name, focused }: { name: string; focused: boolean }) {
@@ -115,7 +120,8 @@ export default function TabsLayout() {
   const isDetailScreen =
     segments.includes("[conversationId]") ||
     segments.includes("[callId]") ||
-    segments.includes("conversation-info");
+    segments.includes("conversation-info") ||
+    segments.includes("group-management");
 
   return (
     <View style={{ flex: 1 }}>

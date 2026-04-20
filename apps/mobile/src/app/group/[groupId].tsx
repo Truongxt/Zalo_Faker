@@ -36,16 +36,14 @@ import {
   getGroupById,
   pinGroupMessage,
   unpinGroupMessage,
+  renameGroup,
+  updateGroupAvatar,
 } from "@/services/groupService";
 import { STICKER_URLS } from "@/constants/stickers";
 import { API_URL } from "@/constants/config";
 import type { Message } from "@/types";
 import {
-  appendPinHistoryEntry,
-  isPinHistoryMessage,
-  loadPinHistoryEntries,
-  mergeMessagesWithPinHistory,
-  type PinHistoryEntry,
+
 } from "@/lib/pinHistory";
 
 const REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "😡"];
@@ -135,9 +133,9 @@ const getMessagePreviewText = (message: Message | null | undefined) => {
 
       const nestedText = String(
         (message.content as any)?.text ||
-          (message.content as any)?.message ||
-          (message.content as any)?.content ||
-          "",
+        (message.content as any)?.message ||
+        (message.content as any)?.content ||
+        "",
       ).trim();
 
       return nestedText || "Tin nhắn";
@@ -175,8 +173,8 @@ const resolveReplyPreview = (
     return {
       senderName:
         typeof replyTo === "object" &&
-        "senderName" in replyTo &&
-        replyTo.senderName
+          "senderName" in replyTo &&
+          replyTo.senderName
           ? replyTo.senderName
           : "Người dùng",
       content:
@@ -231,9 +229,7 @@ export default function GroupChatScreen() {
   const [replyToMessageId, setReplyToMessageId] = useState<string | null>(null);
   const [announcementMode, setAnnouncementMode] = useState(false);
   const [localPinnedMessage, setLocalPinnedMessage] = useState<any>(null);
-  const [pinHistoryEntries, setPinHistoryEntries] = useState<PinHistoryEntry[]>(
-    [],
-  );
+
   const [typingUsers, setTypingUsers] = useState<string[]>([]);
   const flatListRef = useRef<FlatList>(null);
   const voiceRecordingRef = useRef<Audio.Recording | null>(null);
@@ -268,8 +264,8 @@ export default function GroupChatScreen() {
   })();
   const announcementScope = String(
     conversation?.groupSettings?.permissions?.sendAnnouncement ||
-      (group as any)?.groupSettings?.permissions?.sendAnnouncement ||
-      "admin_deputy",
+    (group as any)?.groupSettings?.permissions?.sendAnnouncement ||
+    "admin_deputy",
   ).toLowerCase();
   const canSendAnnouncementInGroup = (() => {
     const roleRank: Record<string, number> = {
@@ -290,10 +286,7 @@ export default function GroupChatScreen() {
 
   const pinnedMessage =
     conversation?.groupSettings?.pinnedMessage || localPinnedMessage || null;
-  const displayMessages = useMemo(
-    () => mergeMessagesWithPinHistory(convMessages, pinHistoryEntries),
-    [convMessages, pinHistoryEntries],
-  );
+  const displayMessages = convMessages;
   const activeReplyPreview = replyToMessageId
     ? resolveReplyPreview(replyToMessageId, convMessages)
     : null;
@@ -363,64 +356,9 @@ export default function GroupChatScreen() {
     [convMessages, conversation?.participants, user?.fullName, user?.id],
   );
 
-  const loadPinHistory = useCallback(async () => {
-    if (!convId) {
-      setPinHistoryEntries([]);
-      return;
-    }
 
-    const entries = await loadPinHistoryEntries(convId);
-    setPinHistoryEntries(entries);
-  }, [convId]);
 
-  const appendPinnedHistory = useCallback(
-    async (nextPinnedMessage: any | null, updatedBy?: string) => {
-      if (!convId) return;
 
-      const previousPinnedMessage = pinnedMessageRef.current;
-      const previousKey = previousPinnedMessage
-        ? `${String(previousPinnedMessage.messageId || "")}:${String(previousPinnedMessage.pinnedAt || "")}:${String(previousPinnedMessage.pinnedBy || "")}`
-        : "";
-      const nextKey = nextPinnedMessage
-        ? `${String(nextPinnedMessage.messageId || "")}:${String(nextPinnedMessage.pinnedAt || "")}:${String(nextPinnedMessage.pinnedBy || "")}`
-        : "";
-
-      if (previousKey === nextKey) return;
-
-      const normalizedActorId = String(
-        updatedBy || nextPinnedMessage?.pinnedBy || user?.id || "",
-      ).trim();
-      const action = nextPinnedMessage ? "pin" : "unpin";
-      const targetPinnedMessage = nextPinnedMessage || previousPinnedMessage;
-      const targetMessageId = String(
-        targetPinnedMessage?.messageId || "",
-      ).trim();
-      if (!targetMessageId) return;
-
-      const createdAt =
-        action === "pin" && String(nextPinnedMessage?.pinnedAt || "").trim()
-          ? String(nextPinnedMessage.pinnedAt)
-          : new Date().toISOString();
-      const eventKey =
-        action === "pin"
-          ? `pin:${convId}:${normalizedActorId}:${targetMessageId}:${String(nextPinnedMessage?.pinnedAt || "")}`
-          : `unpin:${convId}:${normalizedActorId}:${targetMessageId}:${String(previousPinnedMessage?.pinnedAt || "")}`;
-
-      const nextEntries = await appendPinHistoryEntry({
-        eventKey,
-        conversationId: convId,
-        actorId: normalizedActorId,
-        actorName: resolvePinActorName(normalizedActorId),
-        action,
-        previewText: getPinnedMessagePreview(targetPinnedMessage),
-        targetMessageId,
-        createdAt,
-      });
-
-      setPinHistoryEntries(nextEntries);
-    },
-    [convId, getPinnedMessagePreview, resolvePinActorName, user?.id],
-  );
 
   // Load group info
   useEffect(() => {
@@ -499,9 +437,7 @@ export default function GroupChatScreen() {
     pinnedMessageRef.current = pinnedMessage;
   }, [pinnedMessage]);
 
-  useEffect(() => {
-    void loadPinHistory();
-  }, [loadPinHistory]);
+
 
   useEffect(() => {
     if (conversation?.groupSettings?.pinnedMessage !== undefined) {
@@ -566,16 +502,39 @@ export default function GroupChatScreen() {
       updatedBy?: string;
     }) => {
       if (String(incomingConversationId) !== String(convId)) return;
-      void appendPinnedHistory(nextPinnedMessage || null, updatedBy);
+      // void appendPinnedHistory(nextPinnedMessage || null, updatedBy);
       handleUpdatePinnedMessage(nextPinnedMessage || null);
     };
 
     socket.on("chat:pinned_message", onPinnedMessage);
 
+    const onUpdateConversation = ({
+      id: incomingId,
+      name: nextName,
+      avatar: nextAvatar,
+    }: {
+      id: string;
+      name?: string;
+      avatar?: string;
+    }) => {
+      if (String(incomingId) !== String(convId)) return;
+      
+      const updateData: any = {};
+      if (nextName !== undefined) updateData.name = nextName;
+      if (nextAvatar !== undefined) updateData.avatar = nextAvatar;
+      
+      if (Object.keys(updateData).length > 0) {
+        updateConversation(convId, updateData);
+      }
+    };
+
+    socket.on("chat:update_conversation", onUpdateConversation);
+
     return () => {
       socket.off("chat:pinned_message", onPinnedMessage);
+      socket.off("chat:update_conversation", onUpdateConversation);
     };
-  }, [appendPinnedHistory, convId, handleUpdatePinnedMessage, user]);
+  }, [convId, handleUpdatePinnedMessage, user]);
 
   const handlePinMessage = useCallback(
     async (message: Message) => {
@@ -598,7 +557,7 @@ export default function GroupChatScreen() {
           (result as any)?.pinnedMessage ||
           (result as any)?.group?.groupSettings?.pinnedMessage ||
           null;
-        await appendPinnedHistory(nextPinned, user?.id);
+        // await appendPinnedHistory(nextPinned, user?.id);
         handleUpdatePinnedMessage(nextPinned);
         socketService.emit("chat:sync_pinned_message", {
           conversationId: convId,
@@ -630,12 +589,12 @@ export default function GroupChatScreen() {
     try {
       await unpinGroupMessage(targetGroupId);
       // Record history BEFORE state update so previousPinnedMessage is still available
-      await appendPinnedHistory(null, user?.id);
+      // await appendPinnedHistory(null, user?.id);
       // Delay state update to allow socket listener to use old pinnedMessageRef
       setTimeout(() => {
         handleUpdatePinnedMessage(null);
       }, 100);
-      
+
       socketService.emit("chat:sync_pinned_message", {
         conversationId: convId,
       });
@@ -644,7 +603,6 @@ export default function GroupChatScreen() {
       GrayToast(error?.message || "Không thể bỏ ghim tin nhắn");
     }
   }, [
-    appendPinnedHistory,
     canPinInGroup,
     convId,
     groupId,
@@ -830,7 +788,7 @@ export default function GroupChatScreen() {
 
         const durationMillis =
           typeof statusBeforeStop?.durationMillis === "number" &&
-          Number.isFinite(statusBeforeStop.durationMillis)
+            Number.isFinite(statusBeforeStop.durationMillis)
             ? statusBeforeStop.durationMillis
             : voiceRecordingSeconds * 1000;
 
@@ -953,12 +911,12 @@ export default function GroupChatScreen() {
     setSelectedMsg(msg);
 
     const opts: any[] = [
-      { text: "Tha cam xuc", onPress: () => setShowReactions(true) },
+      { text: "Thả cảm xúc", onPress: () => setShowReactions(true) },
     ];
 
     if (isMe && !msg.isDeleted) {
       opts.push({
-        text: "Thu hoi tin nhan",
+        text: "Thu hồi tin nhắn",
         style: "destructive",
         onPress: () => {
           socketService.emit("chat:recall", {
@@ -973,7 +931,7 @@ export default function GroupChatScreen() {
 
     if (!msg.isDeleted && canPinInGroup) {
       opts.push({
-        text: isPinnedMessage ? "Bo ghim tin nhan" : "Ghim tin nhan",
+        text: isPinnedMessage ? "Bỏ ghim tin nhắn" : "Ghim tin nhắn",
         onPress: () => {
           if (isPinnedMessage) {
             void handleUnpinMessage();
@@ -986,17 +944,17 @@ export default function GroupChatScreen() {
 
     if (!msg.isDeleted) {
       opts.push({
-        text: "Tra loi",
+        text: "Trả lời",
         onPress: () => setReplyToMessageId(msg.id),
       });
       opts.push({
-        text: "Chuyen tiep",
+        text: "Chuyển tiếp",
         onPress: () => setForwardMessage(msg),
       });
     }
 
-    opts.push({ text: "Huy", style: "cancel" });
-    Alert.alert("Tuy chon", undefined, opts);
+    opts.push({ text: "Hủy", style: "cancel" });
+    Alert.alert("Tùy chọn", undefined, opts);
   };
 
   const handleReact = async (emoji: string) => {
@@ -1006,9 +964,7 @@ export default function GroupChatScreen() {
   };
 
   const renderItem = ({ item }: { item: Message }) => {
-    if (isPinHistoryMessage(item)) {
-      return <PinHistoryBanner message={item} />;
-    }
+
 
     const isMe = item.senderId === user?.id;
     const isAnnouncement = Boolean(item.metadata?.isAnnouncement);
@@ -1126,7 +1082,7 @@ export default function GroupChatScreen() {
                   getFullMediaUrl(
                     typeof item.content === "object"
                       ? (item.content as any).mediaUrl ||
-                          (item.content as any).url
+                      (item.content as any).url
                       : String(item.content || ""),
                   ) || ""
                 }
@@ -1205,6 +1161,39 @@ export default function GroupChatScreen() {
     );
   };
 
+  const handleAvatarChange = async () => {
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+
+      if (result.canceled || !result.assets[0]) return;
+
+      const asset = result.assets[0];
+      const accessToken = useAuthStore.getState().accessToken;
+      if (!accessToken) return;
+
+      setIsSending(true);
+      const url = await uploadFile(
+        asset.uri,
+        asset.name || "avatar.jpg",
+        asset.mimeType || "image/jpeg",
+        accessToken,
+      );
+
+      await updateGroupAvatar(groupId || convId, url);
+      updateConversation(convId, { avatar: url });
+      GrayToast("Đã cập nhật ảnh đại diện nhóm");
+    } catch (error: any) {
+      Alert.alert("Lỗi", error.message || "Không thể cập nhật ảnh đại diện");
+    } finally {
+      setIsSending(false);
+    }
+  };
+
   if (!convId) {
     return (
       <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
@@ -1240,13 +1229,57 @@ export default function GroupChatScreen() {
           <Ionicons name="arrow-back" size={24} color="#111827" />
         </TouchableOpacity>
 
-        <View style={{ flex: 1, flexDirection: "row", alignItems: "center" }}>
+        <TouchableOpacity 
+          style={{ flexDirection: "row", alignItems: "center" }}
+          onPress={handleAvatarChange}
+        >
           <Avatar
             uri={conversation?.avatar || group?.avatar}
             name={conversation?.name || group?.name || "Nhóm"}
             size={44}
           />
-          <View style={{ marginLeft: 10, flex: 1 }}>
+          <View style={{ 
+              position: 'absolute', 
+              bottom: 0, 
+              right: 0, 
+              backgroundColor: 'rgba(0,0,0,0.5)', 
+              borderRadius: 10,
+              padding: 2
+          }}>
+              <Ionicons name="camera" size={12} color="white" />
+          </View>
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          style={{ flex: 1, marginLeft: 10 }}
+          onPress={() => {
+            Alert.prompt(
+              "Đổi tên nhóm",
+              "Nhập tên mới cho nhóm của bạn",
+              [
+                { text: "Hủy", style: "cancel" },
+                {
+                  text: "Đổi tên",
+                  onPress: async (newName) => {
+                    if (!newName?.trim()) return;
+                    try {
+                      setIsSending(true); // Re-using isSending as a general loading state
+                      await renameGroup(groupId || convId, newName.trim());
+                      updateConversation(convId, { name: newName.trim() });
+                    } catch (error: any) {
+                      Alert.alert("Lỗi", error.message || "Không thể đổi tên nhóm");
+                    } finally {
+                      setIsSending(false);
+                    }
+                  }
+                }
+              ],
+              "plain-text",
+              conversation?.name || group?.name || ""
+            );
+          }}
+        >
+          <View>
             <Text
               numberOfLines={1}
               style={{ fontSize: 18, fontWeight: "700", color: "#111827" }}
@@ -1261,7 +1294,7 @@ export default function GroupChatScreen() {
               thành viên
             </Text>
           </View>
-        </View>
+        </TouchableOpacity>
 
         <TouchableOpacity
           style={{ padding: 6 }}

@@ -100,6 +100,11 @@ class ConversationService {
         };
     }
 
+    async deleteHistory(conversationId: string): Promise<any> {
+        const response = await apiClient.delete<any>(`/api/messages/room/${conversationId}`);
+        return response.data;
+    }
+
 }
 
 export const conversationService = new ConversationService();

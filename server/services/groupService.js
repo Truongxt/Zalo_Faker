@@ -98,7 +98,7 @@ const generateInviteCode = (length = 8) => {
 
 const defaultPermissions = () => ({
   sendMedia: GROUP_PERMISSION_SCOPES.ALL,
-  pinMessage: GROUP_PERMISSION_SCOPES.ADMIN_DEPUTY,
+  pinMessage: GROUP_PERMISSION_SCOPES.ALL,
   sendAnnouncement: GROUP_PERMISSION_SCOPES.ADMIN_DEPUTY
 });
 

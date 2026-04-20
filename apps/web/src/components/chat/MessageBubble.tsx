@@ -12,6 +12,9 @@ import {
   Pin,
   Phone,
   Video,
+  Info,
+  Users,
+  X,
 } from "lucide-react";
 import VoicePlayer from "./VoicePlayer";
 import PollMessageCard from "./PollMessageCard";
@@ -287,7 +290,6 @@ export default function MessageBubble({
     useState<FilePreviewTarget | null>(null);
   const reactionRef = useRef<HTMLDivElement>(null);
   const confirmRef = useRef<HTMLDivElement>(null);
-  const isAnnouncement = Boolean(message.metadata?.isAnnouncement);
   const isForwarded = Boolean(message.metadata?.isForwarded);
   const reactions = Array.isArray(message.reactions) ? message.reactions : [];
   const readBy = Array.isArray(message.readBy) ? message.readBy : [];
@@ -614,6 +616,54 @@ export default function MessageBubble({
     );
   }
 
+  if (message.type === 'system' || (message.metadata as any)?.isAnnouncement) {
+    const action = (message.metadata as any)?.action;
+    const isPinAction = action === 'pin' || action === 'unpin';
+    
+    const getIcon = () => {
+      if (isPinAction) return <Pin className="w-3 h-3" />;
+      if (action === 'rename_group') return <Users className="w-3 h-3" />;
+      if (action === 'add_member') return <Users className="w-3 h-3" />;
+      if (action === 'remove_member') return <X className="w-3 h-3" />;
+      return <Info className="w-3 h-3" />;
+    };
+
+    return (
+      <div className="flex justify-center my-3 w-full group relative">
+        <div className="max-w-[92%] flex items-center gap-2 px-3 py-1.5 text-[12.5px] rounded-full border border-slate-200 dark:border-gray-800 bg-white dark:bg-dark-300 shadow-sm animate-fade-in transition-all group-hover:shadow-md">
+          <span className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 ${isPinAction ? 'bg-orange-50 text-orange-500 dark:bg-orange-900/30' : 'bg-blue-50 text-blue-500 dark:bg-blue-900/30'}`}>
+            {getIcon()}
+          </span>
+          <p className="text-slate-500 dark:text-gray-400 font-medium whitespace-pre-wrap">
+             {typeof content?.text === 'string' ? content.text : typeof message.content === 'object' ? (message.content as any)?.text || '' : String(message.content || '')}
+          </p>
+        </div>
+
+        {/* System Message Actions */}
+        <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 absolute left-[calc(50%+150px)] top-1/2 -translate-y-1/2 ml-2">
+          {!message.isDeleted && (
+            <button
+              onClick={onForward}
+              className="p-1 px-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-[11px] text-gray-500 flex items-center gap-1 border border-transparent hover:border-gray-200 dark:hover:border-gray-700"
+              title="Chuyển tiếp"
+            >
+              <Share className="w-3 h-3" />
+            </button>
+          )}
+          {!message.isDeleted && canPin && (
+            <button
+              onClick={onPin}
+              className="p-1 px-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-[11px] text-gray-500 flex items-center gap-1 border border-transparent hover:border-gray-200 dark:hover:border-gray-700"
+              title="Ghim"
+            >
+              <Pin className="w-3 h-3" />
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <>
       <div
@@ -661,17 +711,12 @@ export default function MessageBubble({
 
           {/* Message bubble */}
           <div
-            className={`message-bubble ${isSent ? "message-sent" : "message-received"} ${isAnnouncement ? "border border-amber-300 dark:border-amber-700 bg-amber-50/90 dark:bg-amber-900/20" : ""}`}
+            className={`message-bubble ${isSent ? "message-sent" : "message-received"}`}
           >
             {isForwarded && (
               <div className="mb-1.5 inline-flex items-center gap-1 rounded-full bg-slate-100 dark:bg-slate-800/70 px-2 py-0.5 text-[11px] font-semibold text-slate-500 dark:text-slate-400">
                 <Share className="w-3 h-3" />
                 Đã chuyển tiếp
-              </div>
-            )}
-            {isAnnouncement && (
-              <div className="mb-1.5 inline-flex items-center rounded-full bg-amber-100 dark:bg-amber-900/40 px-2 py-0.5 text-[11px] font-semibold text-amber-700 dark:text-amber-300">
-                Thông báo
               </div>
             )}
             {renderContent()}

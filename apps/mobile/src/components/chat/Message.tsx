@@ -98,6 +98,7 @@ export function Message({
     : Colors.bubbleReceivedText;
   const attachments = message.attachments || [];
   const reactions = message.reactions || [];
+  const isAnnouncement = Boolean(message.metadata?.isAnnouncement);
   const isForwarded = Boolean(message.metadata?.isForwarded);
   const content = message.isDeleted
     ? "Tin nhắn đã bị thu hồi"
@@ -107,6 +108,35 @@ export function Message({
     (message.type === "call"
       ? { callType: "audio" as const, status: "finished", duration: 0 }
       : null);
+
+  if (message.type === 'system' || isAnnouncement) {
+    const action = (message.metadata as any)?.action;
+    const isPinAction = action === 'pin' || action === 'unpin';
+    
+    const getIconName = () => {
+      if (action === 'pin' || action === 'unpin') return 'pricetag';
+      if (action === 'rename_group') return 'create';
+      if (action === 'update_avatar') return 'image';
+      if (action === 'add_member') return 'person-add';
+      if (action === 'remove_member') return 'person-remove';
+      if (action === 'update_permissions') return 'lock-closed';
+      if (action === 'update_settings') return 'settings';
+      return 'information-circle';
+    };
+
+    return (
+      <View className="flex-row justify-center my-3 w-full">
+        <View className="flex-row items-center gap-2 px-3 py-1.5 rounded-full border border-gray-200 bg-white shadow-sm flex-shrink-1">
+          <View className={`w-6 h-6 rounded-full items-center justify-center ${isPinAction ? 'bg-orange-50' : 'bg-blue-50'}`}>
+            <Ionicons name={getIconName() as any} size={12} color={isPinAction ? '#f97316' : '#3b82f6'} />
+          </View>
+          <Text className="text-sm text-gray-500 font-medium flex-shrink" numberOfLines={2}>
+             {typeof message.content === 'object' ? (message.content as any)?.text || '' : String(message.content || '')}
+          </Text>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View className={`mb-3 px-3 ${isSent ? "items-end" : "items-start"}`}>
@@ -158,7 +188,6 @@ export function Message({
             {parsedCallPayload ? (
               (() => {
                 const callData: any = parsedCallPayload;
-
                 const isVideo = callData.callType === 'video';
                 const status = callData.status;
                 const duration = callData.duration || 0;

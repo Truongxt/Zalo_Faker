@@ -70,19 +70,19 @@ export default function VirtualizedMessageList({
                 </div>
             )}
 
-            {/* Messages container */}
-            <div className="space-y-4">
-                {children}
-            </div>
-
             {/* Loading indicator in message list when no more messages */}
-            {!hasMore && (
+            {!hasMore && !isLoading && (
                 <div className="flex justify-center py-6 opacity-60">
-                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                    <p className="text-sm text-gray-500 dark:text-gray-400 font-medium">
                         Không còn tin nhắn cũ hơn
                     </p>
                 </div>
             )}
+
+            {/* Messages container */}
+            <div className="space-y-4">
+                {children}
+            </div>
         </div>
     )
 }
