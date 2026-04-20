@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState, useRef, ChangeEvent, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, useRef, type ChangeEvent, type ReactNode } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
     X, UserPlus, LogOut, UserMinus, Link2, RefreshCw, Pin, Megaphone,
     Copy, Users, Settings2, ClipboardCheck, Crown, Shield, CheckCircle2,
@@ -10,6 +11,10 @@ import {
     addGroupMember,
     removeGroupMember,
     leaveGroup,
+    transferAdmin,
+    appointDeputy,
+    revokeDeputy,
+    dissolveGroup,
     getFriends,
     getGroupSettings,
     rotateGroupInviteCode,
@@ -100,6 +105,7 @@ const getRoleConfig = (role: string) => {
 }
 
 export default function GroupManagementModal({ isOpen, onClose, group }: GroupManagementModalProps) {
+    const navigate = useNavigate()
     const { user } = useAuthStore()
     const { updateConversation, removeConversation, setActiveConversation } = useChatStore()
 
@@ -111,6 +117,8 @@ export default function GroupManagementModal({ isOpen, onClose, group }: GroupMa
     const [copiedField, setCopiedField] = useState<'code' | 'link' | null>(null)
     const [isEditingName, setIsEditingName] = useState(false)
     const [newName, setNewName] = useState('')
+    const [selectedAdminTransferUserId, setSelectedAdminTransferUserId] = useState('')
+    const [showAdminLeavePanel, setShowAdminLeavePanel] = useState(false)
     const fileInputRef = useRef<HTMLInputElement>(null)
 
     useEffect(() => {
@@ -168,6 +176,13 @@ export default function GroupManagementModal({ isOpen, onClose, group }: GroupMa
         loadUsersAndSettings()
     }, [isOpen, group?.id, user?.id, updateConversation])
 
+    useEffect(() => {
+        if (!isOpen) {
+            setShowAdminLeavePanel(false)
+            setSelectedAdminTransferUserId('')
+        }
+    }, [isOpen, group?.id])
+
     const participantsMap = useMemo(() => {
         const map = new Map<string, any>()
         allUsers.forEach((u) => {
@@ -186,6 +201,16 @@ export default function GroupManagementModal({ isOpen, onClose, group }: GroupMa
     const availableUsersToAdd = allUsers.filter((u) =>
         !group.participants.some((p) => p.userId === getUserId(u))
     )
+
+    const transferCandidates = group.participants.filter(
+        (participant) => String(participant.userId) !== String(user.id)
+    )
+
+    const syncParticipants = (participants: Conversation['participants'] | undefined) => {
+        if (participants) {
+            updateConversation(group.id, { participants })
+        }
+    }
 
     const copyToClipboard = async (value: string, field: 'code' | 'link') => {
         if (!value) return
@@ -243,9 +268,7 @@ export default function GroupManagementModal({ isOpen, onClose, group }: GroupMa
         try {
             setIsLoading(true)
             const res = await removeGroupMember(group.id, { userId: user.id, removeUserId })
-            if (res.group?.participants) {
-                updateConversation(group.id, { participants: res.group.participants })
-            }
+            syncParticipants(res.group?.participants)
         } catch (error: any) {
             alert(error.message || 'Lỗi khi xóa thành viên')
         } finally {
@@ -253,16 +276,113 @@ export default function GroupManagementModal({ isOpen, onClose, group }: GroupMa
         }
     }
 
+    const finalizeGroupExit = () => {
+        setActiveConversation(null)
+        removeConversation(group.id)
+        onClose()
+        navigate('/chat')
+    }
+
+    const handleTransferAdmin = async (newAdminUserId: string) => {
+        const targetParticipant = group.participants.find(
+            (participant) => String(participant.userId) === String(newAdminUserId)
+        )
+        const targetName =
+            targetParticipant?.fullName ||
+            participantsMap.get(String(newAdminUserId))?.fullName ||
+            participantsMap.get(String(newAdminUserId))?.userName ||
+            'thành viên này'
+
+        if (!confirm(`Chuyển quyền trưởng nhóm cho ${targetName}?`)) return
+
+        try {
+            setIsLoading(true)
+            const res = await transferAdmin(group.id, { userId: user.id, newAdminUserId })
+            syncParticipants(res.group?.participants)
+            if (String(selectedAdminTransferUserId) === String(newAdminUserId)) {
+                setSelectedAdminTransferUserId('')
+            }
+        } catch (error: any) {
+            alert(error.message || 'Không thể chuyển quyền trưởng nhóm')
+        } finally {
+            setIsLoading(false)
+        }
+    }
+
+    const handleToggleDeputy = async (participant: Conversation['participants'][number]) => {
+        const isDeputy = participant.role === 'deputy'
+
+        try {
+            setIsLoading(true)
+            const res = isDeputy
+                ? await revokeDeputy(group.id, {
+                    userId: user.id,
+                    deputyUserId: String(participant.userId),
+                })
+                : await appointDeputy(group.id, {
+                    userId: user.id,
+                    deputyUserId: String(participant.userId),
+                })
+            syncParticipants(res.group?.participants)
+        } catch (error: any) {
+            alert(
+                error.message ||
+                (isDeputy ? 'Không thể thu hồi quyền phó nhóm' : 'Không thể cấp quyền phó nhóm')
+            )
+        } finally {
+            setIsLoading(false)
+        }
+    }
+
     const handleLeaveGroup = async () => {
+        if (isAdmin && !showAdminLeavePanel) {
+            setShowAdminLeavePanel(true)
+            return
+        }
+
+        return handleLeaveGroupWithAdminRules()
         if (!confirm('Bạn có chắc muốn rời nhóm này?')) return
         try {
             setIsLoading(true)
-            await leaveGroup(group.id, { userId: user.id })
-            setActiveConversation(null)
-            removeConversation(group.id)
-            onClose()
+            return
         } catch (error: any) {
             alert(error.message || 'Lỗi khi rời nhóm')
+        } finally {
+            setIsLoading(false)
+        }
+    }
+
+    const handleLeaveGroupWithAdminRules = async () => {
+        if (!confirm('Bạn có chắc muốn rời nhóm này?')) return
+        if (isAdmin && !selectedAdminTransferUserId) {
+            alert('Hãy chọn một trưởng nhóm mới trước khi rời nhóm.')
+            return
+        }
+
+        try {
+            setIsLoading(true)
+            await leaveGroup(group.id, {
+                userId: user.id,
+                newAdminUserId: isAdmin ? selectedAdminTransferUserId : undefined,
+            })
+            setShowAdminLeavePanel(false)
+            finalizeGroupExit()
+        } catch (error: any) {
+            alert(error.message || 'Lỗi khi rời nhóm')
+        } finally {
+            setIsLoading(false)
+        }
+    }
+
+    const handleDissolveGroup = async () => {
+        if (!confirm('Bạn có chắc muốn giải tán nhóm này?')) return
+
+        try {
+            setIsLoading(true)
+            await dissolveGroup(group.id, { userId: user.id })
+            finalizeGroupExit()
+        } catch (error: any) {
+            alert(error.message || 'Không thể giải tán nhóm')
         } finally {
             setIsLoading(false)
         }
@@ -726,7 +846,11 @@ export default function GroupManagementModal({ isOpen, onClose, group }: GroupMa
                         <div className="px-3 py-2 space-y-0.5">
                             {group.participants.map((participant) => {
                                 const isMe = participant.userId === user.id
-                                const canRemove = !isMe && (currentUserParticipant?.role === 'admin' || currentUserParticipant?.role === 'deputy')
+                                const canManage =
+                                    !isMe &&
+                                    (isAdmin ||
+                                        (currentUserParticipant?.role === 'deputy' && participant.role === 'member'))
+                                const canRemove = canManage
                                 const name = getParticipantName(participant)
                                 const roleConfig = getRoleConfig(participant.role || 'member')
                                 const RoleIcon = roleConfig.icon
@@ -765,6 +889,25 @@ export default function GroupManagementModal({ isOpen, onClose, group }: GroupMa
                                             </div>
                                         </div>
 
+                                        {canManage && isAdmin && (
+                                            <div className="mr-2 flex flex-col items-end gap-1.5">
+                                                <button
+                                                    onClick={() => handleToggleDeputy(participant)}
+                                                    disabled={isLoading}
+                                                    className="px-2.5 py-1 text-[11px] font-semibold rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors disabled:opacity-50"
+                                                >
+                                                    {participant.role === 'deputy' ? 'Thu hồi phó nhóm' : 'Cấp phó nhóm'}
+                                                </button>
+                                                <button
+                                                    onClick={() => handleTransferAdmin(String(participant.userId))}
+                                                    disabled={isLoading}
+                                                    className="px-2.5 py-1 text-[11px] font-semibold rounded-lg bg-amber-50 text-amber-600 hover:bg-amber-100 transition-colors disabled:opacity-50"
+                                                >
+                                                    Chuyển trưởng nhóm
+                                                </button>
+                                            </div>
+                                        )}
+
                                         {/* Remove button */}
                                         {canRemove && (
                                             <button
@@ -784,7 +927,64 @@ export default function GroupManagementModal({ isOpen, onClose, group }: GroupMa
                 </div>
 
                 {/* Footer */}
-                <div className="px-4 py-3 bg-white dark:bg-gray-900 border-t border-gray-100 dark:border-gray-800 flex-shrink-0">
+                <div className="px-4 py-3 bg-white dark:bg-gray-900 border-t border-gray-100 dark:border-gray-800 flex-shrink-0 space-y-3">
+                    {isAdmin && showAdminLeavePanel && (
+                        <div className="space-y-2">
+                            <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">
+                                    Rời nhóm với quyền trưởng nhóm
+                                </p>
+                                <p className="mt-1 text-xs text-amber-700/90">
+                                    Bạn phải chọn một thành viên để chuyển quyền trưởng nhóm trước khi rời nhóm.
+                                </p>
+                            </div>
+                            <div className="relative">
+                                <select
+                                    className="w-full appearance-none rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary-500/30"
+                                    value={selectedAdminTransferUserId}
+                                    onChange={(e) => setSelectedAdminTransferUserId(e.target.value)}
+                                >
+                                    <option value="">-- Chọn trưởng nhóm mới --</option>
+                                    {transferCandidates.map((participant) => (
+                                        <option key={participant.userId} value={String(participant.userId)}>
+                                            {getParticipantName(participant)}
+                                        </option>
+                                    ))}
+                                </select>
+                                <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                            </div>
+                            <button
+                                onClick={() => {
+                                    setShowAdminLeavePanel(false)
+                                    setSelectedAdminTransferUserId('')
+                                }}
+                                disabled={isLoading}
+                                className="w-full py-2.5 rounded-xl text-sm font-medium border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-40"
+                            >
+                                Hủy chuyển quyền
+                            </button>
+                            <button
+                                onClick={() => {
+                                    setShowAdminLeavePanel(false)
+                                    setSelectedAdminTransferUserId('')
+                                }}
+                                disabled={isLoading}
+                                className="hidden"
+                            >
+                                Giải tán nhóm
+                            </button>
+                        </div>
+                    )}
+                    {isAdmin && (
+                        <button
+                            onClick={handleDissolveGroup}
+                            disabled={isLoading}
+                            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold text-orange-600 border border-orange-200 bg-orange-50 hover:bg-orange-100 transition-colors disabled:opacity-40"
+                        >
+                            <XCircle className="w-4 h-4" />
+                            Giải tán nhóm
+                        </button>
+                    )}
                     <button
                         onClick={handleLeaveGroup}
                         disabled={isLoading || group.participants.length === 1}

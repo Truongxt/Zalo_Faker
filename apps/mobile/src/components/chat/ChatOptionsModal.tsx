@@ -249,7 +249,7 @@ export function ChatOptionsModal({
       setIsLoading(true);
       const url = await uploadFile(
         asset.uri,
-        asset.name || "avatar.jpg",
+        asset.fileName || "avatar.jpg",
         asset.mimeType || "image/jpeg",
         accessToken,
       );
