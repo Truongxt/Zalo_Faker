@@ -5,6 +5,7 @@ import { useChatStore, normalizeMessage } from "@/stores/chatStore";
 import { useAuthStore } from "@/stores/authStore";
 import { getConversation } from "@/services/api";
 import { socketService } from "@/lib/socket";
+import { getMessagePreviewText } from "@/lib/messagePreview";
 import IncomingCallModal from "@/components/chat/IncomingCallModal";
 import VideoCallModal from "@/components/chat/VideoCallModal";
 import { useCallStore } from "@/stores/callStore";
@@ -139,7 +140,11 @@ export default function ChatLayout() {
 
         updateConversation(conversationId, {
           lastMessage: {
-            content: normalizedMsg.content,
+            content: getMessagePreviewText({
+              type: normalizedMsg.type,
+              content: normalizedMsg.content,
+              metadata: normalizedMsg.metadata,
+            }),
             type: normalizedMsg.type,
             senderId: normalizedMsg.senderId,
             timestamp: normalizedMsg.createdAt,
@@ -198,6 +203,15 @@ export default function ChatLayout() {
         });
       };
 
+      const handleMessageUpdatedGlobal = (data: {
+        conversationId: string;
+        message: any;
+      }) => {
+        if (!data?.conversationId || !data?.message) return;
+        const normalized = normalizeMessage(data.message);
+        updateMessage(data.conversationId, String(normalized.id), normalized);
+      };
+
       const socket = socketService.getSocket();
       if (socket) {
         console.log("[socket] attaching global listeners:", socket.id);
@@ -208,6 +222,7 @@ export default function ChatLayout() {
         socket.on("chat:recalled", handleRecalledGlobal);
         socket.on("chat:reaction", handleReactionGlobal);
         socket.on("chat:pinned_message", handlePinnedMessageGlobal);
+        socket.on("chat:message_updated", handleMessageUpdatedGlobal);
       }
     }
 
@@ -221,6 +236,7 @@ export default function ChatLayout() {
         socket.off("chat:recalled");
         socket.off("chat:reaction");
         socket.off("chat:pinned_message");
+        socket.off("chat:message_updated");
       }
     };
   }, [

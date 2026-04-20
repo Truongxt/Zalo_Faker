@@ -11,11 +11,41 @@ export interface Label {
     color: string
 }
 
+export interface PollOption {
+    id: string
+    text: string
+    createdBy: string
+    createdAt: string
+}
+
+export interface PollVote {
+    userId: string
+    optionIds: string[]
+    votedAt: string
+}
+
+export interface PollSettings {
+    anonymousVoters: boolean
+    hideResultsUntilVote: boolean
+    allowMultipleChoices: boolean
+    allowAddOptions: boolean
+    expiresAt: string | null
+}
+
+export interface PollContent {
+    question: string
+    options: PollOption[]
+    settings: PollSettings
+    votes: PollVote[]
+    createdBy: string
+    createdAt: string
+}
+
 export interface Message {
     id: string
     conversationId: string
     senderId: string
-    type: 'text' | 'image' | 'video' | 'file' | 'sticker' | 'voice' | 'call' | 'system'
+    type: 'text' | 'image' | 'video' | 'file' | 'sticker' | 'voice' | 'call' | 'system' | 'poll'
     content: {
         text?: string
         mediaUrl?: string
@@ -26,6 +56,7 @@ export interface Message {
         transcript?: string
         callType?: 'audio' | 'video'
         callStatus?: string
+        poll?: PollContent
     }
     metadata?: {
         isAnnouncement?: boolean
@@ -124,6 +155,40 @@ const looksLikeMediaUrl = (value: string): boolean => {
 
 const normalizeMessageContent = (rawContent: unknown): Message['content'] => {
     const parsedCall = parseCallPayload(rawContent)
+
+    if (
+        rawContent
+        && typeof rawContent === 'object'
+        && !Array.isArray(rawContent)
+        && (rawContent as Record<string, unknown>).poll
+        && typeof (rawContent as Record<string, unknown>).poll === 'object'
+        && !Array.isArray((rawContent as Record<string, unknown>).poll)
+    ) {
+        const poll = (rawContent as Record<string, unknown>).poll as PollContent
+        return {
+            poll,
+            text: typeof (rawContent as Record<string, unknown>).text === 'string'
+                ? String((rawContent as Record<string, unknown>).text)
+                : typeof poll.question === 'string'
+                    ? poll.question
+                    : undefined,
+        }
+    }
+
+    if (
+        rawContent
+        && typeof rawContent === 'object'
+        && !Array.isArray(rawContent)
+        && typeof (rawContent as Record<string, unknown>).question === 'string'
+        && Array.isArray((rawContent as Record<string, unknown>).options)
+    ) {
+        return {
+            poll: rawContent as PollContent,
+            text: typeof (rawContent as Record<string, unknown>).question === 'string'
+                ? String((rawContent as Record<string, unknown>).question)
+                : undefined,
+        }
+    }
 
     if (typeof rawContent === 'string') {
         const mediaUrl = looksLikeMediaUrl(rawContent) ? rawContent : undefined

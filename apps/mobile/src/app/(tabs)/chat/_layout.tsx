@@ -11,6 +11,7 @@ export default function ChatLayout() {
       <Stack.Screen name="chats" />
       <Stack.Screen name="[conversationId]" />
       <Stack.Screen name="conversation-info" />
+      <Stack.Screen name="create-poll" />
     </Stack>
   );
 }

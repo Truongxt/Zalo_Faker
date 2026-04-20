@@ -151,6 +151,37 @@ const looksLikeMediaUrl = (value: string): boolean => {
 const normalizeContent = (rawContent: any) => {
     const parsedCall = parseCallPayload(rawContent)
 
+    if (
+        rawContent
+        && typeof rawContent === 'object'
+        && !Array.isArray(rawContent)
+        && rawContent.poll
+        && typeof rawContent.poll === 'object'
+        && !Array.isArray(rawContent.poll)
+    ) {
+        return {
+            poll: rawContent.poll,
+            text: typeof rawContent.text === 'string'
+                ? rawContent.text
+                : typeof rawContent.poll.question === 'string'
+                    ? rawContent.poll.question
+                    : undefined,
+        }
+    }
+
+    if (
+        rawContent
+        && typeof rawContent === 'object'
+        && !Array.isArray(rawContent)
+        && typeof rawContent.question === 'string'
+        && Array.isArray(rawContent.options)
+    ) {
+        return {
+            poll: rawContent,
+            text: rawContent.question,
+        }
+    }
+
     if (typeof rawContent === 'string') {
         const mediaUrl = looksLikeMediaUrl(rawContent) ? rawContent : undefined
         return {
@@ -218,6 +249,32 @@ const sendMessage = async (message: any) => {
     const response = await fetchWithAuth(`/messages`, {
         method: "POST",
         body: JSON.stringify(message),
+    });
+    const data = await response.json();
+    return normalizeMessage(data);
+}
+
+const votePoll = async (messageId: string, optionIds: string[]) => {
+    const response = await fetchWithAuth(`/messages/${messageId}/poll/vote`, {
+        method: "POST",
+        body: JSON.stringify({ optionIds }),
+    });
+    const data = await response.json();
+    return normalizeMessage(data);
+}
+
+const addPollOption = async (messageId: string, text: string) => {
+    const response = await fetchWithAuth(`/messages/${messageId}/poll/options`, {
+        method: "POST",
+        body: JSON.stringify({ text }),
+    });
+    const data = await response.json();
+    return normalizeMessage(data);
+}
+
+const removePollOption = async (messageId: string, optionId: string) => {
+    const response = await fetchWithAuth(`/messages/${messageId}/poll/options/${optionId}`, {
+        method: "DELETE",
     });
     const data = await response.json();
     return normalizeMessage(data);
@@ -525,6 +582,9 @@ export {
     getConversation,
     getMessages,
     sendMessage,
+    votePoll,
+    addPollOption,
+    removePollOption,
     getUsers,
     deleteChatHistory,
     createGroup,

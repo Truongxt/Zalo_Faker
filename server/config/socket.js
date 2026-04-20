@@ -3,6 +3,7 @@ const messageService = require("../services/messageService");
 const conversationService = require("../services/conversationService");
 const conversationModel = require("../models/conversation");
 const GroupService = require("../services/groupService");
+const PollService = require("../services/pollService");
 const friendService = require("../services/friendService");
 const userRepository = require("../repository/userRepository");
 const { verifyAccessToken } = require("../utils/jwt");
@@ -125,6 +126,10 @@ const resolveCallDuration = (duration) => {
 };
 
 const getLastMessageText = ({ type, content, metadata }) => {
+  if (type === PollService.POLL_MESSAGE_TYPE) {
+    return PollService.getPollPreviewText(content);
+  }
+
   const callPayload = parseCallPayload(content);
   const contentText =
     typeof content === "string"
@@ -395,6 +400,20 @@ const getOtherParticipantId = (conversation, userId) => {
 
         const conversation = await ensureConversationMembership(conversationId, socket.userId);
 
+        let normalizedContent = content;
+        if (type === PollService.POLL_MESSAGE_TYPE) {
+          if (conversation.type !== "group") {
+            return callback?.({
+              success: false,
+              error: "Polls are only supported in group conversations",
+            });
+          }
+          normalizedContent = PollService.normalizePollMessageContent(
+            content,
+            socket.userId,
+          );
+        }
+
         if (conversation.type === "group") {
           GroupService.ensureCanSendMessage(conversation, {
             userId: socket.userId,
@@ -412,7 +431,7 @@ const getOtherParticipantId = (conversation, userId) => {
           conversationId,
           senderId: socket.userId,
           type,
-          content,
+          content: normalizedContent,
           metadata,
           replyTo,
           reactions: [],
@@ -422,7 +441,7 @@ const getOtherParticipantId = (conversation, userId) => {
 
         await conversationModel.updateConversation(conversationId, {
           lastMessage: {
-            content: getLastMessageText({ type, content, metadata }),
+            content: getLastMessageText({ type, content: normalizedContent, metadata }),
             type,
             senderId: socket.userId,
             timestamp: saved.createdAt,
@@ -437,7 +456,11 @@ const getOtherParticipantId = (conversation, userId) => {
         io.to(`user:${socket.userId}`).emit("chat:conversation_updated", {
           conversationId,
           lastMessage: {
-            content: getLastMessageText({ type, content, metadata }),
+            content: getLastMessageText({
+              type,
+              content: normalizedContent,
+              metadata,
+            }),
             type,
             senderId: socket.userId,
             timestamp: saved.createdAt,

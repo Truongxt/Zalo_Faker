@@ -39,8 +39,8 @@ export default function PendingFriendRequestsScreen() {
 
       setRequests(withUserInfo.filter(Boolean) as Friends[]);
     } catch (error) {
-      console.warn("Loi tai danh sach loi moi ket ban:", error);
-      GrayToast("Khong the tai loi moi ket ban");
+      console.warn("Lỗi tải danh sách lời mời kết bạn:", error);
+      GrayToast("Không thể tải lời mời kết bạn");
     } finally {
       setLoading(false);
     }
@@ -59,18 +59,18 @@ export default function PendingFriendRequestsScreen() {
         String(request.toUserId),
       );
       setRequests((prev) => prev.filter((item) => item.id !== request.id));
-      GrayToast("Da chap nhan loi moi ket ban");
+      GrayToast("Đã chấp nhận lời mời kết bạn");
     } catch (error) {
-      console.warn("Loi chap nhan loi moi ket ban:", error);
-      GrayToast("Khong the chap nhan loi moi");
+      console.warn("Lỗi chấp nhận lời mời kết bạn: ", error);
+      GrayToast("Không thể chấp nhận lời mời");
     }
   };
 
   const handleReject = async (request: Friends) => {
-    Alert.alert("Tu choi loi moi", "Ban co chac muon tu choi loi moi nay?", [
-      { text: "Huy", style: "cancel" },
+    Alert.alert("Từ chối lời mời", "Bạn có muốn từ chối lời mời này?", [
+      { text: "Hủy", style: "cancel" },
       {
-        text: "Tu choi",
+        text: "Từ chối",
         style: "destructive",
         onPress: async () => {
           try {
@@ -81,10 +81,10 @@ export default function PendingFriendRequestsScreen() {
             setRequests((prev) =>
               prev.filter((item) => item.id !== request.id),
             );
-            GrayToast("Da tu choi loi moi");
+            GrayToast("Đã từ chối lời mời");
           } catch (error) {
-            console.warn("Loi tu choi loi moi ket ban:", error);
-            GrayToast("Khong the tu choi loi moi");
+            console.warn("Lỗi từ chối lời mời kết bạn:", error);
+            GrayToast("Không thể từ chối lời mời");
           }
         },
       },
@@ -108,12 +108,12 @@ export default function PendingFriendRequestsScreen() {
           <Ionicons name="arrow-back" size={24} color="#111827" />
         </TouchableOpacity>
         <Text className="text-[18px] font-semibold text-gray-900">
-          Loi moi ket ban ({pendingCount})
+          Lời mời kết bạn ({pendingCount})
         </Text>
       </View>
 
       {loading ? (
-        <CenterLoading visible={true} message="Dang tai loi moi ket ban..." />
+        <CenterLoading visible={true} message="Đang tải lời mời kết bạn..." />
       ) : (
         <FlatList
           data={requests}
@@ -122,7 +122,7 @@ export default function PendingFriendRequestsScreen() {
           ListEmptyComponent={
             <View className="bg-white rounded-2xl px-4 py-8 mt-3">
               <Text className="text-center text-gray-500 text-[15px]">
-                Ban khong co loi moi ket ban nao
+                Bạn không có lời mời kết bạn nào
               </Text>
             </View>
           }
@@ -159,7 +159,7 @@ export default function PendingFriendRequestsScreen() {
                     className="flex-1 h-10 rounded-xl bg-gray-100 items-center justify-center"
                   >
                     <Text className="text-[14px] font-medium text-gray-700">
-                      Tu choi
+                      Từ chối
                     </Text>
                   </TouchableOpacity>
 
@@ -168,7 +168,7 @@ export default function PendingFriendRequestsScreen() {
                     className="flex-1 h-10 rounded-xl bg-[#0A67DA] items-center justify-center"
                   >
                     <Text className="text-[14px] font-medium text-white">
-                      Dong y
+                      Đồng ý
                     </Text>
                   </TouchableOpacity>
                 </View>

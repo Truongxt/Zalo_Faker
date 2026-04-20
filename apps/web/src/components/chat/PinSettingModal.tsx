@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { X, Lock, Key, ShieldAlert, CheckCircle2 } from 'lucide-react'
-import { updateHiddenPin, resetHiddenPin } from '@/services/api'
+import authService from '@/services/auth'
 import { useAuthStore } from '@/stores/authStore'
 
 interface PinSettingModalProps {
@@ -16,7 +16,6 @@ export default function PinSettingModal({ onClose, onSuccess }: PinSettingModalP
     
     // Form states
     const [password, setPassword] = useState('')
-    const [currentPin, setCurrentPin] = useState('')
     const [newPin, setNewPin] = useState('')
     const [confirmPin, setConfirmPin] = useState('')
 
@@ -41,9 +40,9 @@ export default function PinSettingModal({ onClose, onSuccess }: PinSettingModalP
             if (mode === 'change') {
                 // In change mode, typically we'd verify current PIN, but for simplicity let's use the update endpoint
                 // If the user wants to reset because they forgot, they should use 'reset' mode
-                await updateHiddenPin(user.id, newPin)
+                await authService.updateHiddenPin(user.id, newPin)
             } else {
-                await resetHiddenPin(user.id, { password, newPin })
+                await authService.resetHiddenPin(user.id, password, newPin)
             }
             
             setMessage({ type: 'success', text: 'Cập nhật mã PIN thành công!' })

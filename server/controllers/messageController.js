@@ -1,6 +1,7 @@
 const messageService = require("../services/messageService")
 const conversationService = require("../services/conversationService")
 const GroupService = require("../services/groupService")
+const PollService = require("../services/pollService")
 const conversationModel = require("../models/conversation")
 const friendService = require("../services/friendService")
 
@@ -66,6 +67,10 @@ const getCallPreviewText = (callPayload) => {
 }
 
 const getLastMessageContent = ({ type, content, metadata }) => {
+    if (type === PollService.POLL_MESSAGE_TYPE) {
+        return PollService.getPollPreviewText(content)
+    }
+
     const callPayload = parseCallPayload(content)
     const contentText =
         typeof content === "string"
@@ -105,6 +110,28 @@ const getOtherParticipantId = (conversation, userId) => {
     return otherParticipant ? Number(otherParticipant.userId) : null
 }
 
+const isConversationMember = (conversation, userId) =>
+    Boolean(
+        conversation?.participants?.some(
+            (participant) => String(participant.userId) === String(userId)
+        )
+    )
+
+const emitMessageUpdated = (req, updatedMessage) => {
+    const io = req.app.get("io")
+    if (!io || !updatedMessage?.conversationId) return
+
+    const normalizedMessage = { ...updatedMessage, id: updatedMessage._id }
+    io.to(`conv:${updatedMessage.conversationId}`).emit("chat:message_updated", {
+        conversationId: updatedMessage.conversationId,
+        message: normalizedMessage
+    })
+    io.to(updatedMessage.conversationId).emit("chat:message_updated", {
+        conversationId: updatedMessage.conversationId,
+        message: normalizedMessage
+    })
+}
+
 const createMessage = async (req, res) => {
     try {
         const senderId = req.user?.userId
@@ -125,6 +152,13 @@ const createMessage = async (req, res) => {
 
         if (!conversation) {
             return res.status(404).json({ message: "Conversation not found" })
+        }
+
+        if (payload.type === PollService.POLL_MESSAGE_TYPE) {
+            if (conversation.type !== "group") {
+                return res.status(400).json({ message: "Polls are only supported in group conversations" })
+            }
+            payload.content = PollService.normalizePollMessageContent(payload.content, senderId)
         }
 
         if (conversation.type === "group") {
@@ -239,6 +273,138 @@ const getStickers = async (req, res) => {
     }
 }
 
+const votePoll = async (req, res) => {
+    try {
+        const userId = req.user?.userId
+        if (!userId) {
+            return res.status(401).json({ message: "Unauthorized" })
+        }
+
+        const message = await messageService.getMessage(req.params.id)
+        if (!message) {
+            return res.status(404).json({ message: "Message not found" })
+        }
+
+        const conversation = await conversationService.getConversation(message.conversationId)
+        if (!conversation) {
+            return res.status(404).json({ message: "Conversation not found" })
+        }
+
+        if (conversation.type !== "group") {
+            return res.status(400).json({ message: "Polls are only supported in group conversations" })
+        }
+
+        if (!isConversationMember(conversation, userId)) {
+            return res.status(403).json({ message: "You are not in this conversation" })
+        }
+
+        const nextPoll = PollService.voteOnPoll(message, {
+            userId,
+            optionIds: req.body?.optionIds,
+        })
+
+        const updatedMessage = await messageService.updateMessage(req.params.id, {
+            content: nextPoll,
+        })
+
+        emitMessageUpdated(req, updatedMessage)
+        return res.json({ ...updatedMessage, id: updatedMessage._id })
+    } catch (error) {
+        return res.status(error.statusCode || 500).json({
+            message: error.message,
+            code: error.code || undefined,
+        })
+    }
+}
+
+const addPollOption = async (req, res) => {
+    try {
+        const userId = req.user?.userId
+        if (!userId) {
+            return res.status(401).json({ message: "Unauthorized" })
+        }
+
+        const message = await messageService.getMessage(req.params.id)
+        if (!message) {
+            return res.status(404).json({ message: "Message not found" })
+        }
+
+        const conversation = await conversationService.getConversation(message.conversationId)
+        if (!conversation) {
+            return res.status(404).json({ message: "Conversation not found" })
+        }
+
+        if (conversation.type !== "group") {
+            return res.status(400).json({ message: "Polls are only supported in group conversations" })
+        }
+
+        if (!isConversationMember(conversation, userId)) {
+            return res.status(403).json({ message: "You are not in this conversation" })
+        }
+
+        const nextPoll = PollService.addOptionToPoll(message, {
+            userId,
+            text: req.body?.text,
+        })
+
+        const updatedMessage = await messageService.updateMessage(req.params.id, {
+            content: nextPoll,
+        })
+
+        emitMessageUpdated(req, updatedMessage)
+        return res.json({ ...updatedMessage, id: updatedMessage._id })
+    } catch (error) {
+        return res.status(error.statusCode || 500).json({
+            message: error.message,
+            code: error.code || undefined,
+        })
+    }
+}
+
+const removePollOption = async (req, res) => {
+    try {
+        const userId = req.user?.userId
+        if (!userId) {
+            return res.status(401).json({ message: "Unauthorized" })
+        }
+
+        const message = await messageService.getMessage(req.params.id)
+        if (!message) {
+            return res.status(404).json({ message: "Message not found" })
+        }
+
+        const conversation = await conversationService.getConversation(message.conversationId)
+        if (!conversation) {
+            return res.status(404).json({ message: "Conversation not found" })
+        }
+
+        if (conversation.type !== "group") {
+            return res.status(400).json({ message: "Polls are only supported in group conversations" })
+        }
+
+        if (!isConversationMember(conversation, userId)) {
+            return res.status(403).json({ message: "You are not in this conversation" })
+        }
+
+        const nextPoll = PollService.removeOptionFromPoll(message, {
+            userId,
+            optionId: req.params.optionId,
+        })
+
+        const updatedMessage = await messageService.updateMessage(req.params.id, {
+            content: nextPoll,
+        })
+
+        emitMessageUpdated(req, updatedMessage)
+        return res.json({ ...updatedMessage, id: updatedMessage._id })
+    } catch (error) {
+        return res.status(error.statusCode || 500).json({
+            message: error.message,
+            code: error.code || undefined,
+        })
+    }
+}
+
 module.exports = {
     createMessage,
     getMessage,
@@ -247,6 +413,9 @@ module.exports = {
     deleteMessage,
     getMessagesByConversationId,
     deleteMessagesByRoom,
-    getStickers
+    getStickers,
+    votePoll,
+    addPollOption,
+    removePollOption
 }
 

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Message } from "@/stores/chatStore";
+import { Message, PollContent } from "@/stores/chatStore";
 import { formatDistanceToNow } from "date-fns";
 import { vi } from "date-fns/locale";
 import {
@@ -14,6 +14,7 @@ import {
   Video,
 } from "lucide-react";
 import VoicePlayer from "./VoicePlayer";
+import PollMessageCard from "./PollMessageCard";
 
 interface MessageBubbleProps {
   message: Message;
@@ -31,6 +32,10 @@ interface MessageBubbleProps {
   canPin?: boolean;
   participants?: Array<{ userId: string; fullName?: string }>;
   isGroupChat?: boolean;
+  currentUserId?: string;
+  onVotePoll?: (messageId: string, optionIds: string[]) => Promise<void>;
+  onAddPollOption?: (messageId: string, text: string) => Promise<void>;
+  onRemovePollOption?: (messageId: string, optionId: string) => Promise<void>;
 }
 
 const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "😡"];
@@ -45,6 +50,7 @@ type NormalizedContent = {
   transcript?: string;
   callType?: "audio" | "video";
   callStatus?: string;
+  poll?: PollContent;
 };
 
 const looksLikeMediaUrl = (value: string): boolean => {
@@ -72,7 +78,15 @@ const normalizeContent = (rawContent: any): NormalizedContent => {
     return {};
   }
 
+  const pollContent =
+    rawContent.poll && typeof rawContent.poll === "object"
+      ? rawContent.poll
+      : typeof rawContent.question === "string" && Array.isArray(rawContent.options)
+        ? rawContent
+        : undefined;
+
   return {
+    poll: pollContent,
     text:
       typeof rawContent.text === "string"
         ? rawContent.text
@@ -261,6 +275,10 @@ export default function MessageBubble({
   canPin = false,
   participants = [],
   isGroupChat = false,
+  currentUserId,
+  onVotePoll,
+  onAddPollOption,
+  onRemovePollOption,
 }: MessageBubbleProps) {
   const [showReactionPicker, setShowReactionPicker] = useState(false);
   const [showConfirmRecall, setShowConfirmRecall] = useState(false);
@@ -441,6 +459,19 @@ export default function MessageBubble({
     }
 
     switch (message.type) {
+      case "poll":
+        return content.poll ? (
+          <PollMessageCard
+            messageId={message.id}
+            poll={content.poll}
+            currentUserId={currentUserId}
+            participants={participants}
+            isSent={isSent}
+            onVote={onVotePoll || (async () => undefined)}
+            onAddOption={onAddPollOption || (async () => undefined)}
+            onRemoveOption={onRemovePollOption || (async () => undefined)}
+          />
+        ) : null;
       case "image":
         return (
           <div className="relative group">

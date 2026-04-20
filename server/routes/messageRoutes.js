@@ -13,6 +13,9 @@ router.get("/", messageController.getMessages);
 router.get("/conversation/:conversationId", messageController.getMessagesByConversationId);
 router.get("/stickers", messageController.getStickers);
 router.delete("/room/:roomId", messageController.deleteMessagesByRoom);
+router.post("/:id/poll/vote", messageController.votePoll);
+router.post("/:id/poll/options", messageController.addPollOption);
+router.delete("/:id/poll/options/:optionId", messageController.removePollOption);
 
 router.get("/:id", messageController.getMessage);
 router.put("/:id", messageController.updateMessage);
