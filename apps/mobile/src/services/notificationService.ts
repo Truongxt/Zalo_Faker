@@ -3,6 +3,27 @@ import { Platform } from "react-native";
 import * as Device from "expo-device";
 import Constants from "expo-constants";
 
+const resolveExpoProjectId = (): string | null => {
+  const fromEasConfig = String(Constants?.easConfig?.projectId || "").trim();
+  if (fromEasConfig) {
+    return fromEasConfig;
+  }
+
+  const fromExpoConfig = String(
+    Constants?.expoConfig?.extra?.eas?.projectId || "",
+  ).trim();
+  if (fromExpoConfig) {
+    return fromExpoConfig;
+  }
+
+  const fromEnv = String(process.env.EXPO_PUBLIC_EAS_PROJECT_ID || "").trim();
+  if (fromEnv) {
+    return fromEnv;
+  }
+
+  return null;
+};
+
 // Configure how notifications are handled when the app is in the foreground
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -14,7 +35,7 @@ Notifications.setNotificationHandler({
 
 export const notificationService = {
   async registerForPushNotificationsAsync() {
-    let token;
+    let token: string | undefined;
 
     if (Platform.OS === "android") {
       await Notifications.setNotificationChannelAsync("default", {
@@ -38,7 +59,13 @@ export const notificationService = {
       }
       
       try {
-        const projectId = Constants?.expoConfig?.extra?.eas?.projectId || Constants?.easConfig?.projectId;
+        const projectId = resolveExpoProjectId();
+        if (!projectId) {
+          console.warn(
+            'Skip getting Expo push token: missing EAS projectId. Set EXPO_PUBLIC_EAS_PROJECT_ID in apps/mobile/.env or expo.extra.eas.projectId in app config.',
+          );
+          return;
+        }
         token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
       } catch (e) {
         console.error("Error getting expo push token", e);

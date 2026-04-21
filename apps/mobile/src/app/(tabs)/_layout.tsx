@@ -22,6 +22,11 @@ const MENU_ITEMS: MenuItem[] = [
     route: "/friends/add",
   },
   {
+    icon: "phone-portrait-outline",
+    label: "Gợi ý từ danh bạ",
+    route: "/friends/suggestions",
+  },
+  {
     icon: "people-outline",
     label: "Tạo nhóm",
     route: "/group/create",

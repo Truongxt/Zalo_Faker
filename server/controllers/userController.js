@@ -99,6 +99,23 @@ getUserById: async (req, res) => {
     } catch (err) {
       res.status(500).json({ message: err.message });
     }},
+  suggestFriendsByPhones: async (req, res) => {
+    try {
+      const requesterId = req.user?.userId || req.user?.id;
+      const { phones } = req.body || {};
+
+      if (!Array.isArray(phones)) {
+        return res.status(400).json({ message: "phones must be an array" });
+      }
+
+      const users = await userService.suggestFriendsByPhones(requesterId, phones);
+      res.json({ data: users });
+    } catch (err) {
+      const message = err.message || "Failed to suggest friends";
+      const status = /required|array/i.test(message) ? 400 : 500;
+      res.status(status).json({ message });
+    }
+  },
 
   // ===== REFRESH TOKEN =====
   refreshToken: async (req, res) => {

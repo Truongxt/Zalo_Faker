@@ -4,7 +4,7 @@ import { Stack } from "expo-router";
 import { useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import * as SplashScreen from "expo-splash-screen";
-import { Alert } from "react-native";
+import { Alert, AppState } from "react-native";
 import {
   SafeAreaProvider,
   initialWindowMetrics,
@@ -15,6 +15,7 @@ import { useAuthStore } from "@/stores/authStore";
 import { useChatStore } from "@/stores/chatStore";
 import { chatService } from "@/services/chat";
 import { notificationService } from "@/services/notificationService";
+import { contactSuggestionsService } from "@/services/contactSuggestionsService";
 import FlashMessage from "react-native-flash-message";
 // Giữ splash screen
 SplashScreen.preventAutoHideAsync().catch((error) => {
@@ -47,6 +48,12 @@ export default function RootLayout() {
     chatService.init();
     socketService.connect();
     notificationService.registerForPushNotificationsAsync();
+    void contactSuggestionsService.prewarmOnAppOpen(String(user.id));
+    const appStateSubscription = AppState.addEventListener("change", (nextState) => {
+      if (nextState === "active") {
+        void contactSuggestionsService.prewarmOnAppOpen(String(user.id));
+      }
+    });
 
     const forceLogout = (reason?: string) => {
       if (!useAuthStore.getState().user) return;
@@ -75,6 +82,7 @@ export default function RootLayout() {
     return () => {
       socketService.off("session:force_logout", handleForceLogout);
       socketService.off("connect_error", handleConnectError);
+      appStateSubscription.remove();
     };
   }, [isAuthenticated, user?.id, logout, router]);
 
