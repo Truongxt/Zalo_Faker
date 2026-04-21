@@ -42,6 +42,7 @@ import { API_URL } from "@/constants/config";
 import { STICKER_URLS } from "@/constants/stickers";
 
 import { addPollOptionMessage, removePollOptionMessage, votePollMessage, uploadFile } from "@/services/chat";
+import { ReactionListModal } from "@/components/chat/ReactionListModal";
 
 const REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "😡"];
 
@@ -579,9 +580,8 @@ type MessageItemProps = {
   replyPreview?: ReplyPreview | null;
   participants?: Array<{ userId: string; fullName?: string; nickname?: string }>;
   currentUserId?: string | null;
-  onVotePoll: (messageId: string, optionIds: string[]) => Promise<void>;
-  onAddPollOption: (messageId: string, text: string) => Promise<void>;
   onRemovePollOption: (messageId: string, optionId: string) => Promise<void>;
+  onShowReactionList: (reactions: MessageReaction[]) => void;
 };
 
 function MessageItem({
@@ -596,6 +596,7 @@ function MessageItem({
   onVotePoll,
   onAddPollOption,
   onRemovePollOption,
+  onShowReactionList,
 }: MessageItemProps) {
   const [showVoiceTranscript, setShowVoiceTranscript] = useState(false);
   const isAnnouncement = Boolean((msg as any)?.metadata?.isAnnouncement);
@@ -1186,15 +1187,75 @@ function MessageItem({
           <Text style={{ fontSize: 10, color: "#9CA3AF" }}>
             {formatTime(msg.createdAt)}
           </Text>
-          {Object.keys(topReactions).length > 0 && (
-            <View style={{ flexDirection: "row" }}>
-              {Object.entries(topReactions).map(([emoji, count]) => (
-                <Text key={emoji} style={{ fontSize: 11 }}>
-                  {emoji}
-                  {count > 1 ? count : ""}
-                </Text>
-              ))}
-            </View>
+          {msg.reactions && msg.reactions.length > 0 && (
+            <TouchableOpacity 
+              activeOpacity={0.7}
+              onPress={() => onShowReactionList(msg.reactions || [])}
+              style={{ flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 4 }}
+            >
+              {isMe ? (
+                <>
+                  {msg.reactions.slice(0, 2).map((reaction, idx) => (
+                    <View 
+                      key={`${msg.id}-reaction-${idx}`}
+                      style={{ 
+                        flexDirection: "row", 
+                        alignItems: "center", 
+                        backgroundColor: "#FFFFFF", 
+                        borderRadius: 12, 
+                        paddingHorizontal: 6, 
+                        paddingVertical: 2,
+                        borderWidth: 1,
+                        borderColor: "#E5E7EB",
+                        gap: 4,
+                        shadowColor: "#000",
+                        shadowOffset: { width: 0, height: 1 },
+                        shadowOpacity: 0.1,
+                        shadowRadius: 1,
+                        elevation: 1
+                      }}
+                    >
+                      <Text style={{ fontSize: 11 }}>{reaction.emoji}</Text>
+                      <Text style={{ fontSize: 10, color: "#4B5563", fontWeight: "600" }}>
+                        {String(reaction.userId) === String(currentUserId) ? "Bạn" : (reaction.userName || "...")}
+                      </Text>
+                    </View>
+                  ))}
+                  {msg.reactions.length > 2 && (
+                    <View style={{ 
+                      backgroundColor: "#F3F4F6", 
+                      borderRadius: 12, 
+                      paddingHorizontal: 8, 
+                      paddingVertical: 2,
+                      borderWidth: 1,
+                      borderColor: "#E5E7EB",
+                      justifyContent: "center"
+                    }}>
+                      <Text style={{ fontSize: 10, color: "#6B7280", fontWeight: "700" }}>+{msg.reactions.length - 2}</Text>
+                    </View>
+                  )}
+                </>
+              ) : (
+                <View style={{ 
+                  flexDirection: "row", 
+                  alignItems: "center", 
+                  backgroundColor: "#FFFFFF", 
+                  borderRadius: 12, 
+                  paddingHorizontal: 6, 
+                  paddingVertical: 2,
+                  borderWidth: 1,
+                  borderColor: "#E5E7EB",
+                  gap: 2
+                }}>
+                  {[...new Set(msg.reactions.map(r => r.emoji))].slice(0, 3).map((emoji, i) => (
+                    <Text key={i} style={{ fontSize: 11 }}>{emoji}</Text>
+                  ))}
+                  {msg.reactions.length > 1 && (
+                    <Text style={{ fontSize: 10, color: "#6B7280", marginLeft: 2 }}>{msg.reactions.length}</Text>
+                  )}
+                </View>
+              )}
+            </TouchableOpacity>
           )}
         </View>
       </View>
@@ -1235,6 +1296,8 @@ export default function ChatRoomScreen() {
 
   const [isSummarizingConversation, setIsSummarizingConversation] =
     useState(false);
+  const [showReactionList, setShowReactionList] = useState(false);
+  const [reactionList, setReactionList] = useState<MessageReaction[]>([]);
   const [dailySummary, setDailySummary] = useState<{
     conversationName: string;
     summary: string;
@@ -2691,6 +2754,10 @@ export default function ChatRoomScreen() {
         onVotePoll={handleVotePoll}
         onAddPollOption={handleAddPollOption}
         onRemovePollOption={handleRemovePollOption}
+        onShowReactionList={(reactions) => {
+          setReactionList(reactions);
+          setShowReactionList(true);
+        }}
       />
     );
   };
@@ -3496,6 +3563,11 @@ export default function ChatRoomScreen() {
           </View>
         )}
       </View>
+      <ReactionListModal 
+        isVisible={showReactionList}
+        onClose={() => setShowReactionList(false)}
+        reactions={reactionList}
+      />
     </KeyboardAvoidingView>
   );
 }

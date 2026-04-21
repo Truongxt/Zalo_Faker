@@ -80,7 +80,7 @@ export interface Message {
         transcriptProvider?: string
     } | null
     replyTo?: string
-    reactions: { userId: string; emoji: string }[]
+    reactions: { userId: string; emoji: string; userName?: string }[]
     readBy: { userId: string; readAt: string }[]
     isDeleted: boolean
     createdAt: string

@@ -13,7 +13,7 @@ export const chatService = {
         const socket = socketService.connect(user.id)
         if (!socket) return
 
-        socket.on('chat:message', (message: Message) => {
+        socketService.on('chat:message', (message: Message) => {
             const { addMessage, updateConversation } = useChatStore.getState()
             addMessage(message.conversationId, message)
 
@@ -29,7 +29,7 @@ export const chatService = {
             })
         })
 
-        socket.on('chat:typing', ({ conversationId, userId }: { conversationId: string; userId: string }) => {
+        socketService.on('chat:typing', ({ conversationId, userId }: { conversationId: string; userId: string }) => {
             const { addTypingUser, removeTypingUser } = useChatStore.getState()
             addTypingUser(conversationId, userId)
 
@@ -39,14 +39,14 @@ export const chatService = {
             }, 3000)
         })
 
-        socket.on('chat:read', ({ conversationId, messageId, userId }: { conversationId: string; messageId: string; userId: string }) => {
+        socketService.on('chat:read', ({ conversationId, messageId, userId }: { conversationId: string; messageId: string; userId: string }) => {
             const { updateMessage } = useChatStore.getState()
             updateMessage(conversationId, messageId, {
                 readBy: [{ userId, readAt: new Date().toISOString() }]
             })
         })
 
-        socket.on('chat:recalled', ({ conversationId, messageId }: { conversationId: string; messageId: string }) => {
+        socketService.on('chat:recalled', ({ conversationId, messageId }: { conversationId: string; messageId: string }) => {
             const { updateMessage } = useChatStore.getState()
             updateMessage(conversationId, messageId, { isDeleted: true })
         })

@@ -1,6 +1,7 @@
 import { io, Socket } from "socket.io-client";
 import { useAuthStore } from "@/stores/authStore";
 import { SOCKET_URL } from "@/constants/config";
+
 class SocketService {
   private socket: Socket | null = null;
   private reconnectAttempts = 0;
@@ -8,6 +9,7 @@ class SocketService {
   private joinedRooms = new Set<string>();
   private hasWarnedNoToken = false;
   private hasWarnedConnectError = false;
+  private listeners = new Map<string, Set<Function>>();
 
   connect() {
     const { accessToken } = useAuthStore.getState();
@@ -38,6 +40,13 @@ class SocketService {
       timeout: 10000,
     });
 
+    // Apply persistent listeners
+    this.listeners.forEach((callbacks, event) => {
+      callbacks.forEach((cb) => {
+        this.socket?.on(event, cb as any);
+      });
+    });
+
     this.socket.on("connect", () => {
       console.log("Socket connected");
       this.reconnectAttempts = 0;
@@ -52,7 +61,6 @@ class SocketService {
     });
 
     this.socket.on("connect_error", (error) => {
-      // Avoid LogBox red screen spam on temporary transport failures in emulator/dev env.
       if (!this.hasWarnedConnectError) {
         console.warn("Socket connection issue:", error?.message || error);
         this.hasWarnedConnectError = true;
@@ -89,11 +97,21 @@ class SocketService {
   }
 
   on(event: string, callback: (...args: any[]) => void) {
+    if (!this.listeners.has(event)) {
+      this.listeners.set(event, new Set());
+    }
+    this.listeners.get(event)?.add(callback);
     this.socket?.on(event, callback);
   }
 
   off(event: string, callback?: (...args: any[]) => void) {
-    this.socket?.off(event, callback);
+    if (callback) {
+      this.listeners.get(event)?.delete(callback);
+      this.socket?.off(event, callback);
+    } else {
+      this.listeners.delete(event);
+      this.socket?.off(event);
+    }
   }
 
   emit(event: string, ...args: any[]) {
