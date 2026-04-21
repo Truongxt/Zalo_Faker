@@ -14,6 +14,7 @@ import { socketService } from "@/lib/socket";
 import { useAuthStore } from "@/stores/authStore";
 import { useChatStore } from "@/stores/chatStore";
 import { chatService } from "@/services/chat";
+import { notificationService } from "@/services/notificationService";
 import FlashMessage from "react-native-flash-message";
 // Giữ splash screen
 SplashScreen.preventAutoHideAsync().catch((error) => {
@@ -45,6 +46,7 @@ export default function RootLayout() {
     useChatStore.getState().initializeCacheForUser(String(user.id));
     chatService.init();
     socketService.connect();
+    notificationService.registerForPushNotificationsAsync();
 
     const forceLogout = (reason?: string) => {
       if (!useAuthStore.getState().user) return;

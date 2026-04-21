@@ -1,6 +1,7 @@
 import { socketService } from '@/lib/socket'
 import { useChatStore, Message, Conversation } from '@/stores/chatStore'
 import { useAuthStore } from '@/stores/authStore'
+import { notificationService } from './notificationService'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api'
 
@@ -27,6 +28,33 @@ export const chatService = {
                     metadata: message.metadata || null,
                 }
             })
+
+            // Show browser notification
+            const { activeConversation } = useChatStore.getState()
+            const currentUserId = useAuthStore.getState().user?.id
+
+            if (
+                String(message.senderId) !== String(currentUserId) &&
+                (!activeConversation || String(activeConversation.id) !== String(message.conversationId))
+            ) {
+                const content = typeof message.content === 'string' ? message.content : (message.content as any)?.text || '[Tin nhắn mới]'
+                notificationService.showNotification(
+                    message.senderName || 'Tin nhắn mới',
+                    content,
+                    message.senderAvatar || undefined
+                )
+            }
+        })
+
+        socketService.on('video:incoming-call', (data: any) => {
+            const currentUserId = useAuthStore.getState().user?.id
+            if (String(data.callerId) === String(currentUserId)) return
+
+            notificationService.showNotification(
+                'Cuộc gọi đến',
+                `${data.callerName || 'Ai đó'} đang gọi cho bạn`,
+                data.callerAvatar || undefined
+            )
         })
 
         socketService.on('chat:typing', ({ conversationId, userId }: { conversationId: string; userId: string }) => {
