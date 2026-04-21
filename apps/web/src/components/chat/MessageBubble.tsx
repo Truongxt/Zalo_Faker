@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Message, PollContent } from "@/stores/chatStore";
+import { Message, PollContent, MessageAttachment } from "@/stores/chatStore";
 import { formatDistanceToNow } from "date-fns";
 import { vi } from "date-fns/locale";
 import {
@@ -42,6 +42,82 @@ interface MessageBubbleProps {
 }
 
 const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "😡"];
+
+const ImageGrid = ({
+  attachments,
+  onImageClick,
+}: {
+  attachments: MessageAttachment[];
+  onImageClick: (url: string) => void;
+}) => {
+  const count = attachments.length;
+
+  if (count === 2) {
+    return (
+      <div className="grid grid-cols-2 gap-1 rounded-xl overflow-hidden max-w-[400px] border border-gray-100 dark:border-gray-800 shadow-sm">
+        {attachments.map((att, i) => (
+          <img
+            key={i}
+            src={att.url}
+            alt={`Attachment ${i + 1}`}
+            className="w-full h-48 object-cover cursor-pointer hover:opacity-90 transition-opacity"
+            onClick={() => onImageClick(att.url)}
+          />
+        ))}
+      </div>
+    );
+  }
+
+  if (count === 3) {
+    return (
+      <div className="grid grid-cols-2 grid-rows-2 gap-1 rounded-xl overflow-hidden max-w-[400px] h-[320px] border border-gray-100 dark:border-gray-800 shadow-sm">
+        <img
+          src={attachments[0].url}
+          alt="Attachment 1"
+          className="row-span-2 w-full h-full object-cover cursor-pointer hover:opacity-90 transition-opacity"
+          onClick={() => onImageClick(attachments[0].url)}
+        />
+        <img
+          src={attachments[1].url}
+          alt="Attachment 2"
+          className="w-full h-full object-cover cursor-pointer hover:opacity-90 transition-opacity"
+          onClick={() => onImageClick(attachments[1].url)}
+        />
+        <img
+          src={attachments[2].url}
+          alt="Attachment 3"
+          className="w-full h-full object-cover cursor-pointer hover:opacity-90 transition-opacity"
+          onClick={() => onImageClick(attachments[2].url)}
+        />
+      </div>
+    );
+  }
+
+  // 4 or more
+  return (
+    <div className="grid grid-cols-2 gap-1 rounded-xl overflow-hidden max-w-[400px] border border-gray-100 dark:border-gray-800 shadow-sm">
+      {attachments.slice(0, 4).map((att, i) => (
+        <div key={i} className="relative aspect-square overflow-hidden bg-gray-100 dark:bg-dark-300">
+          <img
+            src={att.url}
+            alt={`Attachment ${i + 1}`}
+            className="w-full h-full object-cover cursor-pointer hover:opacity-90 transition-opacity"
+            onClick={() => onImageClick(att.url)}
+          />
+          {i === 3 && count > 4 && (
+            <div 
+              className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center text-white cursor-pointer hover:bg-black/50 transition-colors"
+              onClick={() => onImageClick(att.url)}
+            >
+              <span className="text-2xl font-bold">+{count - 4}</span>
+              <span className="text-[10px] font-medium uppercase tracking-wider opacity-80">Hình ảnh</span>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+};
 
 type NormalizedContent = {
   text?: string;
@@ -150,6 +226,16 @@ const OFFICE_EXTENSIONS = new Set([
   "xlsx",
   "ppt",
   "pptx",
+]);
+
+const VIDEO_EXTENSIONS = new Set([
+  "mp4",
+  "webm",
+  "ogg",
+  "mov",
+  "avi",
+  "mkv",
+  "3gp",
 ]);
 
 const getFileExtension = (value: string) => {
@@ -475,15 +561,31 @@ export default function MessageBubble({
           />
         ) : null;
       case "image":
+        if (message.attachments && message.attachments.length >= 2) {
+          return (
+            <div className="flex flex-col gap-2">
+              <ImageGrid 
+                attachments={message.attachments} 
+                onImageClick={(url) => window.open(url, "_blank")} 
+              />
+              {content.text && (
+                <p className="whitespace-pre-wrap [overflow-wrap:anywhere] [word-break:break-word] text-sm px-1">
+                  {content.text}
+                </p>
+              )}
+            </div>
+          );
+        }
         return (
           <div className="relative group">
             <img
               src={content.mediaUrl}
               alt="Image"
               className="max-w-[300px] rounded-lg cursor-pointer hover:opacity-95 transition-opacity"
+              onClick={() => window.open(content.mediaUrl, "_blank")}
             />
             {content.text && (
-              <p className="mt-2 whitespace-pre-wrap [overflow-wrap:anywhere] [word-break:break-word]">
+              <p className="mt-2 whitespace-pre-wrap [overflow-wrap:anywhere] [word-break:break-word] text-sm px-1">
                 {content.text}
               </p>
             )}
@@ -492,7 +594,7 @@ export default function MessageBubble({
 
       case "video":
         return (
-          <div className="relative group">
+          <div className="relative group overflow-hidden rounded-xl max-w-[320px] shadow-sm bg-black/5 dark:bg-white/5 border border-black/5 dark:border-white/5">
             <video
               src={
                 String(content.mediaUrl || "") +
@@ -501,18 +603,79 @@ export default function MessageBubble({
                   : "#t=0.001")
               }
               poster={content.thumbnail}
+              autoPlay
+              muted
+              loop
+              playsInline
               controls
-              className="max-w-[300px] rounded-lg"
+              className="w-full h-auto block rounded-lg cursor-pointer hover:opacity-95 transition-opacity"
             />
+            {/* Duration Badge */}
+            <div className="absolute top-2 left-2 px-1.5 py-0.5 bg-black/60 text-white text-[10px] font-bold rounded flex items-center gap-1 backdrop-blur-sm z-10">
+              {content.duration ? formatCallDuration(content.duration) : "Video"}
+            </div>
+            {/* Play Overlay */}
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity">
+              <div className="w-12 h-12 rounded-full bg-black/30 backdrop-blur-md flex items-center justify-center border border-white/20">
+                <div className="w-0 h-0 border-t-[8px] border-t-transparent border-l-[14px] border-l-white border-b-[8px] border-b-transparent ml-1" />
+              </div>
+            </div>
             {content.text && (
-              <p className="mt-2 whitespace-pre-wrap [overflow-wrap:anywhere] [word-break:break-word]">
+              <p className="p-2 whitespace-pre-wrap [overflow-wrap:anywhere] [word-break:break-word] text-sm">
                 {content.text}
               </p>
             )}
           </div>
         );
 
-      case "file":
+      case "file": {
+        const ext = fileNameLabel?.split(".").pop()?.toLowerCase() || "";
+        const isVideoFile = VIDEO_EXTENSIONS.has(ext);
+
+        if (isVideoFile) {
+          return (
+            <div className="relative group overflow-hidden rounded-xl max-w-[320px] shadow-sm bg-black/5 dark:bg-white/5 border border-black/5 dark:border-white/5">
+              <video
+                src={
+                  String(content.mediaUrl || "") +
+                  (String(content.mediaUrl || "").includes("#t=")
+                    ? ""
+                    : "#t=0.001")
+                }
+                autoPlay
+                muted
+                loop
+                playsInline
+                controls
+                className="w-full h-auto block rounded-lg cursor-pointer hover:opacity-95 transition-opacity"
+              />
+              {/* Duration Badge */}
+              <div className="absolute top-2 left-2 px-1.5 py-0.5 bg-black/60 text-white text-[10px] font-bold rounded flex items-center gap-1 backdrop-blur-sm z-10">
+                {content.duration ? formatCallDuration(content.duration) : "Video"}
+              </div>
+              {/* Play Overlay */}
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity">
+                <div className="w-12 h-12 rounded-full bg-black/30 backdrop-blur-md flex items-center justify-center border border-white/20">
+                  <div className="w-0 h-0 border-t-[8px] border-t-transparent border-l-[14px] border-l-white border-b-[8px] border-b-transparent ml-1" />
+                </div>
+              </div>
+              <div className="p-3 bg-black/5 dark:bg-white/5 border-t border-black/5 dark:border-white/5">
+                <p className="font-medium truncate text-sm">{fileNameLabel}</p>
+                <p className="text-xs opacity-70">
+                  {content.fileSize
+                    ? `${(content.fileSize / 1024).toFixed(1)} KB`
+                    : ""}
+                </p>
+              </div>
+              {content.text && (
+                <p className="p-2 whitespace-pre-wrap [overflow-wrap:anywhere] [word-break:break-word] text-sm">
+                  {content.text}
+                </p>
+              )}
+            </div>
+          );
+        }
+
         return (
           <div className="flex flex-col gap-2">
             {content.text && (
@@ -523,7 +686,7 @@ export default function MessageBubble({
 
             <div className="flex items-center gap-3 p-3 bg-black/10 dark:bg-white/10 rounded-lg">
               <div className="w-10 h-10 bg-primary-500 rounded-lg flex items-center justify-center text-white text-sm font-medium">
-                {fileNameLabel?.split(".").pop()?.toUpperCase() || "FILE"}
+                {ext.toUpperCase() || "FILE"}
               </div>
               <div className="flex-1 min-w-0">
                 <p className="font-medium truncate">{fileNameLabel}</p>
@@ -559,6 +722,7 @@ export default function MessageBubble({
             </div>
           </div>
         );
+      }
 
       case "sticker":
         return (
@@ -610,7 +774,7 @@ export default function MessageBubble({
     return (
       <div className={`flex ${isSent ? "justify-end" : "justify-start"}`}>
         <div className="message-bubble bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400 italic">
-          Tin nhắn đã bị xóa
+          Tin nhắn bị thu hồi
         </div>
       </div>
     );
@@ -703,7 +867,7 @@ export default function MessageBubble({
                 </p>
                 <p className="text-gray-500 dark:text-gray-400 truncate">
                   {replyMessage.isDeleted
-                    ? "Tin nhắn đã bị xóa"
+                    ? "Tin nhắn bị thu hồi"
                     : replyMessage.content?.text || "[Media]"}
                 </p>
               </div>

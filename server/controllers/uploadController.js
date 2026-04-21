@@ -6,7 +6,8 @@ const uploadFile = async (req, res) => {
             return res.status(400).json({ message: "No file uploaded" });
         }
         
-        const fileUrl = await uploadFileToStorage(req.file, { folder: "uploads", subfolder: "chat" });
+        const { folder = "uploads", subfolder = "chat" } = req.body;
+        const fileUrl = await uploadFileToStorage(req.file, { folder, subfolder });
         
         res.json({ 
             url: fileUrl, 
