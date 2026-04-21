@@ -4,6 +4,7 @@ import { useAuthStore } from "@/stores/authStore";
 import { API_URL } from "@/constants/config";
 import type { Message, Conversation } from "@/types";
 import apiClient from "./apiClient";
+import { notificationService } from "./notificationService";
 
 let isRealtimeInitialized = false;
 
@@ -358,6 +359,34 @@ export const chatService = {
           metadata: message.metadata,
         },
       });
+
+      // Show notification if not in active conversation
+      const { activeConversation } = useChatStore.getState();
+      const { user } = useAuthStore.getState();
+      
+      if (
+        String(message.senderId) !== String(user?.id) && 
+        (!activeConversation || String(activeConversation.id) !== String(message.conversationId))
+      ) {
+        notificationService.showLocalNotification(
+          message.senderName || "Tin nhan moi",
+          getConversationPreviewText(message),
+          { conversationId: message.conversationId },
+          message.senderAvatar || undefined
+        );
+      }
+    });
+
+    socketService.on("video:incoming-call", (data: any) => {
+      const { user } = useAuthStore.getState();
+      if (String(data.callerId) === String(user?.id)) return;
+
+      notificationService.showLocalNotification(
+        "Cuoc goi den",
+        `${data.callerName || "Ai do"} dang goi cho ban`,
+        { callId: data.callId },
+        data.callerAvatar || undefined
+      );
     });
 
     socketService.on("chat:typing", ({ conversationId, userId }: { conversationId: string; userId: string }) => {
