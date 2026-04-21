@@ -15,6 +15,7 @@ const MessageModel = {
         senderId: messageData.senderId,
         type: messageData.type, // 'text' | 'image' | 'video' | 'file'
         content: messageData.content,
+        attachments: messageData.attachments || null,
         metadata: messageData.metadata || null,
         replyTo: messageData.replyTo || null,
         reactions: messageData.reactions || [], // Array of Reaction
@@ -27,8 +28,6 @@ const MessageModel = {
       await dynamodb.put(params).promise();
       return params.Item;
     } catch (error) {
-      console.error("Error creating message:", error);
-      throw error;
     }
   },
 
@@ -59,7 +58,7 @@ const MessageModel = {
     const updateFields = [];
     const ExpressionAttributeNames = {};
     const ExpressionAttributeValues = {};
-    const allowedFields = ["conversationId", "senderId", "type", "content", "metadata", "replyTo", "reactions", "readBy", "isDeleted"];
+    const allowedFields = ["conversationId", "senderId", "type", "content", "attachments", "metadata", "replyTo", "reactions", "readBy", "isDeleted"];
     allowedFields.forEach(field => {
       if (messageData[field] !== undefined) {
         updateFields.push(`#${field} = :${field}`);

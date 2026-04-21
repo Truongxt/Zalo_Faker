@@ -226,6 +226,40 @@ const deleteFiles = async (fileRefs = []) => {
   return { deletedCount: uniqueKeys.length };
 };
 
+const deleteFolder = async (folderPath) => {
+  const bucketName = (process.env.BUCKET_NAME || "").trim();
+  if (!bucketName || !folderPath) return { deletedCount: 0 };
+
+  const normalizedPrefix = folderPath.replace(/^\/+/, "").replace(/\/+$/, "") + "/";
+
+  const listedObjects = await s3.listObjectsV2({
+    Bucket: bucketName,
+    Prefix: normalizedPrefix
+  }).promise();
+
+  if (!listedObjects.Contents || listedObjects.Contents.length === 0) {
+    return { deletedCount: 0 };
+  }
+
+  const deleteParams = {
+    Bucket: bucketName,
+    Delete: { Objects: [] }
+  };
+
+  listedObjects.Contents.forEach(({ Key }) => {
+    deleteParams.Delete.Objects.push({ Key });
+  });
+
+  await s3.deleteObjects(deleteParams).promise();
+
+  if (listedObjects.IsTruncated) {
+    const next = await deleteFolder(folderPath);
+    return { deletedCount: listedObjects.Contents.length + next.deletedCount };
+  }
+
+  return { deletedCount: listedObjects.Contents.length };
+};
+
 const replaceExtension = (fileName = "file", nextExtension = ".jpg") => {
   const baseName = path.basename(fileName, path.extname(fileName));
   return `${baseName}${nextExtension}`;
@@ -308,6 +342,7 @@ const uploadFiles = async (files = [], options = {}) =>
 
 module.exports = {
   deleteFiles,
+  deleteFolder,
   extractS3ObjectKey,
   getAccessibleFileUrl,
   getAccessibleFileUrls,

@@ -9,6 +9,7 @@ const userRepository = require("../repository/userRepository");
 const { verifyAccessToken } = require("../utils/jwt");
 const { redisClient, getIsRedisReady, safeGet } = require("../utils/redisClient");
 const groupCallManager = require("../services/groupCallManager");
+const fileService = require("../services/file.service");
 
 const PRESENCE_TTL_SECONDS = 90;
 const PRESENCE_HEARTBEAT_MS = 30000;
@@ -126,7 +127,7 @@ const resolveCallDuration = (duration) => {
   return Math.max(0, Math.floor(duration));
 };
 
-const getLastMessageText = ({ type, content, metadata }) => {
+const getLastMessageText = ({ type, content, metadata, attachments }) => {
   if (type === PollService.POLL_MESSAGE_TYPE) {
     return PollService.getPollPreviewText(content);
   }
@@ -148,6 +149,9 @@ const getLastMessageText = ({ type, content, metadata }) => {
   }
 
   if (contentText) return contentText;
+  if (type === "image" && Array.isArray(attachments) && attachments.length >= 2) {
+    return `[${attachments.length} hình ảnh]${contentText ? ` ${contentText}` : ""}`;
+  }
   return MEDIA_FALLBACK_BY_TYPE[type] || "[Tin nhắn]";
 };
 
@@ -390,6 +394,7 @@ module.exports = (socketConfig) => {
           conversationId,
           type = "text",
           content,
+          attachments = null,
           replyTo = null,
           metadata = null,
           clientTempId = null,
@@ -433,6 +438,7 @@ module.exports = (socketConfig) => {
           senderId: socket.userId,
           type,
           content: normalizedContent,
+          attachments,
           metadata,
           replyTo,
           reactions: [],
@@ -442,7 +448,7 @@ module.exports = (socketConfig) => {
 
         await conversationModel.updateConversation(conversationId, {
           lastMessage: {
-            content: getLastMessageText({ type, content: normalizedContent, metadata }),
+            content: getLastMessageText({ type, content: normalizedContent, metadata, attachments }),
             type,
             senderId: socket.userId,
             timestamp: saved.createdAt,
@@ -461,6 +467,7 @@ module.exports = (socketConfig) => {
               type,
               content: normalizedContent,
               metadata,
+              attachments,
             }),
             type,
             senderId: socket.userId,
@@ -608,6 +615,13 @@ module.exports = (socketConfig) => {
         }
         if (String(message.senderId) !== socket.userId) {
           return callback?.({ success: false, error: "No permission to recall this message" });
+        }
+
+        // Xóa folder nếu có trong metadata
+        if (message.metadata && message.metadata.folderId) {
+          const { folder, subfolder } = message.metadata;
+          const folderPath = `${folder}/${subfolder}`;
+          fileService.deleteFolder(folderPath).catch(err => console.error("Failed to delete folder on recall:", err));
         }
 
         await messageService.updateMessage(messageId, { isDeleted: true });

@@ -32,6 +32,15 @@ export interface PollSettings {
     expiresAt: string | null
 }
 
+export interface MessageAttachment {
+    url: string
+    type: 'image' | 'video' | 'file' | 'voice'
+    name?: string
+    size?: number
+    duration?: number
+    thumbnailUrl?: string
+}
+
 export interface PollContent {
     question: string
     options: PollOption[]
@@ -58,6 +67,7 @@ export interface Message {
         callStatus?: string
         poll?: PollContent
     }
+    attachments?: MessageAttachment[]
     metadata?: {
         isAnnouncement?: boolean
         isImportant?: boolean
@@ -260,10 +270,12 @@ export const normalizeMessage = (msg: any): Message => ({
     id: msg?.id || msg?._id || `temp-${Date.now()}-${Math.random()}`,
     content: normalizeMessageContent(msg?.content),
     metadata: normalizeMessageMetadata(msg?.metadata),
+    attachments: Array.isArray(msg?.attachments) ? msg.attachments : undefined,
     reactions: Array.isArray(msg?.reactions) ? msg.reactions : [],
     readBy: Array.isArray(msg?.readBy) ? msg.readBy : [],
     isDeleted: Boolean(msg?.isDeleted),
     createdAt: msg?.createdAt || new Date().toISOString(),
+    lastRead: msg?.lastRead,
 })
 
 

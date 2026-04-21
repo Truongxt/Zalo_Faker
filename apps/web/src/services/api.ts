@@ -355,9 +355,11 @@ const updateConversationBackground = async (conversationId: string, backgroundUr
     return { ...json, id: json._id };
 }
 
-const uploadMedia = async (file: File) => {
+const uploadMedia = async (file: File, folder?: string, subfolder?: string) => {
     const formData = new FormData();
     formData.append("file", file, file.name);
+    if (folder) formData.append("folder", folder);
+    if (subfolder) formData.append("subfolder", subfolder);
 
     const response = await fetchWithAuth(`/upload`, {
         method: "POST",

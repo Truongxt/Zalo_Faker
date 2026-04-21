@@ -313,9 +313,13 @@ export async function uploadFile(
   name: string,
   mimeType: string,
   accessToken: string | null,
+  folder?: string,
+  subfolder?: string,
 ): Promise<string> {
   const formData = new FormData();
   formData.append("file", { uri, name, type: mimeType } as any);
+  if (folder) formData.append("folder", folder);
+  if (subfolder) formData.append("subfolder", subfolder);
 
   const response = await fetch(`${API_URL}/api/upload`, {
     method: "POST",
@@ -443,6 +447,7 @@ export const chatService = {
     data: {
       type: Message["type"];
       content: any;
+      attachments?: any[];
       replyTo?: string;
       metadata?: any;
     },
@@ -467,6 +472,7 @@ export const chatService = {
       senderAvatar: user.avatarUrl,
       type: data.type,
       content: data.content,
+      attachments: data.attachments,
       metadata: data.metadata,
       replyTo: data.replyTo
         ? {
@@ -489,6 +495,7 @@ export const chatService = {
       conversationId,
       type: data.type,
       content: typeof data.content === "string" ? toServerContent(data.type, data.content) : data.content,
+      attachments: data.attachments,
       replyTo: data.replyTo,
       metadata: data.metadata,
       clientTempId: tempMessage.id,
@@ -522,6 +529,7 @@ export const chatService = {
         conversationId,
         type: data.type,
         content: typeof data.content === "string" ? toServerContent(data.type, data.content) : data.content,
+        attachments: data.attachments,
         replyTo: data.replyTo,
         metadata: data.metadata,
       });

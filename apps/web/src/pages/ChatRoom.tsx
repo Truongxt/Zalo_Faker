@@ -635,15 +635,36 @@ export default function ChatRoom() {
     }
     if (pendingMediaList.length > 0) {
       const caption = message.trim();
-      for (const media of pendingMediaList) {
-        await sendMediaMessage(
-          media.file,
-          media.type,
-          undefined,
+      const images = pendingMediaList.filter((m) => m.type === "image");
+      const others = pendingMediaList.filter((m) => m.type !== "image");
+
+      if (images.length >= 2) {
+        // Gộp ảnh
+        await sendGroupedImagesMessage(
+          images.map((m) => m.file),
           caption || undefined,
         );
-        // Only attach caption to the first media
-        if (caption) caption === "";
+        // Sau khi gộp ảnh, các media khác gửi lẻ và KHÔNG kèm caption (tránh lặp)
+        for (const media of others) {
+          await sendMediaMessage(
+            media.file,
+            media.type,
+            undefined,
+            undefined,
+          );
+        }
+      } else {
+        // Gửi lẻ như cũ
+        let isFirst = true;
+        for (const media of pendingMediaList) {
+          await sendMediaMessage(
+            media.file,
+            media.type,
+            undefined,
+            isFirst ? caption || undefined : undefined,
+          );
+          isFirst = false;
+        }
       }
       clearPendingMedia();
       setMessage("");
@@ -961,6 +982,150 @@ export default function ChatRoom() {
       if (item?.previewUrl) URL.revokeObjectURL(item.previewUrl);
       return prev.filter((_, i) => i !== index);
     });
+  };
+
+  const sendGroupedImagesMessage = async (
+    files: File[],
+    caption?: string,
+  ) => {
+    if (!conversationId || !user) return;
+    if (isMessagingBlocked) {
+      addToast(
+        isBlockedByMe
+          ? "Bạn đã chặn người dùng này. Hãy mở chặn để gửi tin."
+          : "Bạn đã bị chặn",
+        "warning",
+        3500,
+      );
+      return;
+    }
+
+    try {
+      setIsSendingMedia(true);
+      addToast(`Đang gửi ${files.length} hình ảnh...`, "info");
+
+      if (!isOnline) {
+        addToast("Bạn đang offline. Không thể gửi media lúc này.", "warning", 3000);
+        return;
+      }
+
+      // Logic folder cho nhóm: groups/{conversationId}/{messageFolderId}
+      const isGroup = activeConversation?.type === 'group';
+      const folderId = isGroup ? `msg-${Date.now()}` : undefined;
+      const folder = isGroup ? "groups" : "uploads";
+      const subfolder = isGroup ? `${conversationId}/${folderId}` : "chat";
+
+      // Upload all images in parallel
+      const uploadPromises = files.map(file => uploadMedia(file, folder, subfolder));
+      const uploadResults = await Promise.all(uploadPromises);
+      
+      const attachments: MessageAttachment[] = uploadResults.map((res, index) => ({
+        url: res.url,
+        type: "image",
+        name: files[index].name,
+        size: files[index].size
+      }));
+
+      const content: any = {
+        mediaUrl: attachments[0].url, // Fallback for legacy clients
+        text: caption,
+      };
+
+      const metadata = isGroup ? { folderId, folder, subfolder } : null;
+
+      const tempId = `temp-group-media-${Date.now()}`;
+      const optimisticMsg: Message = {
+        id: tempId,
+        conversationId,
+        senderId: user.id,
+        type: "image",
+        content,
+        attachments,
+        metadata,
+        replyTo: replyTo || undefined,
+        reactions: [],
+        readBy: [],
+        isDeleted: false,
+        createdAt: new Date().toISOString(),
+      };
+      addMessage(conversationId, optimisticMsg);
+
+      const canUseSocket = socketService.isConnected();
+      let sentMessage: Message | null = null;
+
+      if (canUseSocket) {
+        const ack = await new Promise<{
+          success: boolean;
+          message?: Message;
+          error?: string;
+        }>((resolve) => {
+          let done = false;
+          const timeout = setTimeout(() => {
+            if (done) return;
+            done = true;
+            resolve({ success: false, error: "ACK_TIMEOUT" });
+          }, 5000); // Higher timeout for multiple images
+
+          socketService.sendMessage(
+            {
+              conversationId,
+              senderId: user.id,
+              type: "image",
+              content,
+              attachments,
+              metadata,
+              replyTo: replyTo || undefined,
+            },
+            (res) => {
+              if (done) return;
+              done = true;
+              clearTimeout(timeout);
+              resolve(res);
+            },
+          );
+        });
+
+        if (ack.success && ack.message) {
+          sentMessage = normalizeMessage(ack.message);
+        }
+      }
+
+      if (!sentMessage) {
+        try {
+          sentMessage = await sendMessageApi({
+            conversationId,
+            type: "image",
+            content,
+            attachments,
+            metadata,
+            replyTo: replyTo || undefined,
+          });
+        } catch (httpError) {
+          useChatStore.getState().removeMessage(conversationId, tempId);
+          addToast("Gửi hình ảnh thất bại. Vui lòng thử lại.", "error", 5000);
+          console.error("Grouped media fallback HTTP failed:", httpError);
+          return;
+        }
+      }
+
+      useChatStore.getState().removeMessage(conversationId, tempId);
+      addMessage(conversationId, normalizeMessage(sentMessage));
+      addToast("Gửi thành công!", "success", 3000);
+
+      updateConversation(conversationId, {
+        lastMessage: {
+          content: `[${files.length} hình ảnh]${caption ? " " + caption : ""}`,
+          type: "image",
+          senderId: user.id,
+          timestamp: new Date().toISOString(),
+        },
+        updatedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      handleUploadError(error, "image");
+    } finally {
+      setIsSendingMedia(false);
+    }
   };
 
   const sendMediaMessage = async (
@@ -2815,7 +2980,7 @@ export default function ChatRoom() {
         })()}
 
       {/* Input */}
-      <div className="p-4 border-t border-gray-200 dark:border-gray-800">
+      <div className="p-4 border-t border-gray-200 dark:border-gray-800 relative z-30 bg-white dark:bg-dark-200">
         {isMessagingBlocked && (
           <div className="mb-3 rounded-xl border border-amber-200 dark:border-amber-800/50 bg-amber-50 dark:bg-amber-900/20 px-3 py-2.5 text-sm flex items-center justify-between gap-3">
             <span className="text-amber-800 dark:text-amber-200">
