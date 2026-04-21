@@ -572,14 +572,22 @@ module.exports = (socketConfig) => {
         const reactions = Array.isArray(message.reactions) ? [...message.reactions] : [];
         const existingReactionIndex = reactions.findIndex((r) => String(r.userId) === socket.userId);
 
+        const user = await userRepository.getById(socket.userId);
+        const userName = user?.fullName || user?.userName || "Người dùng";
+
         if (existingReactionIndex !== -1) {
           if (reactions[existingReactionIndex].emoji === emoji) {
             reactions.splice(existingReactionIndex, 1);
           } else {
             reactions[existingReactionIndex].emoji = emoji;
+            reactions[existingReactionIndex].userName = userName;
           }
         } else {
-          reactions.push({ userId: socket.userId, emoji });
+          reactions.push({ 
+            userId: socket.userId, 
+            emoji,
+            userName
+          });
         }
 
         await messageService.updateMessage(messageId, { reactions });

@@ -4,6 +4,7 @@ import { useAuthStore } from "@/stores/authStore";
 import { API_URL } from "@/constants/config";
 import type { Message, Conversation } from "@/types";
 import apiClient from "./apiClient";
+import { notificationService } from "./notificationService";
 
 let isRealtimeInitialized = false;
 
@@ -343,7 +344,7 @@ export const chatService = {
     if (!socket) return;
     isRealtimeInitialized = true;
 
-    socket.on("chat:message", (rawMessage: Message) => {
+    socketService.on("chat:message", (rawMessage: Message) => {
       const message = normalizeMessage(rawMessage);
       const { addMessage, updateConversation } = useChatStore.getState();
       addMessage(message.conversationId, message);
@@ -358,9 +359,37 @@ export const chatService = {
           metadata: message.metadata,
         },
       });
+
+      // Show notification if not in active conversation
+      const { activeConversation } = useChatStore.getState();
+      const { user } = useAuthStore.getState();
+      
+      if (
+        String(message.senderId) !== String(user?.id) && 
+        (!activeConversation || String(activeConversation.id) !== String(message.conversationId))
+      ) {
+        notificationService.showLocalNotification(
+          message.senderName || "Tin nhan moi",
+          getConversationPreviewText(message),
+          { conversationId: message.conversationId },
+          message.senderAvatar || undefined
+        );
+      }
     });
 
-    socket.on("chat:typing", ({ conversationId, userId }: { conversationId: string; userId: string }) => {
+    socketService.on("video:incoming-call", (data: any) => {
+      const { user } = useAuthStore.getState();
+      if (String(data.callerId) === String(user?.id)) return;
+
+      notificationService.showLocalNotification(
+        "Cuoc goi den",
+        `${data.callerName || "Ai do"} dang goi cho ban`,
+        { callId: data.callId },
+        data.callerAvatar || undefined
+      );
+    });
+
+    socketService.on("chat:typing", ({ conversationId, userId }: { conversationId: string; userId: string }) => {
       const { addTypingUser, removeTypingUser } = useChatStore.getState();
       addTypingUser(conversationId, userId);
 
@@ -369,18 +398,26 @@ export const chatService = {
       }, 3000);
     });
 
-    socket.on("chat:read", ({ conversationId, messageId }: { conversationId: string; messageId: string }) => {
+    socketService.on("chat:read", ({ conversationId, messageId }: { conversationId: string; messageId: string }) => {
       const { updateMessage } = useChatStore.getState();
       updateMessage(conversationId, messageId, {});
     });
 
-    socket.on("chat:recalled", ({ conversationId, messageId }: { conversationId: string; messageId: string }) => {
+    socketService.on("chat:recalled", ({ conversationId, messageId }: { conversationId: string; messageId: string }) => {
       const { updateMessage } = useChatStore.getState();
       updateMessage(conversationId, messageId, { isDeleted: true });
     });
 
-    socket.on("chat:reaction", ({ messageId, reactions }: { messageId: string; reactions: any[] }) => {
+    socketService.on("chat:reaction", ({ messageId, conversationId, reactions }: { messageId: string; conversationId: string; reactions: any[] }) => {
       const state = useChatStore.getState();
+      
+      // If we have conversationId, update directly
+      if (conversationId) {
+        state.updateMessage(conversationId, messageId, { reactions });
+        return;
+      }
+
+      // Fallback: search across all conversations if conversationId is missing
       for (const [convId, messages] of Object.entries(state.messages)) {
         const msg = (messages as Message[]).find((m) => m.id === messageId);
         if (msg) {
@@ -390,7 +427,7 @@ export const chatService = {
       }
     });
 
-    socket.on("chat:message_updated", ({ conversationId, message }: { conversationId: string; message: any }) => {
+    socketService.on("chat:message_updated", ({ conversationId, message }: { conversationId: string; message: any }) => {
       if (!conversationId || !message) return;
       const normalized = normalizeMessage(message);
       useChatStore.getState().updateMessage(conversationId, normalized.id, normalized);

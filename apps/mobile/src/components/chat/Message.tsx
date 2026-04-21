@@ -6,6 +6,7 @@ import { vi } from "date-fns/locale";
 import { Text, View, Pressable, Image } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { Video, ResizeMode } from 'expo-av';
+import { useAuthStore } from "@/stores/authStore";
 
 interface MessageProps {
   message: ChatMessage;
@@ -167,6 +168,7 @@ export function Message({
   showSenderName = !isSent,
   showTime = true,
 }: MessageProps) {
+  const currentUser = useAuthStore(state => state.user);
   const bubbleBackground = isSent ? Colors.bubbleSent : Colors.bubbleReceived;
   const bubbleTextColor = isSent
     ? Colors.bubbleSentText
@@ -424,16 +426,28 @@ export function Message({
             <View
               className={`mt-2 flex-row flex-wrap gap-2 ${isSent ? "justify-end" : "justify-start"}`}
             >
-              {reactions.map((reaction, index) => (
-                <View
-                  key={`${message.id}-reaction-${reaction.emoji}-${reaction.userId}-${index}`}
-                  className="rounded-full border border-gray-200 bg-white px-2 py-1"
-                >
-                  <Text className="text-xs text-gray-700">
-                    {reaction.emoji} {reaction.userName}
-                  </Text>
+              {isSent ? (
+                reactions.map((reaction, index) => (
+                  <View
+                    key={`${message.id}-reaction-${reaction.emoji}-${reaction.userId}-${index}`}
+                    className="rounded-full border border-gray-200 bg-white px-2 py-1 flex-row items-center gap-1 shadow-sm"
+                  >
+                    <Text className="text-xs text-gray-700">{reaction.emoji}</Text>
+                    <Text className="text-[10px] text-gray-500 font-medium">
+                      {reaction.userId === currentUser?.id ? "Bạn" : (reaction.userName || "...")}
+                    </Text>
+                  </View>
+                ))
+              ) : (
+                <View className="rounded-full border border-gray-200 bg-white px-2 py-1 flex-row items-center gap-1 shadow-sm">
+                  {[...new Set(reactions.map((r) => r.emoji))].slice(0, 3).map((emoji, i) => (
+                    <Text key={i} className="text-xs">{emoji}</Text>
+                  ))}
+                  {reactions.length > 1 && (
+                    <Text className="text-[10px] text-gray-500 ml-0.5">{reactions.length}</Text>
+                  )}
                 </View>
-              ))}
+              )}
             </View>
           ) : null}
         </View>

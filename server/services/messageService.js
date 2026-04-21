@@ -1,5 +1,82 @@
 const messageModel = require("../models/message")
+const userRepository = require("../repository/userRepository")
 const { enrichVoiceMessageWithTranscript } = require("./voiceTranscriptService")
+
+const populateReactionNames = async (messages) => {
+    if (!Array.isArray(messages)) return messages;
+    
+    // Collect all unique userIds from all reactions in all messages
+    const userIds = new Set();
+    messages.forEach(msg => {
+        if (Array.isArray(msg.reactions)) {
+            msg.reactions.forEach(r => {
+                if (r.userId && !r.userName) {
+                    userIds.add(r.userId);
+                }
+            });
+        }
+    });
+
+    if (userIds.size === 0) return messages;
+
+    // Fetch all needed users in one go (or in parallel)
+    const userMap = new Map();
+    await Promise.all(Array.from(userIds).map(async (uid) => {
+        const user = await userRepository.getById(uid);
+        if (user) {
+            userMap.set(String(uid), user.fullName || user.userName || "Người dùng");
+        }
+    }));
+
+    // Update reactions in messages
+    messages.forEach(msg => {
+        if (Array.isArray(msg.reactions)) {
+            msg.reactions.forEach(r => {
+                if (r.userId && !r.userName) {
+                    r.userName = userMap.get(String(r.userId)) || "Người dùng";
+                }
+            });
+        }
+    });
+
+    return messages;
+};
+
+const populateSenderInfo = async (messages) => {
+    if (!Array.isArray(messages)) return messages;
+    
+    const senderIds = new Set();
+    messages.forEach(msg => {
+        if (msg.senderId && !msg.senderName) {
+            senderIds.add(msg.senderId);
+        }
+    });
+
+    if (senderIds.size === 0) return messages;
+
+    const userMap = new Map();
+    await Promise.all(Array.from(senderIds).map(async (uid) => {
+        const user = await userRepository.getById(uid);
+        if (user) {
+            userMap.set(String(uid), {
+                name: user.fullName || user.userName || "Người dùng",
+                avatar: user.avartarUrl || null
+            });
+        }
+    }));
+
+    messages.forEach(msg => {
+        if (msg.senderId && !msg.senderName) {
+            const info = userMap.get(String(msg.senderId));
+            if (info) {
+                msg.senderName = info.name;
+                msg.senderAvatar = info.avatar;
+            }
+        }
+    });
+
+    return messages;
+};
 
 const transcriptProcessingIds = new Set()
 const RETRY_FAILED_TRANSCRIPT_AFTER_MS = 60 * 1000
@@ -120,25 +197,33 @@ const createMessage = async (message) => {
         });
     }
 
-    return saved;
+    const populated = await populateSenderInfo([saved]);
+    return populated[0];
 }
 
 const getMessage = async (id) => {
     const message = await messageModel.getOneMessage(id)
     if (!message) return message
 
-    return await enrichAndPersistTranscript(message)
+    const enriched = await enrichAndPersistTranscript(message)
+    const populatedReactions = await populateReactionNames([enriched])
+    const populatedSender = await populateSenderInfo(populatedReactions)
+    return populatedSender[0]
 }
 
 // get message of conversation
 const getMessagesByConversationId = async (conversationId) => {
     const messages = await messageModel.getMessagesByConversationId(conversationId)
-    return await backfillVoiceTranscripts(messages)
+    const enriched = await backfillVoiceTranscripts(messages)
+    const populatedReactions = await populateReactionNames(enriched)
+    return await populateSenderInfo(populatedReactions)
 }
 
 const getMessages = async () => {
     const messages = await messageModel.getMessages()
-    return await backfillVoiceTranscripts(messages)
+    const enriched = await backfillVoiceTranscripts(messages)
+    const populatedReactions = await populateReactionNames(enriched)
+    return await populateSenderInfo(populatedReactions)
 }
 
 const updateMessage = async (id, message) => {

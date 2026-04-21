@@ -1,6 +1,7 @@
 import { socketService } from '@/lib/socket'
 import { useChatStore, Message, Conversation } from '@/stores/chatStore'
 import { useAuthStore } from '@/stores/authStore'
+import { notificationService } from './notificationService'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api'
 
@@ -13,7 +14,7 @@ export const chatService = {
         const socket = socketService.connect(user.id)
         if (!socket) return
 
-        socket.on('chat:message', (message: Message) => {
+        socketService.on('chat:message', (message: Message) => {
             const { addMessage, updateConversation } = useChatStore.getState()
             addMessage(message.conversationId, message)
 
@@ -27,9 +28,36 @@ export const chatService = {
                     metadata: message.metadata || null,
                 }
             })
+
+            // Show browser notification
+            const { activeConversation } = useChatStore.getState()
+            const currentUserId = useAuthStore.getState().user?.id
+
+            if (
+                String(message.senderId) !== String(currentUserId) &&
+                (!activeConversation || String(activeConversation.id) !== String(message.conversationId))
+            ) {
+                const content = typeof message.content === 'string' ? message.content : (message.content as any)?.text || '[Tin nhắn mới]'
+                notificationService.showNotification(
+                    message.senderName || 'Tin nhắn mới',
+                    content,
+                    message.senderAvatar || undefined
+                )
+            }
         })
 
-        socket.on('chat:typing', ({ conversationId, userId }: { conversationId: string; userId: string }) => {
+        socketService.on('video:incoming-call', (data: any) => {
+            const currentUserId = useAuthStore.getState().user?.id
+            if (String(data.callerId) === String(currentUserId)) return
+
+            notificationService.showNotification(
+                'Cuộc gọi đến',
+                `${data.callerName || 'Ai đó'} đang gọi cho bạn`,
+                data.callerAvatar || undefined
+            )
+        })
+
+        socketService.on('chat:typing', ({ conversationId, userId }: { conversationId: string; userId: string }) => {
             const { addTypingUser, removeTypingUser } = useChatStore.getState()
             addTypingUser(conversationId, userId)
 
@@ -39,14 +67,14 @@ export const chatService = {
             }, 3000)
         })
 
-        socket.on('chat:read', ({ conversationId, messageId, userId }: { conversationId: string; messageId: string; userId: string }) => {
+        socketService.on('chat:read', ({ conversationId, messageId, userId }: { conversationId: string; messageId: string; userId: string }) => {
             const { updateMessage } = useChatStore.getState()
             updateMessage(conversationId, messageId, {
                 readBy: [{ userId, readAt: new Date().toISOString() }]
             })
         })
 
-        socket.on('chat:recalled', ({ conversationId, messageId }: { conversationId: string; messageId: string }) => {
+        socketService.on('chat:recalled', ({ conversationId, messageId }: { conversationId: string; messageId: string }) => {
             const { updateMessage } = useChatStore.getState()
             updateMessage(conversationId, messageId, { isDeleted: true })
         })
