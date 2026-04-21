@@ -45,6 +45,14 @@ export interface GroupSettingsResponse {
   canReviewRequests: boolean;
 }
 
+export interface JoinByInviteResponse {
+  status: "joined" | "requested" | "pending";
+  message: string;
+  group?: any;
+  groupId?: string;
+  requestId?: string;
+}
+
 export const getGroups = async () => apiFetch<any[]>("/api/groups");
 
 export const getGroupById = async (groupId: string) => {
@@ -110,6 +118,12 @@ export const updateGroupInviteSettings = async (
   }>(`/api/groups/${groupId}/settings/invite`, {
     method: "PATCH",
     body: payload,
+  });
+
+export const requestJoinByInviteCode = async (inviteCode: string) =>
+  apiFetch<JoinByInviteResponse>("/api/groups/join-by-invite", {
+    method: "POST",
+    body: { inviteCode },
   });
 
 export const getGroupJoinRequests = async (

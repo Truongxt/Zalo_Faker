@@ -8,6 +8,7 @@ import {
   Switch,
   ActivityIndicator,
 } from "react-native";
+import QRCode from "react-native-qrcode-svg";
 import * as Clipboard from "expo-clipboard";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -15,6 +16,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { GrayToast } from "@/components/ui";
 import { useAuthStore } from "@/stores/authStore";
 import { useChatStore } from "@/stores/chatStore";
+import { socketService } from "@/lib/socket";
 import {
   addGroupMember,
   removeGroupMember,
@@ -116,6 +118,83 @@ export default function GroupManagementScreen() {
 
     loadUsersAndSettings();
   }, [id, user]);
+
+  useEffect(() => {
+    if (!id || !user || !group) return;
+
+    const socket = socketService.getSocket() || socketService.connect();
+    if (!socket) return;
+
+    const onUpdateConversation = async ({
+      id: incomingId,
+      ...updates
+    }: {
+      id: string;
+      [key: string]: any;
+    }) => {
+      if (String(incomingId) !== String(id)) return;
+      if (!updates?.groupSettings && !updates?.participants) return;
+
+      try {
+        const effectiveParticipants = updates?.participants || group.participants || [];
+
+        const currentRole = effectiveParticipants.find(
+          (participant) => String(participant.userId) === String(user.id),
+        )?.role;
+        const canReview = currentRole === "admin" || currentRole === "deputy";
+
+        const [latestSettings, joinRequests] = await Promise.all([
+          getGroupSettings(id),
+          canReview
+            ? getGroupJoinRequests(id).catch(() => ({ requests: [] }))
+            : Promise.resolve({ requests: [] }),
+        ]);
+
+        const nextSettings = {
+          invite: {
+            code: latestSettings?.invite?.code || "",
+            approvalRequired: Boolean(latestSettings?.invite?.approvalRequired),
+            inviteUrl: latestSettings?.invite?.inviteUrl || "",
+          },
+          permissions: {
+            sendMedia: latestSettings?.permissions?.sendMedia || "all",
+            pinMessage: latestSettings?.permissions?.pinMessage || "admin_deputy",
+            sendAnnouncement:
+              latestSettings?.permissions?.sendAnnouncement || "admin_deputy",
+          },
+          pendingJoinRequests:
+            (joinRequests as any)?.requests ||
+            latestSettings?.pendingJoinRequests ||
+            [],
+        };
+
+        setSettings(nextSettings);
+        updateConversation(id, {
+          participants: effectiveParticipants,
+          groupSettings: {
+            invite: {
+              code: nextSettings.invite.code,
+              approvalRequired: nextSettings.invite.approvalRequired,
+            },
+            joinRequests: nextSettings.pendingJoinRequests,
+            permissions: nextSettings.permissions,
+            pinnedMessage:
+              latestSettings?.pinnedMessage ||
+              updates?.groupSettings?.pinnedMessage ||
+              group.groupSettings?.pinnedMessage ||
+              null,
+          },
+        });
+      } catch (error) {
+        console.error("Realtime group settings refresh failed:", error);
+      }
+    };
+
+    socket.on("chat:update_conversation", onUpdateConversation);
+    return () => {
+      socket.off("chat:update_conversation", onUpdateConversation);
+    };
+  }, [id, user, group, updateConversation]);
 
   const participantsMap = useMemo(() => {
     const map = new Map<string, any>();
@@ -523,6 +602,11 @@ export default function GroupManagementScreen() {
     return userInfo?.fullName || userInfo?.userName || fallback || `User ${pId}`;
   };
 
+  const inviteQrValue = String(
+    settings?.invite?.inviteUrl ||
+      (settings?.invite?.code ? `groupInvite:${settings.invite.code}` : ""),
+  ).trim();
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: "#F3F4F6" }} edges={["bottom"]}>
       {/* Header */}
@@ -618,6 +702,43 @@ export default function GroupManagementScreen() {
               <Ionicons name="copy-outline" size={20} color="#6B7280" />
             </TouchableOpacity>
           </View>
+
+          {inviteQrValue ? (
+            <View
+              style={{
+                backgroundColor: "#F9FAFB",
+                borderRadius: 8,
+                padding: 12,
+                alignItems: "center",
+                marginBottom: 12,
+              }}
+            >
+              <Text style={{ fontSize: 11, color: "#6B7280", fontWeight: "600", marginBottom: 8 }}>
+                MÃ QR THAM GIA
+              </Text>
+              <View
+                style={{
+                  backgroundColor: "#fff",
+                  padding: 10,
+                  borderRadius: 10,
+                  borderWidth: 1,
+                  borderColor: "#E5E7EB",
+                }}
+              >
+                <QRCode value={inviteQrValue} size={136} />
+              </View>
+              <Text
+                style={{
+                  marginTop: 8,
+                  fontSize: 12,
+                  color: "#6B7280",
+                  textAlign: "center",
+                }}
+              >
+                Quét mã để xin tham gia nhóm
+              </Text>
+            </View>
+          ) : null}
 
           {canReviewRequests && (
             <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>

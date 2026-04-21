@@ -395,6 +395,11 @@ export const chatService = {
       const normalized = normalizeMessage(message);
       useChatStore.getState().updateMessage(conversationId, normalized.id, normalized);
     });
+
+    socket.on("chat:update_conversation", ({ id, ...updates }: { id: string; [key: string]: any }) => {
+      if (!id || !updates || Object.keys(updates).length === 0) return;
+      useChatStore.getState().updateConversation(String(id), updates);
+    });
   },
 
   async loadConversations() {

@@ -555,21 +555,14 @@ export default function ChatRoom() {
 
     const onUpdateConversation = ({
       id: incomingId,
-      name: nextName,
-      avatar: nextAvatar,
+      ...updates
     }: {
       id: string;
-      name?: string;
-      avatar?: string;
+      [key: string]: any;
     }) => {
-      if (String(incomingId) !== String(conversationId)) return;
-      
-      const updateData: any = {};
-      if (nextName !== undefined) updateData.name = nextName;
-      if (nextAvatar !== undefined) updateData.avatar = nextAvatar;
-      
-      if (Object.keys(updateData).length > 0) {
-        useChatStore.getState().updateConversation(conversationId, updateData);
+      if (!incomingId) return;
+      if (updates && Object.keys(updates).length > 0) {
+        useChatStore.getState().updateConversation(String(incomingId), updates);
       }
     };
 

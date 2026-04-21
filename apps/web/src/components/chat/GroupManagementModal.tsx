@@ -26,6 +26,7 @@ import {
     updateGroupAvatar,
     uploadMedia,
 } from '@/services/api'
+import socketService from '@/lib/socket'
 
 interface GroupManagementModalProps {
     isOpen: boolean
@@ -121,6 +122,21 @@ export default function GroupManagementModal({ isOpen, onClose, group }: GroupMa
     const [showAdminLeavePanel, setShowAdminLeavePanel] = useState(false)
     const fileInputRef = useRef<HTMLInputElement>(null)
 
+    const inviteQrValue = useMemo(() => {
+        const inviteUrl = String(settings?.invite?.inviteUrl || '').trim()
+        if (inviteUrl) return inviteUrl
+
+        const inviteCode = String(settings?.invite?.code || '').trim()
+        if (inviteCode) return `groupInvite:${inviteCode}`
+
+        return ''
+    }, [settings?.invite?.inviteUrl, settings?.invite?.code])
+
+    const inviteQrSrc = useMemo(() => {
+        if (!inviteQrValue) return ''
+        return `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(inviteQrValue)}`
+    }, [inviteQrValue])
+
     useEffect(() => {
         if (!isOpen || !group || !user) return
 
@@ -182,6 +198,67 @@ export default function GroupManagementModal({ isOpen, onClose, group }: GroupMa
             setSelectedAdminTransferUserId('')
         }
     }, [isOpen, group?.id])
+
+    useEffect(() => {
+        if (!isOpen || !group || !user) return
+
+        const handleConversationUpdated = async (payload: any) => {
+            if (String(payload?.id || '') !== String(group.id)) return
+            if (!payload?.groupSettings && !payload?.participants) return
+
+            try {
+                const effectiveParticipants = payload?.participants || group.participants || []
+                const currentRole = effectiveParticipants.find((p: any) => String(p.userId) === String(user.id))?.role
+                const canReview = currentRole === 'admin' || currentRole === 'deputy'
+                const [latestSettings, joinRequests] = await Promise.all([
+                    getGroupSettings(group.id),
+                    canReview ? getGroupJoinRequests(group.id).catch(() => ({ requests: [] })) : Promise.resolve({ requests: [] }),
+                ])
+
+                const nextSettings: LocalGroupSettings = {
+                    invite: {
+                        code: latestSettings?.invite?.code || '',
+                        approvalRequired: Boolean(latestSettings?.invite?.approvalRequired),
+                        inviteUrl: latestSettings?.invite?.inviteUrl || '',
+                    },
+                    permissions: {
+                        sendMedia: latestSettings?.permissions?.sendMedia || 'all',
+                        pinMessage: latestSettings?.permissions?.pinMessage || 'admin_deputy',
+                        sendAnnouncement: latestSettings?.permissions?.sendAnnouncement || 'admin_deputy',
+                    },
+                    pendingJoinRequests: canReview
+                        ? (joinRequests as any)?.requests || latestSettings?.pendingJoinRequests || []
+                        : [],
+                }
+
+                setSettings(nextSettings)
+                updateConversation(group.id, {
+                    participants: effectiveParticipants,
+                    groupSettings: {
+                        invite: {
+                            code: nextSettings.invite.code,
+                            approvalRequired: nextSettings.invite.approvalRequired,
+                        },
+                        joinRequests: nextSettings.pendingJoinRequests,
+                        permissions: nextSettings.permissions,
+                        pinnedMessage:
+                            latestSettings?.pinnedMessage ||
+                            payload?.groupSettings?.pinnedMessage ||
+                            group.groupSettings?.pinnedMessage ||
+                            null,
+                    }
+                })
+            } catch (error) {
+                console.error('Realtime group settings refresh failed:', error)
+            }
+        }
+
+        socketService.on('chat:update_conversation', handleConversationUpdated)
+
+        return () => {
+            socketService.off('chat:update_conversation', handleConversationUpdated)
+        }
+    }, [isOpen, group, user, updateConversation])
 
     const participantsMap = useMemo(() => {
         const map = new Map<string, any>()
@@ -660,6 +737,24 @@ export default function GroupManagementModal({ isOpen, onClose, group }: GroupMa
                                     {copiedField === 'link' ? 'Đã copy!' : 'Copy'}
                                 </button>
                             </div>
+
+                            {inviteQrSrc && (
+                                <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl px-3 py-3">
+                                    <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">Mã QR tham gia</p>
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-28 h-28 rounded-lg border border-gray-200 dark:border-gray-600 bg-white p-1 flex items-center justify-center overflow-hidden">
+                                            <img
+                                                src={inviteQrSrc}
+                                                alt="QR mời tham gia nhóm"
+                                                className="w-full h-full object-contain"
+                                            />
+                                        </div>
+                                        <p className="text-xs text-gray-500 dark:text-gray-300 leading-5">
+                                            Quét mã để xin tham gia nhóm.
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
 
                             {/* Approval toggle */}
                             {canReviewRequests && (
