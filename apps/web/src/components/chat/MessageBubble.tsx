@@ -16,6 +16,7 @@ import {
   Users,
   X,
 } from "lucide-react";
+import { ReactionListModal } from "./ReactionListModal";
 import VoicePlayer from "./VoicePlayer";
 import PollMessageCard from "./PollMessageCard";
 
@@ -371,6 +372,7 @@ export default function MessageBubble({
 }: MessageBubbleProps) {
   const [showReactionPicker, setShowReactionPicker] = useState(false);
   const [showConfirmRecall, setShowConfirmRecall] = useState(false);
+  const [showReactionList, setShowReactionList] = useState(false);
   const [showVoiceTranscript, setShowVoiceTranscript] = useState(false);
   const [activeFilePreview, setActiveFilePreview] =
     useState<FilePreviewTarget | null>(null);
@@ -888,24 +890,54 @@ export default function MessageBubble({
 
             {/* Reactions display */}
             {reactions.length > 0 && (
-              <div
-                className={`flex gap-0.5 mt-0.5 ${isSent ? "justify-end" : "justify-start"}`}
-              >
-                <div className="flex items-center gap-0.5 bg-white dark:bg-dark-300 rounded-full px-1.5 py-0.5 shadow-sm border border-gray-100 dark:border-gray-700">
-                  {[...new Set(reactions.map((r) => r.emoji))]
-                    .slice(0, 3)
-                    .map((emoji, i) => (
-                      <span key={i} className="text-sm">
-                        {emoji}
-                      </span>
-                    ))}
-                  {reactions.length > 1 && (
-                    <span className="text-xs text-gray-500 ml-0.5">
-                      {reactions.length}
-                    </span>
+              <>
+                <div
+                  className={`flex flex-wrap gap-1 mt-1 cursor-pointer hover:opacity-80 transition-opacity ${isSent ? "justify-end" : "justify-start"}`}
+                  onClick={() => setShowReactionList(true)}
+                >
+                  {isSent ? (
+                    <>
+                      {reactions.slice(0, 2).map((reaction, i) => (
+                        <div
+                          key={i}
+                          className="flex items-center gap-1 bg-white dark:bg-dark-300 rounded-full px-2 py-0.5 shadow-sm border border-gray-100 dark:border-gray-700"
+                        >
+                          <span className="text-sm">{reaction.emoji}</span>
+                          <span className="text-[10px] font-medium text-gray-500 dark:text-gray-400">
+                            {reaction.userId === currentUserId ? "Bạn" : (reaction.userName || "...")}
+                          </span>
+                        </div>
+                      ))}
+                      {reactions.length > 2 && (
+                        <div className="flex items-center justify-center bg-gray-50 dark:bg-dark-400 rounded-full px-2 py-0.5 shadow-sm border border-gray-100 dark:border-gray-700">
+                          <span className="text-[10px] font-bold text-gray-500">+{reactions.length - 2}</span>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="flex items-center gap-0.5 bg-white dark:bg-dark-300 rounded-full px-1.5 py-0.5 shadow-sm border border-gray-100 dark:border-gray-700">
+                      {[...new Set(reactions.map((r) => r.emoji))]
+                        .slice(0, 3)
+                        .map((emoji, i) => (
+                          <span key={i} className="text-sm">
+                            {emoji}
+                          </span>
+                        ))}
+                      {reactions.length > 1 && (
+                        <span className="text-[10px] ml-1 font-medium text-gray-500 dark:text-gray-400">
+                          {reactions.length}
+                        </span>
+                      )}
+                    </div>
                   )}
                 </div>
-              </div>
+
+                <ReactionListModal 
+                  isOpen={showReactionList}
+                  onClose={() => setShowReactionList(false)}
+                  reactions={reactions}
+                />
+              </>
             )}
 
             {/* Time and status */}

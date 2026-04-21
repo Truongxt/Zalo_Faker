@@ -1,5 +1,46 @@
 const messageModel = require("../models/message")
+const userRepository = require("../repository/userRepository")
 const { enrichVoiceMessageWithTranscript } = require("./voiceTranscriptService")
+
+const populateReactionNames = async (messages) => {
+    if (!Array.isArray(messages)) return messages;
+    
+    // Collect all unique userIds from all reactions in all messages
+    const userIds = new Set();
+    messages.forEach(msg => {
+        if (Array.isArray(msg.reactions)) {
+            msg.reactions.forEach(r => {
+                if (r.userId && !r.userName) {
+                    userIds.add(r.userId);
+                }
+            });
+        }
+    });
+
+    if (userIds.size === 0) return messages;
+
+    // Fetch all needed users in one go (or in parallel)
+    const userMap = new Map();
+    await Promise.all(Array.from(userIds).map(async (uid) => {
+        const user = await userRepository.getById(uid);
+        if (user) {
+            userMap.set(String(uid), user.fullName || user.userName || "Người dùng");
+        }
+    }));
+
+    // Update reactions in messages
+    messages.forEach(msg => {
+        if (Array.isArray(msg.reactions)) {
+            msg.reactions.forEach(r => {
+                if (r.userId && !r.userName) {
+                    r.userName = userMap.get(String(r.userId)) || "Người dùng";
+                }
+            });
+        }
+    });
+
+    return messages;
+};
 
 const transcriptProcessingIds = new Set()
 const RETRY_FAILED_TRANSCRIPT_AFTER_MS = 60 * 1000
@@ -127,18 +168,22 @@ const getMessage = async (id) => {
     const message = await messageModel.getOneMessage(id)
     if (!message) return message
 
-    return await enrichAndPersistTranscript(message)
+    const enriched = await enrichAndPersistTranscript(message)
+    const populated = await populateReactionNames([enriched])
+    return populated[0]
 }
 
 // get message of conversation
 const getMessagesByConversationId = async (conversationId) => {
     const messages = await messageModel.getMessagesByConversationId(conversationId)
-    return await backfillVoiceTranscripts(messages)
+    const enriched = await backfillVoiceTranscripts(messages)
+    return await populateReactionNames(enriched)
 }
 
 const getMessages = async () => {
     const messages = await messageModel.getMessages()
-    return await backfillVoiceTranscripts(messages)
+    const enriched = await backfillVoiceTranscripts(messages)
+    return await populateReactionNames(enriched)
 }
 
 const updateMessage = async (id, message) => {

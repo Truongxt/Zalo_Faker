@@ -9,6 +9,7 @@ class SocketService {
     private currentUserId: string | null = null
     /** Phòng đã join — reconnect sẽ join lại toàn bộ */
     private joinedRooms = new Set<string>()
+    private listeners = new Map<string, Set<Function>>()
 
     connect(userId: string) {
         this.currentUserId = userId
@@ -36,6 +37,13 @@ class SocketService {
                     token: latestToken,
                     platform: 'web'
                 }
+            })
+
+            // Apply persistent listeners
+            this.listeners.forEach((callbacks, event) => {
+                callbacks.forEach((cb) => {
+                    this.socket?.on(event, cb as any)
+                })
             })
 
             this.socket.on('connect', refreshPresenceAndRooms)
@@ -128,11 +136,21 @@ class SocketService {
 
     // Lắng nghe event
     on(event: string, callback: (...args: any[]) => void) {
+        if (!this.listeners.has(event)) {
+            this.listeners.set(event, new Set())
+        }
+        this.listeners.get(event)?.add(callback)
         this.socket?.on(event, callback)
     }
 
     off(event: string, callback?: (...args: any[]) => void) {
-        this.socket?.off(event, callback)
+        if (callback) {
+            this.listeners.get(event)?.delete(callback)
+            this.socket?.off(event, callback)
+        } else {
+            this.listeners.delete(event)
+            this.socket?.off(event)
+        }
     }
 
     isConnected() {
