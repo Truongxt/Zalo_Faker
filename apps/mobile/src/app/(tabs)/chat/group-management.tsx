@@ -100,9 +100,9 @@ export default function GroupManagementScreen() {
 
         const participantIds = group.participants.map((p: any) => String(p.userId));
         const requesterIds = (joinRequests as any)?.requests?.map((r: any) => String(r.userId)) || [];
-        
+
         const allNeededIds = [...new Set([...uniqueFriendIds, ...participantIds, ...requesterIds])];
-        
+
         const users = await Promise.all(
           allNeededIds.map((uId) => userService.getUserById(uId).catch(() => null)),
         );
@@ -427,13 +427,13 @@ export default function GroupManagementScreen() {
       setIsLoading(true);
       const res = isDeputy
         ? await revokeDeputy(id, {
-            userId: String(user.id),
-            deputyUserId: String(participant.userId),
-          })
+          userId: String(user.id),
+          deputyUserId: String(participant.userId),
+        })
         : await appointDeputy(id, {
-            userId: String(user.id),
-            deputyUserId: String(participant.userId),
-          });
+          userId: String(user.id),
+          deputyUserId: String(participant.userId),
+        });
       syncParticipants(res.group?.participants);
       GrayToast(isDeputy ? "Đã thu hồi quyền phó nhóm" : "Đã cấp quyền phó nhóm");
     } catch (error: any) {
@@ -618,7 +618,7 @@ export default function GroupManagementScreen() {
 
   const inviteQrValue = String(
     settings?.invite?.inviteUrl ||
-      (settings?.invite?.code ? `groupInvite:${settings.invite.code}` : ""),
+    (settings?.invite?.code ? `groupInvite:${settings.invite.code}` : ""),
   ).trim();
 
   return (
@@ -644,7 +644,11 @@ export default function GroupManagementScreen() {
         <View style={{ flex: 1, marginLeft: 4, flexDirection: "row", alignItems: "center" }}>
           <TouchableOpacity onPress={handleAvatarChange} style={{ marginRight: 12 }}>
             <View>
-              <Avatar uri={group?.avatarUrl || group?.avatar} name={group?.name} size={40} />
+              <Avatar
+                uri={group?.avatarUrl || group?.avatar}
+                name={group?.name}
+                size={40}
+              />
               <View style={{ position: "absolute", bottom: -2, right: -2, backgroundColor: "#FFF", borderRadius: 10, padding: 2 }}>
                 <Ionicons name="camera" size={10} color="#3B82F6" />
               </View>
@@ -667,13 +671,17 @@ export default function GroupManagementScreen() {
         <View style={{ backgroundColor: "#FFF", borderRadius: 12, padding: 16, marginBottom: 16, alignItems: "center" }}>
           <TouchableOpacity onPress={handleAvatarChange} style={{ marginBottom: 12 }}>
             <View>
-              <Avatar uri={group?.avatarUrl || group?.avatar} name={group?.name} size={80} />
+              <Avatar
+                uri={group?.avatarUrl || group?.avatar}
+                name={group?.name}
+                size={80}
+              />
               <View style={{ position: "absolute", bottom: 0, right: 0, backgroundColor: "#3B82F6", borderRadius: 15, padding: 6, borderWidth: 2, borderColor: "#FFF" }}>
                 <Ionicons name="camera" size={18} color="#FFF" />
               </View>
             </View>
           </TouchableOpacity>
-          
+
           <TouchableOpacity onPress={handleRename} style={{ flexDirection: "row", alignItems: "center", marginBottom: 4 }}>
             <Text style={{ fontSize: 20, fontWeight: "700", color: "#1F2937", textAlign: "center" }}>{group?.name}</Text>
             <Ionicons name="create-outline" size={20} color="#3B82F6" style={{ marginLeft: 8 }} />
