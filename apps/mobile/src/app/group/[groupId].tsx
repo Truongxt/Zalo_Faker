@@ -1194,7 +1194,7 @@ export default function GroupChatScreen() {
       );
 
       await updateGroupAvatar(groupId || convId, url);
-      updateConversation(convId, { avatar: url });
+      updateConversation(convId, { avatar: url, avatarUrl: url });
       GrayToast("Đã cập nhật ảnh đại diện nhóm");
     } catch (error: any) {
       Alert.alert("Lỗi", error.message || "Không thể cập nhật ảnh đại diện");
@@ -1243,7 +1243,12 @@ export default function GroupChatScreen() {
           onPress={handleAvatarChange}
         >
           <Avatar
-            uri={conversation?.avatar || group?.avatar}
+            uri={
+              conversation?.avatarUrl ||
+              conversation?.avatar ||
+              group?.avatarUrl ||
+              group?.avatar
+            }
             name={conversation?.name || group?.name || "Nhóm"}
             size={44}
           />

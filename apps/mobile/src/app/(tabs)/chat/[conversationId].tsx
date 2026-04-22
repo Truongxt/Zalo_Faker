@@ -1378,7 +1378,7 @@ export default function ChatRoomScreen() {
       : otherParticipant?.fullName || "Người dùng";
   const convAvatar =
     conversation?.type === "group"
-      ? conversation.avatarUrl
+      ? conversation.avatarUrl || conversation.avatar
       : otherParticipant?.avatarUrl;
 
   const presenceLabel =
