@@ -8,6 +8,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 export type MessageActionItem = {
   key: string;
@@ -29,15 +30,20 @@ export function MessageActionModal({
   options,
   onClose,
 }: MessageActionModalProps) {
+  const insets = useSafeAreaInsets();
+
   return (
     <Modal
       visible={visible}
       transparent
-      animationType="fade"
+      animationType="slide"
       onRequestClose={onClose}
     >
       <Pressable style={styles.overlay} onPress={onClose}>
-        <Pressable style={styles.card} onPress={(event) => event.stopPropagation()}>
+        <Pressable
+          style={[styles.card, { paddingBottom: Math.max(insets.bottom, 12) }]}
+          onPress={(event) => event.stopPropagation()}
+        >
           <Text style={styles.title}>{title}</Text>
           <ScrollView
             style={styles.list}
@@ -85,16 +91,14 @@ const styles = StyleSheet.create({
   overlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.35)",
-    justifyContent: "center",
-    alignItems: "center",
-    paddingHorizontal: 24,
+    justifyContent: "flex-end",
   },
   card: {
     width: "100%",
-    maxWidth: 360,
-    maxHeight: "72%",
+    maxHeight: "78%",
     backgroundColor: "#FFFFFF",
-    borderRadius: 22,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
     overflow: "hidden",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 12 },
@@ -103,25 +107,25 @@ const styles = StyleSheet.create({
     elevation: 10,
   },
   title: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: "700",
     color: "#111827",
-    textAlign: "center",
+    textAlign: "left",
     paddingHorizontal: 20,
     paddingVertical: 20,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: "#E5E7EB",
   },
   list: {
-    maxHeight: 420,
+    maxHeight: 460,
   },
   listContent: {
-    paddingBottom: 4,
+    paddingBottom: 8,
   },
   optionButton: {
-    minHeight: 58,
+    minHeight: 60,
     justifyContent: "center",
-    alignItems: "center",
+    alignItems: "flex-start",
     paddingHorizontal: 20,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: "#E5E7EB",
@@ -134,9 +138,9 @@ const styles = StyleSheet.create({
   },
   optionText: {
     fontSize: 16,
-    fontWeight: "500",
-    color: "#1D4ED8",
-    textAlign: "center",
+    fontWeight: "600",
+    color: "#111827",
+    textAlign: "left",
   },
   optionTextDestructive: {
     color: "#EF4444",

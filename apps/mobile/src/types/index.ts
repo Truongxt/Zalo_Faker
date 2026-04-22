@@ -186,6 +186,7 @@ export interface GroupSettings {
     code: string;
     approvalRequired: boolean;
   };
+  joinRequests?: any[];
   permissions: {
     sendMedia: GroupPermissionScope;
     pinMessage: GroupPermissionScope;

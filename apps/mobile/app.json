@@ -36,7 +36,8 @@
       "supportsTablet": true,
       "infoPlist": {
         "NSMicrophoneUsageDescription": "Cho phep Zalo Faker su dung microphone de goi thoai",
-        "NSCameraUsageDescription": "Cho phep Zalo Faker su dung camera de goi video"
+        "NSCameraUsageDescription": "Cho phep Zalo Faker su dung camera de goi video",
+        "NSContactsUsageDescription": "Cho phep Zalo Faker truy cap danh ba de goi y ket ban"
       }
     },
     "android": {
@@ -44,7 +45,8 @@
       "softwareKeyboardLayoutMode": "resize",
       "permissions": [
         "RECORD_AUDIO",
-        "CAMERA"
+        "CAMERA",
+        "READ_CONTACTS"
       ],
       "adaptiveIcon": {
         "foregroundImage": "./src/assets/adaptive-icon.png",

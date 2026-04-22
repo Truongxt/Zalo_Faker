@@ -24,6 +24,7 @@ import { GrayToast } from "@/components/ui";
 import { ChatOptionsModal } from "@/components/chat/ChatOptionsModal";
 import { ForwardMessageModal } from "@/components/chat/ForwardMessageModal";
 import { MessageActionModal, type MessageActionItem } from "@/components/chat/MessageActionModal";
+import { TextPromptModal } from "@/components/ui/TextPromptModal";
 import { PinHistoryBanner } from "@/components/chat/PinHistoryBanner";
 import { VoiceMessagePlayer } from "@/components/chat/VoiceMessagePlayer";
 import { Audio } from "expo-av";
@@ -225,6 +226,7 @@ export default function GroupChatScreen() {
   const [selectedMsg, setSelectedMsg] = useState<Message | null>(null);
   const [messageActions, setMessageActions] = useState<MessageActionItem[]>([]);
   const [showMessageActions, setShowMessageActions] = useState(false);
+  const [showRenameGroupModal, setShowRenameGroupModal] = useState(false);
   const [forwardMessage, setForwardMessage] = useState<Message | null>(null);
   const [showChatOptions, setShowChatOptions] = useState(false);
   const [isRecordingVoice, setIsRecordingVoice] = useState(false);
@@ -1260,30 +1262,7 @@ export default function GroupChatScreen() {
         <TouchableOpacity 
           style={{ flex: 1, marginLeft: 10 }}
           onPress={() => {
-            Alert.prompt(
-              "Đổi tên nhóm",
-              "Nhập tên mới cho nhóm của bạn",
-              [
-                { text: "Hủy", style: "cancel" },
-                {
-                  text: "Đổi tên",
-                  onPress: async (newName) => {
-                    if (!newName?.trim()) return;
-                    try {
-                      setIsSending(true); // Re-using isSending as a general loading state
-                      await renameGroup(groupId || convId, newName.trim());
-                      updateConversation(convId, { name: newName.trim() });
-                    } catch (error: any) {
-                      Alert.alert("Lỗi", error.message || "Không thể đổi tên nhóm");
-                    } finally {
-                      setIsSending(false);
-                    }
-                  }
-                }
-              ],
-              "plain-text",
-              conversation?.name || group?.name || ""
-            );
+            setShowRenameGroupModal(true);
           }}
         >
           <View>
@@ -1495,6 +1474,31 @@ export default function GroupChatScreen() {
         visible={showMessageActions}
         options={messageActions}
         onClose={() => setShowMessageActions(false)}
+      />
+      <TextPromptModal
+        visible={showRenameGroupModal}
+        title="Đổi tên nhóm"
+        message="Nhập tên mới cho nhóm của bạn"
+        initialValue={conversation?.name || group?.name || ""}
+        placeholder="Tên nhóm mới"
+        confirmText="Đổi tên"
+        onClose={() => setShowRenameGroupModal(false)}
+        onConfirm={async (newName) => {
+          if (!newName?.trim()) {
+            setShowRenameGroupModal(false);
+            return;
+          }
+          try {
+            setIsSending(true);
+            await renameGroup(groupId || convId, newName.trim());
+            updateConversation(convId, { name: newName.trim() });
+            setShowRenameGroupModal(false);
+          } catch (error: any) {
+            Alert.alert("Lỗi", error.message || "Không thể đổi tên nhóm");
+          } finally {
+            setIsSending(false);
+          }
+        }}
       />
       {conversation && (
         <ChatOptionsModal

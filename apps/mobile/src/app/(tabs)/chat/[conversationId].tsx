@@ -29,18 +29,21 @@ import { chatService } from "@/services/chat";
 import { pinGroupMessage, unpinGroupMessage, renameGroup } from "@/services/groupService";
 import { conversationService, friendsService, userService } from "@/services";
 import { socketService } from "@/lib/socket";
+import { groupCallInviteStore } from "@/lib/groupCallInviteStore";
 import { Avatar } from "@/components/ui/Avatar";
 import { GrayToast } from "@/components/ui";
+import { TextPromptModal } from "@/components/ui/TextPromptModal";
 
 import { ChatOptionsModal } from "@/components/chat/ChatOptionsModal";
 import { PollMessageCard } from "@/components/chat/PollMessageCard";
 import { ForwardMessageModal } from "@/components/chat/ForwardMessageModal";
 import { MessageActionModal, type MessageActionItem } from "@/components/chat/MessageActionModal";
-import type { Message, PollContent } from "@/types";
+import type { Message, MessageReaction, PollContent } from "@/types";
 import { API_URL } from "@/constants/config";
 import { STICKER_URLS } from "@/constants/stickers";
 
 import { addPollOptionMessage, removePollOptionMessage, votePollMessage, uploadFile } from "@/services/chat";
+import { ReactionListModal } from "@/components/chat/ReactionListModal";
 
 const REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "😡"];
 
@@ -579,8 +582,9 @@ type MessageItemProps = {
   participants?: Array<{ userId: string; fullName?: string; nickname?: string }>;
   currentUserId?: string | null;
   onVotePoll: (messageId: string, optionIds: string[]) => Promise<void>;
-  onAddPollOption: (messageId: string, text: string) => Promise<void>;
+  onAddPollOption: (messageId: string, optionText: string) => Promise<void>;
   onRemovePollOption: (messageId: string, optionId: string) => Promise<void>;
+  onShowReactionList: (reactions: MessageReaction[]) => void;
 };
 
 function MessageItem({
@@ -595,6 +599,7 @@ function MessageItem({
   onVotePoll,
   onAddPollOption,
   onRemovePollOption,
+  onShowReactionList,
 }: MessageItemProps) {
   const [showVoiceTranscript, setShowVoiceTranscript] = useState(false);
   const isAnnouncement = Boolean((msg as any)?.metadata?.isAnnouncement);
@@ -1185,15 +1190,75 @@ function MessageItem({
           <Text style={{ fontSize: 10, color: "#9CA3AF" }}>
             {formatTime(msg.createdAt)}
           </Text>
-          {Object.keys(topReactions).length > 0 && (
-            <View style={{ flexDirection: "row" }}>
-              {Object.entries(topReactions).map(([emoji, count]) => (
-                <Text key={emoji} style={{ fontSize: 11 }}>
-                  {emoji}
-                  {count > 1 ? count : ""}
-                </Text>
-              ))}
-            </View>
+          {msg.reactions && msg.reactions.length > 0 && (
+            <TouchableOpacity 
+              activeOpacity={0.7}
+              onPress={() => onShowReactionList(msg.reactions || [])}
+              style={{ flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 4 }}
+            >
+              {isMe ? (
+                <>
+                  {msg.reactions.slice(0, 2).map((reaction, idx) => (
+                    <View 
+                      key={`${msg.id}-reaction-${idx}`}
+                      style={{ 
+                        flexDirection: "row", 
+                        alignItems: "center", 
+                        backgroundColor: "#FFFFFF", 
+                        borderRadius: 12, 
+                        paddingHorizontal: 6, 
+                        paddingVertical: 2,
+                        borderWidth: 1,
+                        borderColor: "#E5E7EB",
+                        gap: 4,
+                        shadowColor: "#000",
+                        shadowOffset: { width: 0, height: 1 },
+                        shadowOpacity: 0.1,
+                        shadowRadius: 1,
+                        elevation: 1
+                      }}
+                    >
+                      <Text style={{ fontSize: 11 }}>{reaction.emoji}</Text>
+                      <Text style={{ fontSize: 10, color: "#4B5563", fontWeight: "600" }}>
+                        {String(reaction.userId) === String(currentUserId) ? "Bạn" : (reaction.userName || "...")}
+                      </Text>
+                    </View>
+                  ))}
+                  {msg.reactions.length > 2 && (
+                    <View style={{ 
+                      backgroundColor: "#F3F4F6", 
+                      borderRadius: 12, 
+                      paddingHorizontal: 8, 
+                      paddingVertical: 2,
+                      borderWidth: 1,
+                      borderColor: "#E5E7EB",
+                      justifyContent: "center"
+                    }}>
+                      <Text style={{ fontSize: 10, color: "#6B7280", fontWeight: "700" }}>+{msg.reactions.length - 2}</Text>
+                    </View>
+                  )}
+                </>
+              ) : (
+                <View style={{ 
+                  flexDirection: "row", 
+                  alignItems: "center", 
+                  backgroundColor: "#FFFFFF", 
+                  borderRadius: 12, 
+                  paddingHorizontal: 6, 
+                  paddingVertical: 2,
+                  borderWidth: 1,
+                  borderColor: "#E5E7EB",
+                  gap: 2
+                }}>
+                  {[...new Set(msg.reactions.map(r => r.emoji))].slice(0, 3).map((emoji, i) => (
+                    <Text key={i} style={{ fontSize: 11 }}>{emoji}</Text>
+                  ))}
+                  {msg.reactions.length > 1 && (
+                    <Text style={{ fontSize: 10, color: "#6B7280", marginLeft: 2 }}>{msg.reactions.length}</Text>
+                  )}
+                </View>
+              )}
+            </TouchableOpacity>
           )}
         </View>
       </View>
@@ -1225,6 +1290,9 @@ export default function ChatRoomScreen() {
   const [selectedMsg, setSelectedMsg] = useState<Message | null>(null);
   const [messageActions, setMessageActions] = useState<MessageActionItem[]>([]);
   const [showMessageActions, setShowMessageActions] = useState(false);
+  const [menuActions, setMenuActions] = useState<MessageActionItem[]>([]);
+  const [showMenuActions, setShowMenuActions] = useState(false);
+  const [showRenameGroupModal, setShowRenameGroupModal] = useState(false);
   const [forwardMessage, setForwardMessage] = useState<Message | null>(null);
   const [showChatOptions, setShowChatOptions] = useState(false);
   const [replyToMessageId, setReplyToMessageId] = useState<string | null>(null);
@@ -1234,6 +1302,8 @@ export default function ChatRoomScreen() {
 
   const [isSummarizingConversation, setIsSummarizingConversation] =
     useState(false);
+  const [showReactionList, setShowReactionList] = useState(false);
+  const [reactionList, setReactionList] = useState<MessageReaction[]>([]);
   const [dailySummary, setDailySummary] = useState<{
     conversationName: string;
     summary: string;
@@ -1600,6 +1670,32 @@ export default function ChatRoomScreen() {
       }
 
       const isGroup = conversation?.type === "group";
+      if (isGroup) {
+        const activeInvite = groupCallInviteStore.get(String(convId));
+        if (activeInvite?.roomId) {
+          const callId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+          router.push({
+            pathname: "/call/[callId]",
+            params: {
+              callId,
+              callType: activeInvite.callType || callType,
+              conversationId: convId,
+              fromUserId: String(activeInvite.hostUserId || ""),
+              toUserId: String(user.id),
+              toUserName: conversation.name || "NhÃ³m",
+              toUserAvatar: conversation.avatarUrl || "",
+              callerName: activeInvite.callerName || "NgÆ°á»i dÃ¹ng",
+              callerAvatar: activeInvite.callerAvatar || "",
+              isCaller: "false",
+              autoAccept: "true",
+              isGroupCall: "true",
+              roomId: activeInvite.roomId,
+            },
+          });
+          return;
+        }
+      }
+
       const callId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
       router.push({
@@ -2162,8 +2258,9 @@ export default function ChatRoomScreen() {
 
   const handleOpenMoreActions = useCallback(() => {
     if (conversation?.type === "group") {
-      Alert.alert("Tùy chọn", undefined, [
+      setMenuActions([
         {
+          key: "create-poll",
           text: "Tạo bình chọn",
           onPress: () =>
             router.push({
@@ -2172,13 +2269,15 @@ export default function ChatRoomScreen() {
             }),
         },
         {
+          key: "send-file",
           text: "Gửi file",
           onPress: () => {
             void handlePickFile();
           },
         },
-        { text: "Hủy", style: "cancel" },
+        { key: "cancel", text: "Hủy", style: "cancel" },
       ]);
+      setShowMenuActions(true);
       return;
     }
 
@@ -2271,21 +2370,15 @@ export default function ChatRoomScreen() {
 
     const onUpdateConversation = ({
       id: incomingId,
-      name: nextName,
-      avatar: nextAvatar,
+      ...updates
     }: {
       id: string;
-      name?: string;
-      avatar?: string;
+      [key: string]: any;
     }) => {
       if (String(incomingId) !== String(convId)) return;
-      
-      const updateData: any = {};
-      if (nextName !== undefined) updateData.name = nextName;
-      if (nextAvatar !== undefined) updateData.avatar = nextAvatar;
-      
-      if (Object.keys(updateData).length > 0) {
-        useChatStore.getState().updateConversation(convId, updateData);
+
+      if (updates && Object.keys(updates).length > 0) {
+        useChatStore.getState().updateConversation(convId, updates);
       }
     };
 
@@ -2577,11 +2670,7 @@ export default function ChatRoomScreen() {
   }, [convId, conversation, user]);
 
   const handleHeaderMenuPress = () => {
-    const options: Array<{
-      text: string;
-      style?: "default" | "cancel" | "destructive";
-      onPress?: () => void;
-    }> = [];
+    const options: MessageActionItem[] = [];
 
     const myParticipant = conversation?.participants?.find(
         (p) => String(p.userId) === String(user?.id)
@@ -2590,6 +2679,7 @@ export default function ChatRoomScreen() {
 
     if (conversation?.type === "group") {
       options.push({
+        key: "group-management",
         text: "Quản trị nhóm",
         onPress: () =>
           router.push({
@@ -2600,16 +2690,19 @@ export default function ChatRoomScreen() {
     }
 
     options.push({
+      key: "search",
       text: "Tìm tin nhắn",
       onPress: () => setIsSearching(true),
     });
 
     options.push({
+      key: "toggle-mute",
       text: isCurrentlyMuted ? "Bật thông báo" : "Tắt thông báo",
       onPress: handleToggleMute,
     });
 
     options.push({
+      key: "conversation-info",
       text: "Thông tin hội thoại",
       onPress: () =>
         router.push({
@@ -2619,11 +2712,13 @@ export default function ChatRoomScreen() {
     });
 
     options.push({
+      key: "change-background",
       text: "Đổi hình nền",
       onPress: () => setShowChatOptions(true),
     });
 
     options.push({
+      key: "delete-history",
       text: "Xóa lịch sử trò chuyện",
       style: "destructive",
       onPress: handleDeleteHistory,
@@ -2631,14 +2726,16 @@ export default function ChatRoomScreen() {
 
     if (conversation?.type === "private") {
       options.push({
+        key: "toggle-block",
         text: isBlockedByMe ? "Mở chặn người dùng" : "Chặn người dùng",
         style: isBlockedByMe ? "default" : "destructive",
         onPress: isBlockedByMe ? handleUnblockUser : handleBlockUser,
       });
     }
 
-    options.push({ text: "Đóng", style: "cancel" });
-    Alert.alert("Tùy chọn", undefined, options);
+    options.push({ key: "close", text: "Đóng", style: "cancel" });
+    setMenuActions(options);
+    setShowMenuActions(true);
   };
 
   const renderMessage = ({ item, index }: { item: Message; index: number }) => {
@@ -2664,6 +2761,10 @@ export default function ChatRoomScreen() {
         onVotePoll={handleVotePoll}
         onAddPollOption={handleAddPollOption}
         onRemovePollOption={handleRemovePollOption}
+        onShowReactionList={(reactions) => {
+          setReactionList(reactions);
+          setShowReactionList(true);
+        }}
       />
     );
   };
@@ -2701,30 +2802,7 @@ export default function ChatRoomScreen() {
           style={{ flex: 1, marginLeft: 8 }}
           onPress={() => {
             if (conversation?.type !== 'group') return;
-            Alert.prompt(
-              "Đổi tên nhóm",
-              "Nhập tên mới cho nhóm của bạn",
-              [
-                { text: "Hủy", style: "cancel" },
-                {
-                  text: "Đổi tên",
-                  onPress: async (newName) => {
-                    if (!newName?.trim()) return;
-                    try {
-                      setIsSending(true);
-                      await renameGroup(convId, newName.trim());
-                      useChatStore.getState().updateConversation(convId, { name: newName.trim() });
-                    } catch (error: any) {
-                      Alert.alert("Lỗi", error.message || "Không thể đổi tên nhóm");
-                    } finally {
-                      setIsSending(false);
-                    }
-                  }
-                }
-              ],
-              "plain-text",
-              convName || ""
-            );
+            setShowRenameGroupModal(true);
           }}
         >
           <Text
@@ -3016,6 +3094,38 @@ export default function ChatRoomScreen() {
         visible={showMessageActions}
         options={messageActions}
         onClose={() => setShowMessageActions(false)}
+      />
+      <MessageActionModal
+        visible={showMenuActions}
+        options={menuActions}
+        onClose={() => setShowMenuActions(false)}
+      />
+      <TextPromptModal
+        visible={showRenameGroupModal}
+        title="Đổi tên nhóm"
+        message="Nhập tên mới cho nhóm của bạn"
+        initialValue={convName || ""}
+        placeholder="Tên nhóm mới"
+        confirmText="Đổi tên"
+        onClose={() => setShowRenameGroupModal(false)}
+        onConfirm={async (newName) => {
+          if (!newName?.trim()) {
+            setShowRenameGroupModal(false);
+            return;
+          }
+          try {
+            setIsSending(true);
+            await renameGroup(convId, newName.trim());
+            useChatStore.getState().updateConversation(convId, {
+              name: newName.trim(),
+            });
+            setShowRenameGroupModal(false);
+          } catch (error: any) {
+            Alert.alert("Lỗi", error.message || "Không thể đổi tên nhóm");
+          } finally {
+            setIsSending(false);
+          }
+        }}
       />
       {conversation && (
         <ChatOptionsModal
@@ -3469,6 +3579,11 @@ export default function ChatRoomScreen() {
           </View>
         )}
       </View>
+      <ReactionListModal 
+        isVisible={showReactionList}
+        onClose={() => setShowReactionList(false)}
+        reactions={reactionList}
+      />
     </KeyboardAvoidingView>
   );
 }

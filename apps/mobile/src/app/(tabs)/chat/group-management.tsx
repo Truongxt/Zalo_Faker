@@ -8,13 +8,17 @@ import {
   Switch,
   ActivityIndicator,
 } from "react-native";
+import QRCode from "react-native-qrcode-svg";
 import * as Clipboard from "expo-clipboard";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { GrayToast } from "@/components/ui";
+import { MessageActionModal, type MessageActionItem } from "@/components/chat/MessageActionModal";
+import { TextPromptModal } from "@/components/ui/TextPromptModal";
 import { useAuthStore } from "@/stores/authStore";
 import { useChatStore } from "@/stores/chatStore";
+import { socketService } from "@/lib/socket";
 import {
   addGroupMember,
   removeGroupMember,
@@ -58,6 +62,10 @@ export default function GroupManagementScreen() {
   const [allUsers, setAllUsers] = useState<any[]>([]);
   const [showAddMember, setShowAddMember] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [showRenameModal, setShowRenameModal] = useState(false);
+  const [groupMenuTitle, setGroupMenuTitle] = useState("Tùy chọn");
+  const [groupMenuOptions, setGroupMenuOptions] = useState<MessageActionItem[]>([]);
+  const [showGroupMenu, setShowGroupMenu] = useState(false);
   const [settings, setSettings] = useState<any>({
     invite: { code: "", approvalRequired: true, inviteUrl: "" },
     permissions: { sendMedia: "all", pinMessage: "admin_deputy", sendAnnouncement: "admin_deputy" },
@@ -117,6 +125,83 @@ export default function GroupManagementScreen() {
     loadUsersAndSettings();
   }, [id, user]);
 
+  useEffect(() => {
+    if (!id || !user || !group) return;
+
+    const socket = socketService.getSocket() || socketService.connect();
+    if (!socket) return;
+
+    const onUpdateConversation = async ({
+      id: incomingId,
+      ...updates
+    }: {
+      id: string;
+      [key: string]: any;
+    }) => {
+      if (String(incomingId) !== String(id)) return;
+      if (!updates?.groupSettings && !updates?.participants) return;
+
+      try {
+        const effectiveParticipants = updates?.participants || group.participants || [];
+
+        const currentRole = effectiveParticipants.find(
+          (participant) => String(participant.userId) === String(user.id),
+        )?.role;
+        const canReview = currentRole === "admin" || currentRole === "deputy";
+
+        const [latestSettings, joinRequests] = await Promise.all([
+          getGroupSettings(id),
+          canReview
+            ? getGroupJoinRequests(id).catch(() => ({ requests: [] }))
+            : Promise.resolve({ requests: [] }),
+        ]);
+
+        const nextSettings = {
+          invite: {
+            code: latestSettings?.invite?.code || "",
+            approvalRequired: Boolean(latestSettings?.invite?.approvalRequired),
+            inviteUrl: latestSettings?.invite?.inviteUrl || "",
+          },
+          permissions: {
+            sendMedia: latestSettings?.permissions?.sendMedia || "all",
+            pinMessage: latestSettings?.permissions?.pinMessage || "admin_deputy",
+            sendAnnouncement:
+              latestSettings?.permissions?.sendAnnouncement || "admin_deputy",
+          },
+          pendingJoinRequests:
+            (joinRequests as any)?.requests ||
+            latestSettings?.pendingJoinRequests ||
+            [],
+        };
+
+        setSettings(nextSettings);
+        updateConversation(id, {
+          participants: effectiveParticipants,
+          groupSettings: {
+            invite: {
+              code: nextSettings.invite.code,
+              approvalRequired: nextSettings.invite.approvalRequired,
+            },
+            joinRequests: nextSettings.pendingJoinRequests,
+            permissions: nextSettings.permissions,
+            pinnedMessage:
+              latestSettings?.pinnedMessage ||
+              updates?.groupSettings?.pinnedMessage ||
+              group.groupSettings?.pinnedMessage ||
+              null,
+          },
+        });
+      } catch (error) {
+        console.error("Realtime group settings refresh failed:", error);
+      }
+    };
+
+    socket.on("chat:update_conversation", onUpdateConversation);
+    return () => {
+      socket.off("chat:update_conversation", onUpdateConversation);
+    };
+  }, [id, user, group, updateConversation]);
+
   const participantsMap = useMemo(() => {
     const map = new Map<string, any>();
     allUsers.forEach((u) => {
@@ -149,32 +234,8 @@ export default function GroupManagementScreen() {
 
   const handleRename = useCallback(() => {
     if (!group) return;
-    Alert.prompt(
-      "Đổi tên nhóm",
-      "Nhập tên mới cho nhóm của bạn",
-      [
-        { text: "Hủy", style: "cancel" },
-        {
-          text: "Đổi tên",
-          onPress: async (newName) => {
-            if (!newName?.trim()) return;
-            try {
-              setIsLoading(true);
-              await renameGroup(id, newName.trim());
-              updateConversation(id, { name: newName.trim() });
-              GrayToast("Đã đổi tên nhóm");
-            } catch (error: any) {
-              GrayToast(error?.message || "Không thể đổi tên nhóm");
-            } finally {
-              setIsLoading(false);
-            }
-          },
-        },
-      ],
-      "plain-text",
-      group.name
-    );
-  }, [group, id, updateConversation]);
+    setShowRenameModal(true);
+  }, [group]);
 
   const handleAvatarChange = async () => {
     if (!group) return;
@@ -362,16 +423,18 @@ export default function GroupManagementScreen() {
     if (isMe) return;
 
     const participantName = getParticipantName(participant.userId, participant.nickname);
-    const options: Array<{ text: string; style?: "cancel" | "destructive"; onPress?: () => void }> = [];
+    const options: MessageActionItem[] = [];
 
     if (isAdmin) {
       options.push({
+        key: "toggle-deputy",
         text: participant.role === "deputy" ? "Thu hồi quyền phó nhóm" : "Cấp quyền phó nhóm",
         onPress: () => {
           void handleToggleDeputy(participant);
         },
       });
       options.push({
+        key: "transfer-admin",
         text: "Chuyển quyền trưởng nhóm",
         onPress: () => {
           Alert.alert(
@@ -390,6 +453,7 @@ export default function GroupManagementScreen() {
         },
       });
       options.push({
+        key: "remove-member",
         text: "Xóa khỏi nhóm",
         style: "destructive",
         onPress: () => {
@@ -398,6 +462,7 @@ export default function GroupManagementScreen() {
       });
     } else if (currentUserParticipant?.role === "deputy" && participant.role === "member") {
       options.push({
+        key: "remove-member",
         text: "Xóa khỏi nhóm",
         style: "destructive",
         onPress: () => {
@@ -406,8 +471,10 @@ export default function GroupManagementScreen() {
       });
     }
 
-    options.push({ text: "Hủy", style: "cancel" });
-    Alert.alert(participantName, "Chọn thao tác", options);
+    options.push({ key: "cancel", text: "Hủy", style: "cancel" });
+    setGroupMenuTitle(participantName);
+    setGroupMenuOptions(options);
+    setShowGroupMenu(true);
   };
 
   const finalizeGroupExit = () => {
@@ -423,31 +490,30 @@ export default function GroupManagementScreen() {
         return;
       }
 
-      Alert.alert(
-        "Chuyển quyền trước khi rời nhóm",
-        "Hãy chọn một thành viên để chuyển quyền trưởng nhóm.",
-        [
-          ...transferCandidates.map((participant) => ({
-            text: getParticipantName(participant.userId, participant.nickname),
-            onPress: async () => {
-              try {
-                setIsLoading(true);
-                await leaveGroup(id, {
-                  userId: String(user.id),
-                  newAdminUserId: String(participant.userId),
-                });
-                GrayToast("Đã chuyển quyền trưởng nhóm và rời nhóm");
-                finalizeGroupExit();
-              } catch (error: any) {
-                GrayToast(error.message || "Không thể rời nhóm");
-              } finally {
-                setIsLoading(false);
-              }
-            },
-          })),
-          { text: "Hủy", style: "cancel" },
-        ],
-      );
+      setGroupMenuTitle("Chọn trưởng nhóm mới");
+      setGroupMenuOptions([
+        ...transferCandidates.map((participant) => ({
+          key: `transfer-${participant.userId}`,
+          text: getParticipantName(participant.userId, participant.nickname),
+          onPress: async () => {
+            try {
+              setIsLoading(true);
+              await leaveGroup(id, {
+                userId: String(user.id),
+                newAdminUserId: String(participant.userId),
+              });
+              GrayToast("Đã chuyển quyền trưởng nhóm và rời nhóm");
+              finalizeGroupExit();
+            } catch (error: any) {
+              GrayToast(error.message || "Không thể rời nhóm");
+            } finally {
+              setIsLoading(false);
+            }
+          },
+        })),
+        { key: "cancel", text: "Hủy", style: "cancel" },
+      ]);
+      setShowGroupMenu(true);
       return;
     }
 
@@ -494,10 +560,10 @@ export default function GroupManagementScreen() {
   };
 
   const handleUpdatePermission = async (key: string) => {
-    Alert.alert(
-      "Chọn quyền",
-      undefined,
-      permissionOptions.map((opt) => ({
+    setGroupMenuTitle("Chọn quyền");
+    setGroupMenuOptions([
+      ...permissionOptions.map((opt) => ({
+        key: `${key}-${opt.value}`,
         text: opt.label,
         onPress: async () => {
           try {
@@ -514,14 +580,21 @@ export default function GroupManagementScreen() {
             setIsLoading(false);
           }
         },
-      }))
-    );
+      })),
+      { key: "cancel", text: "Hủy", style: "cancel" },
+    ]);
+    setShowGroupMenu(true);
   };
 
   const getParticipantName = (pId: string, fallback?: string) => {
     const userInfo = participantsMap.get(String(pId));
     return userInfo?.fullName || userInfo?.userName || fallback || `User ${pId}`;
   };
+
+  const inviteQrValue = String(
+    settings?.invite?.inviteUrl ||
+      (settings?.invite?.code ? `groupInvite:${settings.invite.code}` : ""),
+  ).trim();
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: "#F3F4F6" }} edges={["bottom"]}>
@@ -618,6 +691,43 @@ export default function GroupManagementScreen() {
               <Ionicons name="copy-outline" size={20} color="#6B7280" />
             </TouchableOpacity>
           </View>
+
+          {inviteQrValue ? (
+            <View
+              style={{
+                backgroundColor: "#F9FAFB",
+                borderRadius: 8,
+                padding: 12,
+                alignItems: "center",
+                marginBottom: 12,
+              }}
+            >
+              <Text style={{ fontSize: 11, color: "#6B7280", fontWeight: "600", marginBottom: 8 }}>
+                MÃ QR THAM GIA
+              </Text>
+              <View
+                style={{
+                  backgroundColor: "#fff",
+                  padding: 10,
+                  borderRadius: 10,
+                  borderWidth: 1,
+                  borderColor: "#E5E7EB",
+                }}
+              >
+                <QRCode value={inviteQrValue} size={136} />
+              </View>
+              <Text
+                style={{
+                  marginTop: 8,
+                  fontSize: 12,
+                  color: "#6B7280",
+                  textAlign: "center",
+                }}
+              >
+                Quét mã để xin tham gia nhóm
+              </Text>
+            </View>
+          ) : null}
 
           {canReviewRequests && (
             <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
@@ -775,6 +885,38 @@ export default function GroupManagementScreen() {
           <ActivityIndicator size="large" color="#3B82F6" />
         </View>
       )}
+      <MessageActionModal
+        visible={showGroupMenu}
+        title={groupMenuTitle}
+        options={groupMenuOptions}
+        onClose={() => setShowGroupMenu(false)}
+      />
+      <TextPromptModal
+        visible={showRenameModal}
+        title="Đổi tên nhóm"
+        message="Nhập tên mới cho nhóm của bạn"
+        initialValue={group?.name || ""}
+        placeholder="Tên nhóm mới"
+        confirmText="Đổi tên"
+        onClose={() => setShowRenameModal(false)}
+        onConfirm={async (newName) => {
+          if (!newName?.trim()) {
+            setShowRenameModal(false);
+            return;
+          }
+          try {
+            setIsLoading(true);
+            await renameGroup(id, newName.trim());
+            updateConversation(id, { name: newName.trim() });
+            GrayToast("Đã đổi tên nhóm");
+            setShowRenameModal(false);
+          } catch (error: any) {
+            GrayToast(error?.message || "Không thể đổi tên nhóm");
+          } finally {
+            setIsLoading(false);
+          }
+        }}
+      />
     </SafeAreaView>
   );
 }

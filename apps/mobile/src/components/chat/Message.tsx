@@ -3,8 +3,10 @@ import { Colors } from "@/constants/colors";
 import type { Message as ChatMessage } from "@/types";
 import { formatDistanceToNow } from "date-fns";
 import { vi } from "date-fns/locale";
-import { Text, View } from "react-native";
+import { Text, View, Pressable, Image } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { Video, ResizeMode } from 'expo-av';
+import { useAuthStore } from "@/stores/authStore";
 
 interface MessageProps {
   message: ChatMessage;
@@ -39,6 +41,21 @@ const formatAttachmentLabel = (
     default:
       return attachment.name || "Tập tin";
   }
+};
+
+const VIDEO_EXTENSIONS = ["mp4", "webm", "ogg", "mov", "avi", "mkv", "3gp"];
+const isVideoFile = (name?: string) => {
+  if (!name) return false;
+  const ext = name.split(".").pop()?.toLowerCase() || "";
+  return VIDEO_EXTENSIONS.includes(ext);
+};
+
+const formatDuration = (s: number) => {
+  const mins = Math.floor(s / 60);
+  const secs = s % 60;
+  return `${mins.toString().padStart(2, "0")}:${secs
+    .toString()
+    .padStart(2, "0")}`;
 };
 
 const parseCallPayload = (value: unknown) => {
@@ -85,6 +102,65 @@ const parseCallPayload = (value: unknown) => {
   };
 };
 
+const ImageGrid = ({
+  attachments,
+}: {
+  attachments: NonNullable<ChatMessage["attachments"]>;
+}) => {
+  const images = attachments.filter((a) => a.type === "image");
+  const count = images.length;
+
+  if (count === 0) return null;
+
+  if (count === 1) {
+    return (
+      <Image
+        source={{ uri: images[0].url }}
+        className="rounded-2xl"
+        style={{ width: 240, height: 240 }}
+        resizeMode="cover"
+      />
+    );
+  }
+
+  if (count === 2) {
+    return (
+      <View className="flex-row gap-1 rounded-2xl overflow-hidden" style={{ width: 240, height: 160 }}>
+        <Image source={{ uri: images[0].url }} className="flex-1 h-full" resizeMode="cover" />
+        <Image source={{ uri: images[1].url }} className="flex-1 h-full" resizeMode="cover" />
+      </View>
+    );
+  }
+
+  if (count === 3) {
+    return (
+      <View className="flex-row gap-1 rounded-2xl overflow-hidden" style={{ width: 240, height: 180 }}>
+        <Image source={{ uri: images[0].url }} className="flex-1 h-full" resizeMode="cover" />
+        <View className="flex-1 gap-1">
+          <Image source={{ uri: images[1].url }} className="flex-1 w-full" resizeMode="cover" />
+          <Image source={{ uri: images[2].url }} className="flex-1 w-full" resizeMode="cover" />
+        </View>
+      </View>
+    );
+  }
+
+  // 4 or more
+  return (
+    <View className="flex-row flex-wrap gap-1 rounded-2xl overflow-hidden" style={{ width: 240 }}>
+      {images.slice(0, 4).map((img, i) => (
+        <View key={i} style={{ width: 118, height: 118 }}>
+          <Image source={{ uri: img.url }} className="w-full h-full" resizeMode="cover" />
+          {i === 3 && count > 4 && (
+            <View className="absolute inset-0 bg-black/40 items-center justify-center">
+              <Text className="text-white text-lg font-bold">+{count - 4}</Text>
+            </View>
+          )}
+        </View>
+      ))}
+    </View>
+  );
+};
+
 export function Message({
   message,
   isSent = false,
@@ -92,6 +168,7 @@ export function Message({
   showSenderName = !isSent,
   showTime = true,
 }: MessageProps) {
+  const currentUser = useAuthStore(state => state.user);
   const bubbleBackground = isSent ? Colors.bubbleSent : Colors.bubbleReceived;
   const bubbleTextColor = isSent
     ? Colors.bubbleSentText
@@ -257,23 +334,84 @@ export function Message({
 
             {attachments.length ? (
               <View className="mt-3 gap-2">
-                {attachments.map((attachment, index) => (
-                  <View
-                    key={`${message.id}-attachment-${index}`}
-                    className="rounded-2xl border border-black/5 bg-white/60 px-3 py-2"
-                  >
-                    <Text className="text-sm font-medium text-gray-700">
-                      {formatAttachmentLabel(attachment)}
-                    </Text>
-                    {attachment.size ? (
-                      <Text className="mt-1 text-xs text-gray-500">
-                        {Math.round(attachment.size / 1024)} KB
+                {/* Render Image Grid if there are images */}
+                <ImageGrid attachments={attachments} />
+
+                {/* Render other attachments */}
+                {attachments.map((attachment, index) => {
+                  if (attachment.type === 'image') return null;
+                  
+                  const isVideo = attachment.type === 'video' || isVideoFile(attachment.name);
+                  
+                  if (isVideo) {
+                    return (
+                      <View 
+                        key={`${message.id}-attachment-${index}`}
+                        className="rounded-2xl overflow-hidden bg-black/5"
+                        style={{ width: 240, height: 160 }}
+                      >
+                        <Video
+                          source={{ uri: attachment.url }}
+                          rate={1.0}
+                          volume={1.0}
+                          isMuted={true}
+                          resizeMode={ResizeMode.COVER}
+                          shouldPlay={true}
+                          isLooping={true}
+                          style={{ width: '100%', height: '100%' }}
+                        />
+                        {/* Duration Badge */}
+                        <View className="absolute top-2 left-2 px-1.5 py-0.5 bg-black/60 rounded backdrop-blur-md">
+                          <Text className="text-white text-[10px] font-bold">
+                            {attachment.duration ? formatDuration(attachment.duration) : "Video"}
+                          </Text>
+                        </View>
+                        {/* Play Icon Overlay */}
+                        <View className="absolute inset-0 items-center justify-center pointer-events-none">
+                          <View className="w-10 h-10 rounded-full bg-black/30 items-center justify-center border border-white/20">
+                            <Ionicons name="play" size={20} color="white" style={{ marginLeft: 2 }} />
+                          </View>
+                        </View>
+                        {attachment.name && (
+                           <View className="absolute bottom-0 left-0 right-0 p-2 bg-black/40">
+                              <Text className="text-white text-xs truncate" numberOfLines={1}>
+                                {attachment.name}
+                              </Text>
+                           </View>
+                        )}
+                      </View>
+                    );
+                  }
+
+                  return (
+                    <View
+                      key={`${message.id}-attachment-${index}`}
+                      className="rounded-2xl border border-black/5 bg-white/60 px-3 py-2"
+                    >
+                      <Text className="text-sm font-medium text-gray-700">
+                        {formatAttachmentLabel(attachment)}
                       </Text>
-                    ) : null}
-                  </View>
-                ))}
+                      {attachment.size ? (
+                        <Text className="mt-1 text-xs text-gray-500">
+                          {Math.round(attachment.size / 1024)} KB
+                        </Text>
+                      ) : null}
+                    </View>
+                  );
+                })}
               </View>
-            ) : null}
+            ) : (
+              message.type === 'image' && !message.isDeleted && typeof content === 'string' && content.startsWith('http') && (
+                <View className="mt-2">
+                   <Image 
+                     source={{ uri: content }} 
+                     className="rounded-2xl" 
+                     style={{ width: 240, height: 240 }} 
+                     resizeMode="cover"
+                   />
+                </View>
+              )
+            )}
 
             <View
               className={`mt-2 flex-row items-center ${isSent ? "justify-end" : "justify-start"}`}
@@ -288,16 +426,28 @@ export function Message({
             <View
               className={`mt-2 flex-row flex-wrap gap-2 ${isSent ? "justify-end" : "justify-start"}`}
             >
-              {reactions.map((reaction, index) => (
-                <View
-                  key={`${message.id}-reaction-${reaction.emoji}-${reaction.userId}-${index}`}
-                  className="rounded-full border border-gray-200 bg-white px-2 py-1"
-                >
-                  <Text className="text-xs text-gray-700">
-                    {reaction.emoji} {reaction.userName}
-                  </Text>
+              {isSent ? (
+                reactions.map((reaction, index) => (
+                  <View
+                    key={`${message.id}-reaction-${reaction.emoji}-${reaction.userId}-${index}`}
+                    className="rounded-full border border-gray-200 bg-white px-2 py-1 flex-row items-center gap-1 shadow-sm"
+                  >
+                    <Text className="text-xs text-gray-700">{reaction.emoji}</Text>
+                    <Text className="text-[10px] text-gray-500 font-medium">
+                      {reaction.userId === currentUser?.id ? "Bạn" : (reaction.userName || "...")}
+                    </Text>
+                  </View>
+                ))
+              ) : (
+                <View className="rounded-full border border-gray-200 bg-white px-2 py-1 flex-row items-center gap-1 shadow-sm">
+                  {[...new Set(reactions.map((r) => r.emoji))].slice(0, 3).map((emoji, i) => (
+                    <Text key={i} className="text-xs">{emoji}</Text>
+                  ))}
+                  {reactions.length > 1 && (
+                    <Text className="text-[10px] text-gray-500 ml-0.5">{reactions.length}</Text>
+                  )}
                 </View>
-              ))}
+              )}
             </View>
           ) : null}
         </View>

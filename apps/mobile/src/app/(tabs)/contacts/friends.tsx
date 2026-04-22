@@ -12,6 +12,7 @@ import { useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { CenterLoading, GrayToast } from "@/components/ui";
+import { MessageActionModal, type MessageActionItem } from "@/components/chat/MessageActionModal";
 import { Friends } from "@/types";
 import { friendsService, userService } from "@/services";
 import { useAuthStore } from "@/stores";
@@ -34,6 +35,9 @@ export default function ContactsScreen() {
   const [listFriends, setListFriends] = useState<Friends[]>([]);
   const [searchText, setSearchText] = useState("");
   const [filterMode, setFilterMode] = useState<FilterMode>("all");
+  const [friendMenuTitle, setFriendMenuTitle] = useState("Tùy chọn");
+  const [friendMenuOptions, setFriendMenuOptions] = useState<MessageActionItem[]>([]);
+  const [showFriendMenu, setShowFriendMenu] = useState(false);
 
   const getFriendsRequests = useCallback(async () => {
     if (!user?.id) return;
@@ -366,14 +370,17 @@ export default function ContactsScreen() {
 
   const handleFriendActions = (friend: Friends) => {
     const friendName = friend.fromUser?.fullName || "Nguoi dung";
-    Alert.alert(friendName, "Chon thao tac", [
+    setFriendMenuTitle(friendName);
+    setFriendMenuOptions([
       {
+        key: "message",
         text: "Nhan tin",
         onPress: () => {
           handleOpenChat(friend);
         },
       },
       {
+        key: "remove-friend",
         text: "Huy ket ban",
         style: "destructive",
         onPress: () => {
@@ -388,6 +395,7 @@ export default function ContactsScreen() {
         },
       },
       {
+        key: "block",
         text: "Chan",
         style: "destructive",
         onPress: () => {
@@ -401,8 +409,9 @@ export default function ContactsScreen() {
           ]);
         },
       },
-      { text: "Dong", style: "cancel" },
+      { key: "close", text: "Dong", style: "cancel" },
     ]);
+    setShowFriendMenu(true);
   };
 
   const getDisplayName = (friend: Friends) =>
@@ -555,7 +564,7 @@ export default function ContactsScreen() {
 
           <TouchableOpacity
             onPress={() => GrayToast("Muc sinh nhat se duoc cap nhat sau")}
-            className="flex-row items-center px-4 py-4"
+            className="flex-row items-center px-4 py-4 border-b border-gray-100"
           >
             <View className="h-12 w-12 rounded-2xl bg-blue-100 items-center justify-center">
               <Ionicons name="gift-outline" size={24} color="#2563EB" />
@@ -563,6 +572,23 @@ export default function ContactsScreen() {
             <Text className="ml-3 text-[17px] font-medium text-gray-900">
               Sinh nhật
             </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => router.push("/friends/suggestions")}
+            className="flex-row items-center px-4 py-4"
+          >
+            <View className="h-12 w-12 rounded-2xl bg-blue-100 items-center justify-center">
+              <Ionicons name="phone-portrait-outline" size={24} color="#2563EB" />
+            </View>
+            <View className="ml-3 flex-1">
+              <Text className="text-[17px] font-medium text-gray-900">
+                Gợi ý từ danh bạ điện thoại
+              </Text>
+              <Text className="mt-0.5 text-[13px] text-gray-500">
+                Đồng bộ danh bạ để tìm bạn đã dùng app
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
           </TouchableOpacity>
         </View>
 
@@ -658,6 +684,12 @@ export default function ContactsScreen() {
       </ScrollView>
 
       <CenterLoading visible={loading} />
+      <MessageActionModal
+        visible={showFriendMenu}
+        title={friendMenuTitle}
+        options={friendMenuOptions}
+        onClose={() => setShowFriendMenu(false)}
+      />
     </View>
   );
 }

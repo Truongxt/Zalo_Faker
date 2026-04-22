@@ -4,6 +4,7 @@ const GroupService = require("../services/groupService")
 const PollService = require("../services/pollService")
 const conversationModel = require("../models/conversation")
 const friendService = require("../services/friendService")
+const fileService = require("../services/file.service")
 
 const normalizeCallType = (value) => {
     const normalized = String(value || "").trim().toLowerCase()
@@ -59,14 +60,14 @@ const parseCallPayload = (content) => {
 
 const getCallPreviewText = (callPayload) => {
     const suffix = callPayload.callType === "video" ? " video" : ""
-    if (callPayload.status === "finished") return `Cuoc goi${suffix}`
-    if (callPayload.status === "missed") return `Cuoc goi nho${suffix}`
-    if (callPayload.status === "rejected") return "Cuoc goi bi tu choi"
-    if (callPayload.status === "cancelled") return "Cuoc goi da huy"
-    return callPayload.callType === "video" ? "Cuoc goi video" : "Cuoc goi"
+    if (callPayload.status === "finished") return `Cuộc gọi${suffix}`
+    if (callPayload.status === "missed") return `Cuộc gọi nhỡ${suffix}`
+    if (callPayload.status === "rejected") return "Cuộc gọi đã từ chối"
+    if (callPayload.status === "cancelled") return "Cuộc gọi đã hủy"
+    return callPayload.callType === "video" ? "Cuộc gọi video" : "Cuộc gọi"
 }
 
-const getLastMessageContent = ({ type, content, metadata }) => {
+const getLastMessageContent = ({ type, content, metadata, attachments }) => {
     if (type === PollService.POLL_MESSAGE_TYPE) {
         return PollService.getPollPreviewText(content)
     }
@@ -83,7 +84,9 @@ const getLastMessageContent = ({ type, content, metadata }) => {
         ? getCallPreviewText(callPayload || { callType: "audio", status: "finished" })
         : contentText
         || (type === "image"
-            ? "[Hình ảnh]"
+            ? (Array.isArray(attachments) && attachments.length >= 2
+                ? `[${attachments.length} hình ảnh]`
+                : "[Hình ảnh]")
             : type === "video"
                 ? "[Video]"
                 : type === "voice"
@@ -183,6 +186,7 @@ const createMessage = async (req, res) => {
                     type: payload.type,
                     content: payload.content,
                     metadata: payload.metadata,
+                    attachments: payload.attachments,
                 }),
                 type: payload.type || "text",
                 senderId,
@@ -235,8 +239,14 @@ const updateMessage = async (req, res) => {
 
 const deleteMessage = async (req, res) => {
     try {
-        const message = await messageService.deleteMessage(req.params.id)
-        res.json(message)
+        const message = await messageService.getMessage(req.params.id)
+        if (message && message.metadata && message.metadata.folderId) {
+            const { folder, subfolder } = message.metadata;
+            const folderPath = `${folder}/${subfolder}`;
+            await fileService.deleteFolder(folderPath).catch(err => console.error("Failed to delete folder on recall:", err));
+        }
+        const result = await messageService.deleteMessage(req.params.id)
+        res.json(result)
     } catch (error) {
         res.status(500).json({ message: error.message })
     }

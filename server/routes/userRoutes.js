@@ -224,6 +224,7 @@ router.get("/phone/:phone", auth, userController.getUserByPhone);
  *         description: Thành công
  */
 router.get("/id/:userId", auth, userController.getUserById);
+router.post("/suggest-friends", auth, userController.suggestFriendsByPhones);
 
 /**
  * @swagger

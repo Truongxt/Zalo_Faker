@@ -333,7 +333,8 @@ const GroupService = {
         status: "pending",
         message: "Your join request is already pending approval",
         requestId: existingPendingRequest.requestId,
-        groupId: group._id
+        groupId: group._id,
+        group
       };
     }
 
@@ -346,13 +347,14 @@ const GroupService = {
 
     settings.joinRequests = [...settings.joinRequests, joinRequest];
 
-    await GroupRepository.update(group._id, { groupSettings: settings });
+    const updated = await GroupRepository.update(group._id, { groupSettings: settings });
 
     return {
       status: "requested",
       message: "Join request sent successfully",
       requestId: joinRequest.requestId,
-      groupId: group._id
+      groupId: group._id,
+      group: updated
     };
   },
 
