@@ -147,6 +147,20 @@ export default function GroupManagementScreen() {
       [key: string]: any;
     }) => {
       if (String(incomingId) !== String(id)) return;
+
+      // Handle basic updates (name, avatar) immediately
+      if (updates.name || updates.avatar || updates.avatarUrl) {
+        const basicUpdates: any = {};
+        if (updates.name) basicUpdates.name = updates.name;
+        if (updates.avatar) {
+          basicUpdates.avatar = updates.avatar;
+          basicUpdates.avatarUrl = updates.avatar;
+        }
+        if (updates.avatarUrl) basicUpdates.avatarUrl = updates.avatarUrl;
+        updateConversation(id, basicUpdates);
+      }
+
+      // If settings or participants changed, perform refresh
       if (!updates?.groupSettings && !updates?.participants) return;
 
       try {
@@ -204,9 +218,9 @@ export default function GroupManagementScreen() {
       }
     };
 
-    socket.on("chat:update_conversation", onUpdateConversation);
+    socketService.on("chat:update_conversation", onUpdateConversation);
     return () => {
-      socket.off("chat:update_conversation", onUpdateConversation);
+      socketService.off("chat:update_conversation", onUpdateConversation);
     };
   }, [id, user, group, updateConversation]);
 
@@ -273,7 +287,7 @@ export default function GroupManagementScreen() {
       );
 
       await updateGroupAvatar(id, url);
-      updateConversation(id, { avatar: url });
+      updateConversation(id, { avatar: url, avatarUrl: url });
       GrayToast("Đã cập nhật ảnh đại diện nhóm");
     } catch (error: any) {
       Alert.alert("Lỗi", error.message || "Không thể cập nhật ảnh đại diện");
@@ -630,7 +644,7 @@ export default function GroupManagementScreen() {
         <View style={{ flex: 1, marginLeft: 4, flexDirection: "row", alignItems: "center" }}>
           <TouchableOpacity onPress={handleAvatarChange} style={{ marginRight: 12 }}>
             <View>
-              <Avatar uri={group?.avatar} name={group?.name} size={40} />
+              <Avatar uri={group?.avatarUrl || group?.avatar} name={group?.name} size={40} />
               <View style={{ position: "absolute", bottom: -2, right: -2, backgroundColor: "#FFF", borderRadius: 10, padding: 2 }}>
                 <Ionicons name="camera" size={10} color="#3B82F6" />
               </View>
@@ -653,7 +667,7 @@ export default function GroupManagementScreen() {
         <View style={{ backgroundColor: "#FFF", borderRadius: 12, padding: 16, marginBottom: 16, alignItems: "center" }}>
           <TouchableOpacity onPress={handleAvatarChange} style={{ marginBottom: 12 }}>
             <View>
-              <Avatar uri={group?.avatar} name={group?.name} size={80} />
+              <Avatar uri={group?.avatarUrl || group?.avatar} name={group?.name} size={80} />
               <View style={{ position: "absolute", bottom: 0, right: 0, backgroundColor: "#3B82F6", borderRadius: 15, padding: 6, borderWidth: 2, borderColor: "#FFF" }}>
                 <Ionicons name="camera" size={18} color="#FFF" />
               </View>
