@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
+import QRCode from 'react-qr-code'
 import { useAuthStore } from '@/stores/authStore'
 import { authService } from '@/services/auth'
 import {
@@ -23,6 +24,7 @@ export default function Profile() {
     const fileInputRef = useRef<HTMLInputElement>(null)
 
     const [isEditing, setIsEditing] = useState(false)
+    const [showQrCode, setShowQrCode] = useState(false)
     const [fullName, setFullName] = useState(user?.fullName || '')
     const [phone, setPhone] = useState(user?.phone || '')
     const [birthday, setBirthday] = useState(user?.birthday || '')
@@ -143,7 +145,10 @@ export default function Profile() {
             <div className="max-w-lg mx-auto px-4 -mt-10 pb-8">
                 <div className="bg-white dark:bg-dark-200 rounded-2xl shadow-sm overflow-hidden mb-4">
                     <div className="grid grid-cols-3 divide-x divide-gray-100 dark:divide-gray-800 border-b border-gray-100 dark:border-gray-800">
-                        <button className="flex flex-col items-center gap-2 py-4 hover:bg-gray-50 dark:hover:bg-dark-300 transition-colors">
+                        <button 
+                            onClick={() => setShowQrCode(true)}
+                            className="flex flex-col items-center gap-2 py-4 hover:bg-gray-50 dark:hover:bg-dark-300 transition-colors"
+                        >
                             <QrCode className="w-5 h-5 text-primary-600" />
                             <span className="text-xs font-medium text-gray-600 dark:text-gray-400">Mã QR</span>
                         </button>
@@ -358,6 +363,31 @@ export default function Profile() {
                             >
                                 {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Lưu thay đổi'}
                             </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            {/* QR Code Modal */}
+            {showQrCode && (
+                <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+                    <div className="bg-white dark:bg-dark-200 w-full max-w-sm rounded-3xl flex flex-col overflow-hidden animate-slide-up">
+                        {/* Modal Header */}
+                        <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
+                            <h3 className="text-lg font-bold text-gray-900 dark:text-white">Mã QR của tôi</h3>
+                            <button onClick={() => setShowQrCode(false)} className="p-2 -mr-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-dark-300 rounded-full">
+                                <X className="w-6 h-6" />
+                            </button>
+                        </div>
+
+                        {/* Modal Body */}
+                        <div className="flex flex-col items-center p-8 space-y-6">
+                            <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+                                <QRCode value={`userId:${user.id || user.userId || ""}`} size={200} />
+                            </div>
+                            <div className="text-center space-y-2">
+                                <h4 className="font-bold text-gray-900 dark:text-white">{user.fullName}</h4>
+                                <p className="text-sm text-gray-500 dark:text-gray-400">Dùng mã này để kết bạn với tôi</p>
+                            </div>
                         </div>
                     </div>
                 </div>

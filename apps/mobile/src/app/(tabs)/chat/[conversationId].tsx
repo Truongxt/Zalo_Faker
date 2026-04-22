@@ -49,10 +49,11 @@ const REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "😡"];
 type FilePreviewTarget = {
   url: string;
   name: string;
-  type: "pdf" | "word";
+  type: "pdf" | "word" | "video";
 };
 
 const WORD_EXTENSIONS = new Set(["doc", "docx", "xls", "xlsx", "ppt", "pptx"]);
+const VIDEO_EXTENSIONS = new Set(["mp4", "mov", "avi", "mkv", "webm"]);
 
 const getFileExtension = (fileName: string) => {
   const cleaned = fileName.split("?")[0].split("#")[0];
@@ -93,6 +94,14 @@ const resolveFilePreviewTarget = (msg: Message): FilePreviewTarget | null => {
       url,
       name: primaryAttachment?.name || "Tài liệu Word",
       type: "word",
+    };
+  }
+
+  if (VIDEO_EXTENSIONS.has(ext)) {
+    return {
+      url,
+      name: primaryAttachment?.name || "Video",
+      type: "video",
     };
   }
 
@@ -959,6 +968,28 @@ function MessageItem({
       case "file":
         const previewTarget = resolveFilePreviewTarget(msg);
         const hasPreview = Boolean(previewTarget);
+
+        if (previewTarget?.type === "video") {
+          return (
+            <Video
+              source={{ uri: previewTarget.url }}
+              style={{
+                width: 240,
+                height: 320,
+                borderRadius: 14,
+                backgroundColor: "#000",
+              }}
+              useNativeControls
+              shouldPlay
+              isLooping
+              resizeMode={ResizeMode.CONTAIN}
+              onError={(error) => {
+                console.error("Không thể phát video:", error);
+              }}
+            />
+          );
+        }
+
         return (
           <View style={{ gap: 8 }}>
             <View
@@ -3198,6 +3229,15 @@ export default function ChatRoomScreen() {
                   </Text>
                 </TouchableOpacity>
               </View>
+            ) : previewTarget.type === "video" ? (
+              <Video
+                source={{ uri: previewTarget.url }}
+                style={{ flex: 1, backgroundColor: "#000" }}
+                useNativeControls
+                shouldPlay
+                resizeMode={ResizeMode.CONTAIN}
+                onError={() => setPreviewError(true)}
+              />
             ) : (
               <WebView
                 source={{ uri: getPreviewWebUri(previewTarget) }}

@@ -59,7 +59,7 @@ export function PollMessageCard({
 
   const currentVote = useMemo(
     () =>
-      content.votes.find(
+      (content.votes || []).find(
         (vote) => String(vote.userId) === String(currentUserId || ""),
       ) || null,
     [content.votes, currentUserId],
@@ -70,13 +70,13 @@ export function PollMessageCard({
   }, [currentVote?.optionIds]);
 
   const isExpired = Boolean(
-    content.settings.expiresAt &&
+    content.settings?.expiresAt &&
     new Date(content.settings.expiresAt).getTime() <= Date.now(),
   );
   const canViewResults =
-    !content.settings.hideResultsUntilVote || Boolean(currentVote) || isExpired;
+    !content.settings?.hideResultsUntilVote || Boolean(currentVote) || isExpired;
   const isCreator = String(content.createdBy || "") === String(currentUserId || "");
-  const totalVoters = content.votes.length;
+  const totalVoters = (content.votes || []).length;
   const participantNameMap = useMemo(() => {
     const map = new Map<string, string>();
     participants.forEach((participant) => {
@@ -94,7 +94,7 @@ export function PollMessageCard({
 
   const toggleOption = (optionId: string) => {
     if (isExpired) return;
-    if (content.settings.allowMultipleChoices) {
+    if (content.settings?.allowMultipleChoices) {
       setSelectedOptionIds((prev) =>
         prev.includes(optionId)
           ? prev.filter((id) => id !== optionId)
@@ -132,7 +132,7 @@ export function PollMessageCard({
     if (
       isExpired ||
       !isCreator ||
-      content.options.length <= 2 ||
+      (content.options || []).length <= 2 ||
       removingOptionId === optionId
     ) {
       return;
@@ -157,13 +157,13 @@ export function PollMessageCard({
             fontSize: 12,
           }}
         >
-          Hạn bình chọn: {formatDeadline(content.settings.expiresAt)}
+          Hạn bình chọn: {formatDeadline(content.settings?.expiresAt)}
         </Text>
       </View>
 
-      {content.options.map((option) => {
-        const voters = content.votes.filter((vote) =>
-          vote.optionIds.includes(option.id),
+      {(content.options || []).map((option) => {
+        const voters = (content.votes || []).filter((vote) =>
+          (vote.optionIds || []).includes(option.id),
         );
         const voteCount = voters.length;
         const percent =
@@ -194,7 +194,7 @@ export function PollMessageCard({
                 style={{
                   width: 18,
                   height: 18,
-                  borderRadius: content.settings.allowMultipleChoices ? 5 : 9,
+                  borderRadius: content.settings?.allowMultipleChoices ? 5 : 9,
                   borderWidth: 1.5,
                   borderColor: isSelected ? "#3B82F6" : "#94A3B8",
                   backgroundColor: isSelected ? "#3B82F6" : "transparent",
@@ -204,7 +204,7 @@ export function PollMessageCard({
               >
                 {isSelected ? (
                   <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700" }}>
-                    {content.settings.allowMultipleChoices ? "✓" : ""}
+                    {content.settings?.allowMultipleChoices ? "✓" : ""}
                   </Text>
                 ) : null}
               </View>
@@ -217,7 +217,7 @@ export function PollMessageCard({
                     <TouchableOpacity
                       activeOpacity={0.85}
                       onPress={() => void handleRemoveOption(option.id)}
-                      disabled={isExpired || content.options.length <= 2 || removingOptionId === option.id}
+                      disabled={isExpired || (content.options || []).length <= 2 || removingOptionId === option.id}
                       style={{
                         width: 24,
                         height: 24,
@@ -225,7 +225,7 @@ export function PollMessageCard({
                         alignItems: "center",
                         justifyContent: "center",
                         backgroundColor:
-                          isExpired || content.options.length <= 2 || removingOptionId === option.id
+                          isExpired || (content.options || []).length <= 2 || removingOptionId === option.id
                             ? "#E5E7EB"
                             : "#F1F5F9",
                       }}
@@ -233,7 +233,7 @@ export function PollMessageCard({
                       <Text
                         style={{
                           color:
-                            isExpired || content.options.length <= 2 || removingOptionId === option.id
+                            isExpired || (content.options || []).length <= 2 || removingOptionId === option.id
                               ? "#94A3B8"
                               : "#64748B",
                           fontSize: 16,
@@ -272,7 +272,7 @@ export function PollMessageCard({
                     >
                       {voteCount} lựa chọn{voteCount !== 1 ? "" : ""} • {percent}%
                     </Text>
-                    {!content.settings.anonymousVoters && voterNames.length > 0 && (
+                    {!content.settings?.anonymousVoters && voterNames.length > 0 && (
                       <Text
                         style={{
                           color: "#64748B",
@@ -311,10 +311,10 @@ export function PollMessageCard({
           }}
         >
           <Text style={{ color: textColor, fontSize: 12, fontWeight: "600" }}>
-            {content.settings.allowMultipleChoices ? "Nhiều lựa chọn" : "Một lựa chọn"}
+            {content.settings?.allowMultipleChoices ? "Nhiều lựa chọn" : "Một lựa chọn"}
           </Text>
         </View>
-        {content.settings.anonymousVoters && (
+        {content.settings?.anonymousVoters && (
           <View
             style={{
               paddingHorizontal: 10,
@@ -359,7 +359,7 @@ export function PollMessageCard({
         </TouchableOpacity>
       )}
 
-      {content.settings.allowAddOptions && !isExpired && (
+      {content.settings?.allowAddOptions && !isExpired && (
         <View style={{ gap: 8 }}>
           {!isAddingOption ? (
             <TouchableOpacity onPress={() => setIsAddingOption(true)}>
