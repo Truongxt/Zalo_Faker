@@ -233,7 +233,7 @@ export function ChatOptionsModal({
       );
 
       await updateGroupAvatar(conversation.id, url);
-      updateConversation(conversation.id, { avatar: url });
+      updateConversation(conversation.id, { avatar: url, avatarUrl: url });
     } catch (error: any) {
       Alert.alert("Lỗi", error.message || "Không thể cập nhật ảnh đại diện");
     } finally {

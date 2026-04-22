@@ -28,7 +28,9 @@ const getConversationName = (conversation: Conversation, currentUserId: string) 
 };
 
 const getConversationAvatar = (conversation: Conversation, currentUserId: string) => {
-  if (conversation.type === "group") return conversation.avatarUrl;
+  if (conversation.type === "group") {
+    return conversation.avatarUrl || conversation.avatar || null;
+  }
   const partner = conversation.participants?.find(
     (p) => String(p.userId) !== String(currentUserId),
   );
