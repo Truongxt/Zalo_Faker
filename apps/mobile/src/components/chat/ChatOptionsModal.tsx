@@ -20,6 +20,7 @@ import { API_URL } from "@/constants/config";
 import { conversationService, labelService } from "@/services";
 import { renameGroup, updateGroupAvatar } from "@/services/groupService";
 import { uploadFile } from "@/services/chat";
+import { TextPromptModal } from "@/components/ui/TextPromptModal";
 import type { Label, Conversation } from "@/types";
 
 interface ChatOptionsModalProps {
@@ -65,6 +66,7 @@ export function ChatOptionsModal({
   );
   const [newLabelName, setNewLabelName] = useState("");
   const [isCreatingLabel, setIsCreatingLabel] = useState(false);
+  const [showRenameGroupModal, setShowRenameGroupModal] = useState(false);
 
   useEffect(() => {
     if (visible && labels.length === 0) {
@@ -202,31 +204,7 @@ export function ChatOptionsModal({
 
   const handleRenameGroup = () => {
     if (conversation.type !== "group") return;
-
-    Alert.prompt(
-      "Đổi tên nhóm",
-      "Nhập tên mới cho nhóm của bạn",
-      [
-        { text: "Hủy", style: "cancel" },
-        {
-          text: "Đổi tên",
-          onPress: async (newName) => {
-            if (!newName?.trim()) return;
-            try {
-              setIsLoading(true);
-              await renameGroup(conversation.id, newName.trim());
-              updateConversation(conversation.id, { name: newName.trim() });
-            } catch (error: any) {
-              Alert.alert("Lỗi", error.message || "Không thể đổi tên nhóm");
-            } finally {
-              setIsLoading(false);
-            }
-          },
-        },
-      ],
-      "plain-text",
-      conversation.name || "",
-    );
+    setShowRenameGroupModal(true);
   };
 
   const handleUpdateAvatar = async () => {
@@ -264,10 +242,11 @@ export function ChatOptionsModal({
   };
 
   return (
-    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
-      <View
-        style={{ flex: 1, backgroundColor: "#fff", paddingTop: insets.top }}
-      >
+    <>
+      <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
+        <View
+          style={{ flex: 1, backgroundColor: "#fff", paddingTop: insets.top }}
+        >
         <View
           style={{
             flexDirection: "row",
@@ -530,7 +509,33 @@ export function ChatOptionsModal({
             />
           </View>
         )}
-      </View>
-    </Modal>
+        </View>
+      </Modal>
+      <TextPromptModal
+        visible={showRenameGroupModal}
+        title="Đổi tên nhóm"
+        message="Nhập tên mới cho nhóm của bạn"
+        initialValue={conversation.name || ""}
+        placeholder="Tên nhóm mới"
+        confirmText="Đổi tên"
+        onClose={() => setShowRenameGroupModal(false)}
+        onConfirm={async (newName) => {
+          if (!newName?.trim()) {
+            setShowRenameGroupModal(false);
+            return;
+          }
+          try {
+            setIsLoading(true);
+            await renameGroup(conversation.id, newName.trim());
+            updateConversation(conversation.id, { name: newName.trim() });
+            setShowRenameGroupModal(false);
+          } catch (error: any) {
+            Alert.alert("Lỗi", error.message || "Không thể đổi tên nhóm");
+          } finally {
+            setIsLoading(false);
+          }
+        }}
+      />
+    </>
   );
 }

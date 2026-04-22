@@ -32,12 +32,13 @@ import { socketService } from "@/lib/socket";
 import { groupCallInviteStore } from "@/lib/groupCallInviteStore";
 import { Avatar } from "@/components/ui/Avatar";
 import { GrayToast } from "@/components/ui";
+import { TextPromptModal } from "@/components/ui/TextPromptModal";
 
 import { ChatOptionsModal } from "@/components/chat/ChatOptionsModal";
 import { PollMessageCard } from "@/components/chat/PollMessageCard";
 import { ForwardMessageModal } from "@/components/chat/ForwardMessageModal";
 import { MessageActionModal, type MessageActionItem } from "@/components/chat/MessageActionModal";
-import type { Message, PollContent } from "@/types";
+import type { Message, MessageReaction, PollContent } from "@/types";
 import { API_URL } from "@/constants/config";
 import { STICKER_URLS } from "@/constants/stickers";
 
@@ -589,6 +590,8 @@ type MessageItemProps = {
   replyPreview?: ReplyPreview | null;
   participants?: Array<{ userId: string; fullName?: string; nickname?: string }>;
   currentUserId?: string | null;
+  onVotePoll: (messageId: string, optionIds: string[]) => Promise<void>;
+  onAddPollOption: (messageId: string, optionText: string) => Promise<void>;
   onRemovePollOption: (messageId: string, optionId: string) => Promise<void>;
   onShowReactionList: (reactions: MessageReaction[]) => void;
 };
@@ -1318,6 +1321,9 @@ export default function ChatRoomScreen() {
   const [selectedMsg, setSelectedMsg] = useState<Message | null>(null);
   const [messageActions, setMessageActions] = useState<MessageActionItem[]>([]);
   const [showMessageActions, setShowMessageActions] = useState(false);
+  const [menuActions, setMenuActions] = useState<MessageActionItem[]>([]);
+  const [showMenuActions, setShowMenuActions] = useState(false);
+  const [showRenameGroupModal, setShowRenameGroupModal] = useState(false);
   const [forwardMessage, setForwardMessage] = useState<Message | null>(null);
   const [showChatOptions, setShowChatOptions] = useState(false);
   const [replyToMessageId, setReplyToMessageId] = useState<string | null>(null);
@@ -2283,8 +2289,9 @@ export default function ChatRoomScreen() {
 
   const handleOpenMoreActions = useCallback(() => {
     if (conversation?.type === "group") {
-      Alert.alert("Tùy chọn", undefined, [
+      setMenuActions([
         {
+          key: "create-poll",
           text: "Tạo bình chọn",
           onPress: () =>
             router.push({
@@ -2293,13 +2300,15 @@ export default function ChatRoomScreen() {
             }),
         },
         {
+          key: "send-file",
           text: "Gửi file",
           onPress: () => {
             void handlePickFile();
           },
         },
-        { text: "Hủy", style: "cancel" },
+        { key: "cancel", text: "Hủy", style: "cancel" },
       ]);
+      setShowMenuActions(true);
       return;
     }
 
@@ -2692,11 +2701,7 @@ export default function ChatRoomScreen() {
   }, [convId, conversation, user]);
 
   const handleHeaderMenuPress = () => {
-    const options: Array<{
-      text: string;
-      style?: "default" | "cancel" | "destructive";
-      onPress?: () => void;
-    }> = [];
+    const options: MessageActionItem[] = [];
 
     const myParticipant = conversation?.participants?.find(
         (p) => String(p.userId) === String(user?.id)
@@ -2705,6 +2710,7 @@ export default function ChatRoomScreen() {
 
     if (conversation?.type === "group") {
       options.push({
+        key: "group-management",
         text: "Quản trị nhóm",
         onPress: () =>
           router.push({
@@ -2715,16 +2721,19 @@ export default function ChatRoomScreen() {
     }
 
     options.push({
+      key: "search",
       text: "Tìm tin nhắn",
       onPress: () => setIsSearching(true),
     });
 
     options.push({
+      key: "toggle-mute",
       text: isCurrentlyMuted ? "Bật thông báo" : "Tắt thông báo",
       onPress: handleToggleMute,
     });
 
     options.push({
+      key: "conversation-info",
       text: "Thông tin hội thoại",
       onPress: () =>
         router.push({
@@ -2734,11 +2743,13 @@ export default function ChatRoomScreen() {
     });
 
     options.push({
+      key: "change-background",
       text: "Đổi hình nền",
       onPress: () => setShowChatOptions(true),
     });
 
     options.push({
+      key: "delete-history",
       text: "Xóa lịch sử trò chuyện",
       style: "destructive",
       onPress: handleDeleteHistory,
@@ -2746,14 +2757,16 @@ export default function ChatRoomScreen() {
 
     if (conversation?.type === "private") {
       options.push({
+        key: "toggle-block",
         text: isBlockedByMe ? "Mở chặn người dùng" : "Chặn người dùng",
         style: isBlockedByMe ? "default" : "destructive",
         onPress: isBlockedByMe ? handleUnblockUser : handleBlockUser,
       });
     }
 
-    options.push({ text: "Đóng", style: "cancel" });
-    Alert.alert("Tùy chọn", undefined, options);
+    options.push({ key: "close", text: "Đóng", style: "cancel" });
+    setMenuActions(options);
+    setShowMenuActions(true);
   };
 
   const renderMessage = ({ item, index }: { item: Message; index: number }) => {
@@ -2820,30 +2833,7 @@ export default function ChatRoomScreen() {
           style={{ flex: 1, marginLeft: 8 }}
           onPress={() => {
             if (conversation?.type !== 'group') return;
-            Alert.prompt(
-              "Đổi tên nhóm",
-              "Nhập tên mới cho nhóm của bạn",
-              [
-                { text: "Hủy", style: "cancel" },
-                {
-                  text: "Đổi tên",
-                  onPress: async (newName) => {
-                    if (!newName?.trim()) return;
-                    try {
-                      setIsSending(true);
-                      await renameGroup(convId, newName.trim());
-                      useChatStore.getState().updateConversation(convId, { name: newName.trim() });
-                    } catch (error: any) {
-                      Alert.alert("Lỗi", error.message || "Không thể đổi tên nhóm");
-                    } finally {
-                      setIsSending(false);
-                    }
-                  }
-                }
-              ],
-              "plain-text",
-              convName || ""
-            );
+            setShowRenameGroupModal(true);
           }}
         >
           <Text
@@ -3135,6 +3125,38 @@ export default function ChatRoomScreen() {
         visible={showMessageActions}
         options={messageActions}
         onClose={() => setShowMessageActions(false)}
+      />
+      <MessageActionModal
+        visible={showMenuActions}
+        options={menuActions}
+        onClose={() => setShowMenuActions(false)}
+      />
+      <TextPromptModal
+        visible={showRenameGroupModal}
+        title="Đổi tên nhóm"
+        message="Nhập tên mới cho nhóm của bạn"
+        initialValue={convName || ""}
+        placeholder="Tên nhóm mới"
+        confirmText="Đổi tên"
+        onClose={() => setShowRenameGroupModal(false)}
+        onConfirm={async (newName) => {
+          if (!newName?.trim()) {
+            setShowRenameGroupModal(false);
+            return;
+          }
+          try {
+            setIsSending(true);
+            await renameGroup(convId, newName.trim());
+            useChatStore.getState().updateConversation(convId, {
+              name: newName.trim(),
+            });
+            setShowRenameGroupModal(false);
+          } catch (error: any) {
+            Alert.alert("Lỗi", error.message || "Không thể đổi tên nhóm");
+          } finally {
+            setIsSending(false);
+          }
+        }}
       />
       {conversation && (
         <ChatOptionsModal

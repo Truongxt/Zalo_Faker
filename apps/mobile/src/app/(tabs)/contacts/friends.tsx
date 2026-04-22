@@ -12,6 +12,7 @@ import { useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { CenterLoading, GrayToast } from "@/components/ui";
+import { MessageActionModal, type MessageActionItem } from "@/components/chat/MessageActionModal";
 import { Friends } from "@/types";
 import { friendsService, userService } from "@/services";
 import { useAuthStore } from "@/stores";
@@ -34,6 +35,9 @@ export default function ContactsScreen() {
   const [listFriends, setListFriends] = useState<Friends[]>([]);
   const [searchText, setSearchText] = useState("");
   const [filterMode, setFilterMode] = useState<FilterMode>("all");
+  const [friendMenuTitle, setFriendMenuTitle] = useState("Tùy chọn");
+  const [friendMenuOptions, setFriendMenuOptions] = useState<MessageActionItem[]>([]);
+  const [showFriendMenu, setShowFriendMenu] = useState(false);
 
   const getFriendsRequests = useCallback(async () => {
     if (!user?.id) return;
@@ -366,14 +370,17 @@ export default function ContactsScreen() {
 
   const handleFriendActions = (friend: Friends) => {
     const friendName = friend.fromUser?.fullName || "Nguoi dung";
-    Alert.alert(friendName, "Chon thao tac", [
+    setFriendMenuTitle(friendName);
+    setFriendMenuOptions([
       {
+        key: "message",
         text: "Nhan tin",
         onPress: () => {
           handleOpenChat(friend);
         },
       },
       {
+        key: "remove-friend",
         text: "Huy ket ban",
         style: "destructive",
         onPress: () => {
@@ -388,6 +395,7 @@ export default function ContactsScreen() {
         },
       },
       {
+        key: "block",
         text: "Chan",
         style: "destructive",
         onPress: () => {
@@ -401,8 +409,9 @@ export default function ContactsScreen() {
           ]);
         },
       },
-      { text: "Dong", style: "cancel" },
+      { key: "close", text: "Dong", style: "cancel" },
     ]);
+    setShowFriendMenu(true);
   };
 
   const getDisplayName = (friend: Friends) =>
@@ -675,6 +684,12 @@ export default function ContactsScreen() {
       </ScrollView>
 
       <CenterLoading visible={loading} />
+      <MessageActionModal
+        visible={showFriendMenu}
+        title={friendMenuTitle}
+        options={friendMenuOptions}
+        onClose={() => setShowFriendMenu(false)}
+      />
     </View>
   );
 }
