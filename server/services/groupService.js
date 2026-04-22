@@ -218,7 +218,15 @@ const GroupService = {
   async getGroupSettings(id, { userId }) {
     const group = ensureGroup(await GroupRepository.getById(id));
     const currentUser = requireGroupMember(group, userId);
-    const settings = normalizeGroupSettings(group.groupSettings);
+    
+    let settings = group.groupSettings;
+    if (!settings || !settings.invite || !settings.invite.code) {
+      settings = normalizeGroupSettings(group.groupSettings);
+      await GroupRepository.update(id, { groupSettings: settings });
+    } else {
+      settings = normalizeGroupSettings(group.groupSettings);
+    }
+
     const canReviewRequests = [GROUP_ROLES.ADMIN, GROUP_ROLES.DEPUTY].includes(
       currentUser.role
     );

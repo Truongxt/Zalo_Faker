@@ -16,7 +16,8 @@ const ConversationModel = {
         participants: conversationData.participants || [], // Array of Participant
         lastMessage: conversationData.lastMessage || null, // LastMessage object
         createdBy: conversationData.createdBy,
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        groupSettings: conversationData.groupSettings || null
       }
     };
     try {

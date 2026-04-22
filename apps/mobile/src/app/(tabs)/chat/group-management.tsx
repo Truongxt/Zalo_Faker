@@ -60,6 +60,7 @@ export default function GroupManagementScreen() {
     useChatStore();
 
   const [allUsers, setAllUsers] = useState<any[]>([]);
+  const [friendIds, setFriendIds] = useState<string[]>([]);
   const [showAddMember, setShowAddMember] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [showRenameModal, setShowRenameModal] = useState(false);
@@ -95,11 +96,18 @@ export default function GroupManagementScreen() {
         );
 
         const uniqueFriendIds = [...new Set(friendIds)];
+        setFriendIds(uniqueFriendIds);
+
+        const participantIds = group.participants.map((p: any) => String(p.userId));
+        const requesterIds = (joinRequests as any)?.requests?.map((r: any) => String(r.userId)) || [];
+        
+        const allNeededIds = [...new Set([...uniqueFriendIds, ...participantIds, ...requesterIds])];
+        
         const users = await Promise.all(
-          uniqueFriendIds.map((friendId) => userService.getUserById(friendId)),
+          allNeededIds.map((uId) => userService.getUserById(uId).catch(() => null)),
         );
 
-        setAllUsers(users || []);
+        setAllUsers(users.filter(Boolean) as any[]);
 
         if (latestSettings) {
           setSettings({
@@ -219,7 +227,10 @@ export default function GroupManagementScreen() {
     currentUserParticipant?.role === "admin" || currentUserParticipant?.role === "deputy";
 
   const availableUsersToAdd = allUsers.filter(
-    (u) => !group.participants.some((p) => String(p.userId) === String(u.id || u._id || u.userId))
+    (u) => {
+      const uId = String(u.id || u._id || u.userId);
+      return friendIds.includes(uId) && !group.participants.some((p) => String(p.userId) === uId);
+    }
   );
 
   const transferCandidates = group.participants.filter(

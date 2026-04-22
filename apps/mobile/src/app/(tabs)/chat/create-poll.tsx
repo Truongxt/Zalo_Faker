@@ -130,7 +130,12 @@ export default function CreatePollScreen() {
         type: "poll",
         content: {
           question: trimmedQuestion,
-          options: trimmedOptions.map((text) => ({ text })),
+          options: trimmedOptions.map((text, idx) => ({
+            id: `opt-${Date.now()}-${idx}`,
+            text,
+            createdBy: user?.id || "",
+            createdAt: new Date().toISOString(),
+          })),
           settings: {
             anonymousVoters,
             hideResultsUntilVote,
@@ -138,6 +143,9 @@ export default function CreatePollScreen() {
             allowAddOptions,
             expiresAt: deadline ? deadline.toISOString() : null,
           },
+          votes: [],
+          createdBy: user?.id || "",
+          createdAt: new Date().toISOString(),
         },
       });
 
