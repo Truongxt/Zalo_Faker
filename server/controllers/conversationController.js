@@ -1,4 +1,5 @@
 const conversationService = require("../services/conversationService");
+const messageService = require("../services/messageService");
 const userRepository = require("../repository/userRepository");
 
 const normalizeParticipantMuteState = (participant = {}) => {
@@ -105,6 +106,57 @@ const populateParticipants = async (conversations) => {
 
     return isArray ? convList : convList[0];
 };
+
+const normalizeConversationPinnedSettings = (settings = {}, conversationType = "private") => {
+    const isObjectSettings = settings && typeof settings === "object" && !Array.isArray(settings)
+        ? settings
+        : {};
+
+    return {
+        invite: {
+            code:
+                typeof isObjectSettings?.invite?.code === "string"
+                    ? isObjectSettings.invite.code
+                    : "",
+            approvalRequired:
+                typeof isObjectSettings?.invite?.approvalRequired === "boolean"
+                    ? isObjectSettings.invite.approvalRequired
+                    : true,
+        },
+        joinRequests: Array.isArray(isObjectSettings?.joinRequests)
+            ? isObjectSettings.joinRequests
+            : [],
+        permissions: {
+            sendMedia:
+                typeof isObjectSettings?.permissions?.sendMedia === "string"
+                    ? isObjectSettings.permissions.sendMedia
+                    : "all",
+            pinMessage:
+                typeof isObjectSettings?.permissions?.pinMessage === "string"
+                    ? isObjectSettings.permissions.pinMessage
+                    : conversationType === "group"
+                        ? "admin_deputy"
+                        : "all",
+            sendAnnouncement:
+                typeof isObjectSettings?.permissions?.sendAnnouncement === "string"
+                    ? isObjectSettings.permissions.sendAnnouncement
+                    : conversationType === "group"
+                        ? "admin_deputy"
+                        : "all",
+        },
+        pinnedMessage: isObjectSettings?.pinnedMessage || null,
+    };
+};
+
+const buildPinnedMessagePayload = (message, userId) => ({
+    messageId: message._id,
+    senderId: message.senderId,
+    type: message.type,
+    content: message.content,
+    metadata: message.metadata || null,
+    pinnedAt: new Date().toISOString(),
+    pinnedBy: userId,
+});
 
 const createConversation = async (req, res) => {
     try {
@@ -236,11 +288,117 @@ const updateParticipantSetting = async (req, res) => {
     }
 };
 
+const pinMessage = async (req, res) => {
+    try {
+        const conversationId = String(req.params.id || "");
+        const requesterId = String(req.user?.userId || "");
+        const messageId = String(req.body?.messageId || "");
+
+        if (!messageId) {
+            return res.status(400).json({ message: "messageId is required" });
+        }
+
+        const conversation = await conversationService.getConversation(conversationId);
+        if (!conversation) {
+            return res.status(404).json({ message: "Conversation not found" });
+        }
+
+        if (conversation.type !== "private") {
+            return res.status(400).json({
+                message: "Use group pin API for group conversations",
+            });
+        }
+
+        const isParticipant = Array.isArray(conversation.participants)
+            && conversation.participants.some(
+                (participant) => String(participant.userId) === requesterId,
+            );
+
+        if (!isParticipant) {
+            return res.status(403).json({ message: "User is not in this conversation" });
+        }
+
+        const message = await messageService.getMessage(messageId);
+        if (!message || String(message.conversationId) !== conversationId) {
+            return res.status(404).json({ message: "Message not found in this conversation" });
+        }
+
+        if (message.isDeleted) {
+            return res.status(400).json({ message: "Cannot pin a deleted message" });
+        }
+
+        const nextSettings = normalizeConversationPinnedSettings(
+            conversation.groupSettings,
+            "private",
+        );
+        const pinnedMessage = buildPinnedMessagePayload(message, requesterId);
+        nextSettings.pinnedMessage = pinnedMessage;
+
+        const updatedConversation = await conversationService.updateConversation(conversationId, {
+            groupSettings: nextSettings,
+        });
+
+        return res.json({
+            message: "Message pinned successfully",
+            pinnedMessage,
+            conversation: updatedConversation,
+        });
+    } catch (error) {
+        return res.status(500).json({ message: error.message });
+    }
+};
+
+const unpinMessage = async (req, res) => {
+    try {
+        const conversationId = String(req.params.id || "");
+        const requesterId = String(req.user?.userId || "");
+
+        const conversation = await conversationService.getConversation(conversationId);
+        if (!conversation) {
+            return res.status(404).json({ message: "Conversation not found" });
+        }
+
+        if (conversation.type !== "private") {
+            return res.status(400).json({
+                message: "Use group unpin API for group conversations",
+            });
+        }
+
+        const isParticipant = Array.isArray(conversation.participants)
+            && conversation.participants.some(
+                (participant) => String(participant.userId) === requesterId,
+            );
+
+        if (!isParticipant) {
+            return res.status(403).json({ message: "User is not in this conversation" });
+        }
+
+        const nextSettings = normalizeConversationPinnedSettings(
+            conversation.groupSettings,
+            "private",
+        );
+        nextSettings.pinnedMessage = null;
+
+        const updatedConversation = await conversationService.updateConversation(conversationId, {
+            groupSettings: nextSettings,
+        });
+
+        return res.json({
+            message: "Pinned message cleared",
+            conversation: updatedConversation,
+        });
+    } catch (error) {
+        return res.status(500).json({ message: error.message });
+    }
+};
+
 module.exports = {
     createConversation,
     getConversation,
     getConversations,
     updateConversation,
     deleteConversation,
-    updateParticipantSetting
+    updateParticipantSetting,
+    pinMessage,
+    unpinMessage,
 };

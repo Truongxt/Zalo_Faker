@@ -4,6 +4,7 @@ import {
   Text,
   TextInput,
   FlatList,
+  ScrollView,
   TouchableOpacity,
   KeyboardAvoidingView,
   Platform,
@@ -11,94 +12,85 @@ import {
   ActivityIndicator,
   Image,
   Modal,
-  ScrollView,
-  Linking,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import * as Linking from "expo-linking";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import { Audio, Video, ResizeMode, type AVPlaybackStatus } from "expo-av";
+import { WebView } from "react-native-webview";
 import { Ionicons } from "@expo/vector-icons";
 import { useChatStore } from "@/stores/chatStore";
 import { useAuthStore } from "@/stores/authStore";
 import { chatService } from "@/services/chat";
 import { pinGroupMessage, unpinGroupMessage } from "@/services/groupService";
-import { friendsService, userService } from "@/services";
+import { conversationService, friendsService, userService } from "@/services";
 import { socketService } from "@/lib/socket";
 import { Avatar } from "@/components/ui/Avatar";
 import { GrayToast } from "@/components/ui";
 import { ForwardMessageModal } from "@/components/chat/ForwardMessageModal";
 import type { Message } from "@/types";
 import { API_URL } from "@/constants/config";
+import { STICKER_URLS } from "@/constants/stickers";
 
 const REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "😡"];
 
-const TEXT_PREVIEW_EXTENSIONS = new Set([
-  "txt",
-  "md",
-  "log",
-  "csv",
-  "json",
-  "xml",
-  "yml",
-  "yaml",
-]);
-
-type FilePreviewKind = "pdf" | "text";
-
-type FilePreviewPayload = {
+type FilePreviewTarget = {
   url: string;
   name: string;
-  kind: FilePreviewKind;
+  type: "pdf" | "word";
 };
 
-const isHttpUrl = (value: unknown) => /^https?:\/\//i.test(String(value || ""));
+const WORD_EXTENSIONS = new Set(["doc", "docx", "xls", "xlsx", "ppt", "pptx"]);
 
-const getFileNameFromUrl = (url: string) => {
-  try {
-    const withoutQuery = String(url || "").split("?")[0];
-    const name = withoutQuery.split("/").pop() || "";
-    return decodeURIComponent(name);
-  } catch (_err) {
-    const withoutQuery = String(url || "").split("?")[0];
-    return withoutQuery.split("/").pop() || "";
-  }
+const getFileExtension = (fileName: string) => {
+  const cleaned = fileName.split("?")[0].split("#")[0];
+  const parts = cleaned.split(".");
+  if (parts.length < 2) return "";
+  return String(parts[parts.length - 1] || "")
+    .trim()
+    .toLowerCase();
 };
 
-const getFileExtension = (nameOrUrl: string) => {
-  const fileName = getFileNameFromUrl(nameOrUrl).toLowerCase();
-  const ext = fileName.includes(".") ? fileName.split(".").pop() : "";
-  return String(ext || "");
-};
+const resolveFilePreviewTarget = (msg: Message): FilePreviewTarget | null => {
+  if (msg.type !== "file") return null;
 
-const resolveFilePreviewPayload = (
-  message: Message,
-): FilePreviewPayload | null => {
-  const fileAttachment = (message.attachments || []).find(
-    (attachment) => attachment.type === "file" && isHttpUrl(attachment.url),
+  const primaryAttachment = (msg.attachments || []).find(
+    (attachment) => attachment.type === "file" && attachment.url,
   );
   const fallbackUrl =
-    typeof message.content === "string" && isHttpUrl(message.content)
-      ? message.content
+    typeof msg.content === "string" && /^https?:\/\//i.test(msg.content)
+      ? msg.content
       : "";
+  const url = String(primaryAttachment?.url || fallbackUrl || "").trim();
+  if (!url || !/^https?:\/\//i.test(url)) return null;
 
-  const url = fileAttachment?.url || fallbackUrl;
-  if (!url) return null;
+  const fileName = String(primaryAttachment?.name || url).trim();
+  const ext = getFileExtension(fileName || url);
 
-  const name =
-    fileAttachment?.name || getFileNameFromUrl(url) || "File dinh kem";
-  const extension = getFileExtension(name || url);
-
-  if (extension === "pdf") {
-    return { url, name, kind: "pdf" };
+  if (ext === "pdf") {
+    return {
+      url,
+      name: primaryAttachment?.name || "Tai lieu PDF",
+      type: "pdf",
+    };
   }
 
-  if (TEXT_PREVIEW_EXTENSIONS.has(extension)) {
-    return { url, name, kind: "text" };
+  if (WORD_EXTENSIONS.has(ext)) {
+    return {
+      url,
+      name: primaryAttachment?.name || "Tai lieu Word",
+      type: "word",
+    };
   }
 
   return null;
+};
+
+const getPreviewWebUri = (target: FilePreviewTarget) => {
+  if (target.type === "pdf") return target.url;
+  return `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(target.url)}`;
 };
 
 /** Upload a single file (image / document / voice) to server */
@@ -416,7 +408,7 @@ type MessageItemProps = {
   isMe: boolean;
   isGroupedWithPrevious?: boolean;
   onLongPress: (msg: Message) => void;
-  onPreviewFile: (file: FilePreviewPayload) => void;
+  onOpenFilePreview: (target: FilePreviewTarget) => void;
 };
 
 function MessageItem({
@@ -424,7 +416,7 @@ function MessageItem({
   isMe,
   isGroupedWithPrevious = false,
   onLongPress,
-  onPreviewFile,
+  onOpenFilePreview,
 }: MessageItemProps) {
   const [showVoiceTranscript, setShowVoiceTranscript] = useState(false);
   const bg = isMe ? "#0068FF" : "#F3F4F6";
@@ -499,17 +491,17 @@ function MessageItem({
       const callStatusText = (() => {
         const suffix = parsedCallPayload.callType === "video" ? " video" : "";
         if (parsedCallPayload.status === "finished") {
-          return isMe ? `Cuoc goi di${suffix}` : `Cuoc goi den${suffix}`;
+          return isMe ? `Cuộc gọi di${suffix}` : `Cuộc gọi đến${suffix}`;
         }
         if (parsedCallPayload.status === "missed") {
-          return isMe ? "Thue bao khong nhac may" : `Cuoc goi nho${suffix}`;
+          return isMe ? "Thuê bao không bắt máy" : `Cuộc gọi nhở${suffix}`;
         }
         if (parsedCallPayload.status === "rejected")
-          return "Cuoc goi bi tu choi";
-        if (parsedCallPayload.status === "cancelled") return "Cuoc goi da huy";
+          return "Cuộc gọi bị từ chối";
+        if (parsedCallPayload.status === "cancelled") return "Cuộc gọi bị hủy";
         return parsedCallPayload.callType === "video"
-          ? "Cuoc goi video"
-          : "Cuoc goi";
+          ? "Cuộc gọi video"
+          : "Cuộc gọi";
       })();
 
       return (
@@ -696,55 +688,55 @@ function MessageItem({
           </View>
         );
       case "file":
-        const attachmentName =
-          (msg as any).attachments?.[0]?.name ||
-          filePreviewPayload?.name ||
-          "File dinh kem";
-
-        if (filePreviewPayload) {
-          return (
-            <TouchableOpacity
-              activeOpacity={0.85}
-              onPress={() => onPreviewFile(filePreviewPayload)}
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 8,
-              }}
+        const previewTarget = resolveFilePreviewTarget(msg);
+        const hasPreview = Boolean(previewTarget);
+        return (
+          <View style={{ gap: 8 }}>
+            <View
+              style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
             >
-              <Ionicons
-                name={
-                  filePreviewPayload.kind === "pdf"
-                    ? "document-text-outline"
-                    : "reader-outline"
-                }
-                size={18}
-                color={textColor}
-              />
-              <View style={{ flex: 1 }}>
-                <Text style={{ color: textColor, flex: 1 }} numberOfLines={1}>
-                  {attachmentName}
-                </Text>
+              <Ionicons name="document-outline" size={18} color={textColor} />
+              <Text style={{ color: textColor, flex: 1 }} numberOfLines={1}>
+                {(msg as any).attachments?.[0]?.name || "File dinh kem"}
+              </Text>
+            </View>
+
+            {hasPreview ? (
+              <TouchableOpacity
+                onPress={() => onOpenFilePreview(previewTarget!)}
+                activeOpacity={0.85}
+                style={{
+                  alignSelf: "flex-start",
+                  paddingHorizontal: 10,
+                  paddingVertical: 6,
+                  borderRadius: 14,
+                  borderWidth: 1,
+                  borderColor: isMe ? "rgba(255,255,255,0.35)" : "#9CA3AF",
+                  backgroundColor: isMe
+                    ? "rgba(255,255,255,0.14)"
+                    : "rgba(17,24,39,0.06)",
+                }}
+              >
                 <Text
                   style={{
-                    color: isMe ? "rgba(255,255,255,0.85)" : "#475569",
+                    color: textColor,
                     fontSize: 12,
-                    marginTop: 2,
+                    fontWeight: "700",
                   }}
                 >
-                  Nhấn để xem trước
+                  Xem trước
                 </Text>
-              </View>
-            </TouchableOpacity>
-          );
-        }
-
-        return (
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-            <Ionicons name="document-outline" size={18} color={textColor} />
-            <Text style={{ color: textColor, flex: 1 }} numberOfLines={1}>
-              {attachmentName}
-            </Text>
+              </TouchableOpacity>
+            ) : (
+              <Text
+                style={{
+                  color: isMe ? "rgba(255,255,255,0.75)" : "#6B7280",
+                  fontSize: 11,
+                }}
+              >
+                File nay chua ho tro xem truoc
+              </Text>
+            )}
           </View>
         );
       case "sticker":
@@ -888,9 +880,14 @@ export default function ChatRoomScreen() {
   const [text, setText] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
+  const [showStickerPicker, setShowStickerPicker] = useState(false);
   const [showReactions, setShowReactions] = useState(false);
   const [selectedMsg, setSelectedMsg] = useState<Message | null>(null);
   const [forwardMessage, setForwardMessage] = useState<Message | null>(null);
+  const [previewTarget, setPreviewTarget] = useState<FilePreviewTarget | null>(
+    null,
+  );
+  const [previewError, setPreviewError] = useState(false);
   const [typingUsers, setTypingUsers] = useState<string[]>([]);
   const [isPartnerOnline, setIsPartnerOnline] = useState(false);
   const [partnerLastSeenAt, setPartnerLastSeenAt] = useState<string | null>(
@@ -959,6 +956,10 @@ export default function ChatRoomScreen() {
           return currentRank >= requiredRank;
         })()
       : false;
+  const canPinMessage =
+    conversation?.type === "group"
+      ? canPinInGroup
+      : conversation?.type === "private";
   const pinnedMessage = conversation?.groupSettings?.pinnedMessage || null;
 
   const getPinnedMessagePreview = useCallback((message: any) => {
@@ -1188,6 +1189,30 @@ export default function ChatRoomScreen() {
     ],
   );
 
+  const handleOpenFilePreview = useCallback((target: FilePreviewTarget) => {
+    setPreviewError(false);
+    setPreviewTarget(target);
+  }, []);
+
+  const handleCloseFilePreview = useCallback(() => {
+    setPreviewError(false);
+    setPreviewTarget(null);
+  }, []);
+
+  const handleOpenFileExternally = useCallback(async () => {
+    if (!previewTarget?.url) return;
+    try {
+      const canOpen = await Linking.canOpenURL(previewTarget.url);
+      if (!canOpen) {
+        GrayToast("Khong mo duoc file");
+        return;
+      }
+      await Linking.openURL(previewTarget.url);
+    } catch {
+      GrayToast("Khong mo duoc file");
+    }
+  }, [previewTarget?.url]);
+
   // Load messages on mount
   useEffect(() => {
     if (!convId) return;
@@ -1214,6 +1239,10 @@ export default function ChatRoomScreen() {
       cancelled = true;
     };
   }, [convId, hasCachedMessages]);
+
+  useEffect(() => {
+    setShowStickerPicker(false);
+  }, [convId]);
 
   // Join socket room + listeners
   useEffect(() => {
@@ -1264,6 +1293,46 @@ export default function ChatRoomScreen() {
       socketService.emit("chat:typing", { conversationId: convId });
     }
   };
+
+  const handleToggleStickerPicker = useCallback(() => {
+    if (isMessagingBlocked) {
+      GrayToast(
+        isBlockedByMe ? "Ban da chan nguoi dung nay" : "Ban da bi chan",
+      );
+      return;
+    }
+    setShowStickerPicker((prev) => !prev);
+  }, [isBlockedByMe, isMessagingBlocked]);
+
+  const handleSendSticker = useCallback(
+    async (stickerUrl: string) => {
+      if (!convId || isSending) return;
+      if (isMessagingBlocked) {
+        GrayToast(
+          isBlockedByMe ? "Ban da chan nguoi dung nay" : "Ban da bi chan",
+        );
+        return;
+      }
+
+      setShowStickerPicker(false);
+      setIsSending(true);
+      if (convId && user) {
+        socketService.emit("chat:stop_typing", { conversationId: convId });
+      }
+
+      try {
+        await chatService.sendMessage(convId, {
+          type: "sticker",
+          content: stickerUrl,
+        });
+      } catch {
+        GrayToast("Khong the gui sticker");
+      } finally {
+        setIsSending(false);
+      }
+    },
+    [convId, isSending, isMessagingBlocked, isBlockedByMe, user],
+  );
 
   const handleSend = async () => {
     const trimmed = text.trim();
@@ -1374,7 +1443,7 @@ export default function ChatRoomScreen() {
 
   const handleUpdatePinnedMessage = useCallback(
     (nextPinnedMessage: any | null) => {
-      if (!conversation || conversation.type !== "group") return;
+      if (!conversation) return;
 
       const fallbackSettings = {
         invite: {
@@ -1387,10 +1456,10 @@ export default function ChatRoomScreen() {
             conversation.groupSettings?.permissions?.sendMedia || "all",
           pinMessage:
             conversation.groupSettings?.permissions?.pinMessage ||
-            "admin_deputy",
+            (conversation.type === "group" ? "admin_deputy" : "all"),
           sendAnnouncement:
             conversation.groupSettings?.permissions?.sendAnnouncement ||
-            "admin_deputy",
+            (conversation.type === "group" ? "admin_deputy" : "all"),
         },
         pinnedMessage: null,
       };
@@ -1405,48 +1474,92 @@ export default function ChatRoomScreen() {
     [convId, conversation],
   );
 
+  useEffect(() => {
+    if (!convId || !user) return;
+
+    const socket = socketService.getSocket() || socketService.connect();
+    if (!socket) return;
+
+    const onPinnedMessage = ({
+      conversationId: incomingConversationId,
+      pinnedMessage: nextPinnedMessage,
+    }: {
+      conversationId: string;
+      pinnedMessage: any | null;
+    }) => {
+      if (String(incomingConversationId) !== String(convId)) return;
+      handleUpdatePinnedMessage(nextPinnedMessage || null);
+    };
+
+    socket.on("chat:pinned_message", onPinnedMessage);
+
+    return () => {
+      socket.off("chat:pinned_message", onPinnedMessage);
+    };
+  }, [convId, handleUpdatePinnedMessage, user]);
+
   const handlePinMessage = useCallback(
     async (message: Message) => {
-      if (!convId || conversation?.type !== "group") return;
-      if (!canPinInGroup) {
-        GrayToast("Ban khong co quyen ghim tin nhan trong nhom nay");
-        return;
-      }
+      if (!convId || !conversation) return;
+
       if (message.isDeleted) {
         GrayToast("Khong the ghim tin nhan da thu hoi");
         return;
       }
 
       try {
-        const result = await pinGroupMessage(convId, message.id);
+        if (conversation.type === "group") {
+          if (!canPinInGroup) {
+            GrayToast("Ban khong co quyen ghim tin nhan trong nhom nay");
+            return;
+          }
+        }
+
+        const result =
+          conversation.type === "group"
+            ? await pinGroupMessage(convId, message.id)
+            : await conversationService.pinMessage(convId, message.id);
+
         const nextPinned =
           (result as any)?.pinnedMessage ||
+          (result as any)?.conversation?.groupSettings?.pinnedMessage ||
           (result as any)?.group?.groupSettings?.pinnedMessage ||
           null;
         handleUpdatePinnedMessage(nextPinned);
+        socketService.emit("chat:sync_pinned_message", {
+          conversationId: convId,
+        });
         GrayToast("Da ghim tin nhan");
       } catch (error: any) {
         GrayToast(error?.message || "Khong the ghim tin nhan");
       }
     },
-    [canPinInGroup, convId, conversation?.type, handleUpdatePinnedMessage],
+    [canPinInGroup, convId, conversation, handleUpdatePinnedMessage],
   );
 
   const handleUnpinMessage = useCallback(async () => {
-    if (!convId || conversation?.type !== "group") return;
-    if (!canPinInGroup) {
-      GrayToast("Ban khong co quyen bo ghim tin nhan trong nhom nay");
-      return;
-    }
+    if (!convId || !conversation) return;
 
     try {
-      await unpinGroupMessage(convId);
+      if (conversation.type === "group") {
+        if (!canPinInGroup) {
+          GrayToast("Ban khong co quyen bo ghim tin nhan trong nhom nay");
+          return;
+        }
+        await unpinGroupMessage(convId);
+      } else {
+        await conversationService.unpinMessage(convId);
+      }
+
       handleUpdatePinnedMessage(null);
+      socketService.emit("chat:sync_pinned_message", {
+        conversationId: convId,
+      });
       GrayToast("Da bo ghim tin nhan");
     } catch (error: any) {
       GrayToast(error?.message || "Khong the bo ghim tin nhan");
     }
-  }, [canPinInGroup, convId, conversation?.type, handleUpdatePinnedMessage]);
+  }, [canPinInGroup, convId, conversation, handleUpdatePinnedMessage]);
 
   const handleLongPress = (msg: Message) => {
     setSelectedMsg(msg);
@@ -1466,7 +1579,7 @@ export default function ChatRoomScreen() {
       },
     ];
 
-    if (!msg.isDeleted && conversation?.type === "group" && canPinInGroup) {
+    if (!msg.isDeleted && canPinMessage) {
       options.push({
         text: isPinnedMessage ? "Bo ghim tin nhan" : "Ghim tin nhan",
         onPress: () => {
@@ -1671,7 +1784,7 @@ export default function ChatRoomScreen() {
         isMe={item.senderId === user?.id}
         isGroupedWithPrevious={isGroupedWithPrevious}
         onLongPress={handleLongPress}
-        onPreviewFile={handlePreviewFile}
+        onOpenFilePreview={handleOpenFilePreview}
       />
     );
   };
@@ -1754,7 +1867,7 @@ export default function ChatRoomScreen() {
       </View>
 
       {/* Messages */}
-      {conversation?.type === "group" && pinnedMessage && (
+      {pinnedMessage && (
         <View
           style={{
             backgroundColor: "#FFFBEB",
@@ -1789,7 +1902,7 @@ export default function ChatRoomScreen() {
             </View>
           </View>
 
-          {canPinInGroup && (
+          {canPinMessage && (
             <TouchableOpacity
               onPress={() => void handleUnpinMessage()}
               style={{
@@ -1884,6 +1997,123 @@ export default function ChatRoomScreen() {
         onClose={() => setForwardMessage(null)}
         message={forwardMessage}
       />
+
+      <Modal
+        visible={Boolean(previewTarget)}
+        animationType="slide"
+        transparent={false}
+        onRequestClose={handleCloseFilePreview}
+      >
+        <View style={{ flex: 1, backgroundColor: "#fff" }}>
+          <View
+            style={{
+              paddingTop: insets.top + 6,
+              paddingHorizontal: 12,
+              paddingBottom: 10,
+              borderBottomWidth: 1,
+              borderBottomColor: "#E5E7EB",
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 10,
+            }}
+          >
+            <TouchableOpacity
+              onPress={handleCloseFilePreview}
+              style={{
+                width: 34,
+                height: 34,
+                borderRadius: 17,
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor: "#F3F4F6",
+              }}
+            >
+              <Ionicons name="close" size={20} color="#111827" />
+            </TouchableOpacity>
+
+            <Text
+              numberOfLines={1}
+              style={{
+                flex: 1,
+                fontSize: 15,
+                fontWeight: "700",
+                color: "#111827",
+              }}
+            >
+              {previewTarget?.name || "Xem truoc tap tin"}
+            </Text>
+
+            <TouchableOpacity
+              onPress={() => void handleOpenFileExternally()}
+              style={{
+                height: 34,
+                paddingHorizontal: 10,
+                borderRadius: 17,
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor: "#EEF2FF",
+              }}
+            >
+              <Text
+                style={{ color: "#1D4ED8", fontSize: 12, fontWeight: "700" }}
+              >
+                Mo ngoai
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {previewTarget ? (
+            previewError ? (
+              <View
+                style={{
+                  flex: 1,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  paddingHorizontal: 20,
+                  gap: 10,
+                }}
+              >
+                <Ionicons
+                  name="alert-circle-outline"
+                  size={28}
+                  color="#DC2626"
+                />
+                <Text
+                  style={{
+                    color: "#111827",
+                    fontSize: 15,
+                    textAlign: "center",
+                  }}
+                >
+                  Khong the tai noi dung xem truoc.
+                </Text>
+                <TouchableOpacity
+                  onPress={() => void handleOpenFileExternally()}
+                  style={{
+                    backgroundColor: "#0068FF",
+                    borderRadius: 8,
+                    paddingHorizontal: 14,
+                    paddingVertical: 10,
+                  }}
+                >
+                  <Text style={{ color: "#fff", fontWeight: "700" }}>
+                    Mo bang ung dung ngoai
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <WebView
+                source={{ uri: getPreviewWebUri(previewTarget) }}
+                startInLoadingState
+                onError={() => setPreviewError(true)}
+                originWhitelist={["*"]}
+              />
+            )
+          ) : null}
+        </View>
+      </Modal>
+
       {/* Input area */}
       <View
         style={{
@@ -1951,7 +2181,7 @@ export default function ChatRoomScreen() {
             </View>
           )}
           <TouchableOpacity
-            onPress={() => GrayToast("Tính năng sticker đang phát triển")}
+            onPress={handleToggleStickerPicker}
             disabled={Boolean(isMessagingBlocked)}
             style={{
               width: 36,
@@ -2038,6 +2268,52 @@ export default function ChatRoomScreen() {
             <Ionicons name="image-outline" size={24} color="#7B8088" />
           </TouchableOpacity>
         </View>
+
+        {showStickerPicker && (
+          <View
+            style={{
+              marginTop: 8,
+              borderRadius: 14,
+              borderWidth: 1,
+              borderColor: "#E5E7EB",
+              backgroundColor: "#F8FAFC",
+              paddingVertical: 8,
+              paddingHorizontal: 6,
+            }}
+          >
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingHorizontal: 2 }}
+            >
+              {STICKER_URLS.map((url, index) => (
+                <TouchableOpacity
+                  key={`${url}-${index}`}
+                  onPress={() => void handleSendSticker(url)}
+                  disabled={isSending || Boolean(isMessagingBlocked)}
+                  style={{
+                    width: 64,
+                    height: 64,
+                    borderRadius: 12,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    backgroundColor: "#fff",
+                    borderWidth: 1,
+                    borderColor: "#E5E7EB",
+                    marginRight: index === STICKER_URLS.length - 1 ? 0 : 8,
+                    opacity: isSending ? 0.7 : 1,
+                  }}
+                >
+                  <Image
+                    source={{ uri: url }}
+                    style={{ width: 50, height: 50 }}
+                    resizeMode="contain"
+                  />
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        )}
       </View>
 
       <Modal

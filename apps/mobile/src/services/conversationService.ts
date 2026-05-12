@@ -52,6 +52,18 @@ class ConversationService {
         return response.data;
     }
 
+    async pinMessage(conversationId: string, messageId: string): Promise<any> {
+        const response = await apiClient.put<any>(`/api/conversations/${conversationId}/pin-message`, {
+            messageId,
+        });
+        return response.data;
+    }
+
+    async unpinMessage(conversationId: string): Promise<any> {
+        const response = await apiClient.delete<any>(`/api/conversations/${conversationId}/pin-message`);
+        return response.data;
+    }
+
 }
 
 export const conversationService = new ConversationService();

@@ -75,7 +75,9 @@ const getFileNameFromUrl = (url?: string) => {
 };
 
 const getFileExtension = (fileName: string) => {
-  const normalized = String(fileName || "").trim().toLowerCase();
+  const normalized = String(fileName || "")
+    .trim()
+    .toLowerCase();
   const segments = normalized.split(".");
   if (segments.length < 2) return "";
   return segments.pop() || "";
@@ -85,7 +87,9 @@ const getPreviewKind = (
   fileName?: string,
   mediaUrl?: string,
 ): FilePreviewKind | null => {
-  const resolvedFileName = String(fileName || getFileNameFromUrl(mediaUrl)).trim();
+  const resolvedFileName = String(
+    fileName || getFileNameFromUrl(mediaUrl),
+  ).trim();
   const extension = getFileExtension(resolvedFileName);
 
   if (extension === "pdf") return "pdf";
@@ -151,17 +155,85 @@ type ParsedCallPayload = {
   duration: number;
 };
 
+type FilePreviewTarget = {
+  name: string;
+  fileUrl: string;
+  previewUrl: string;
+};
+
+const OFFICE_EXTENSIONS = new Set([
+  "doc",
+  "docx",
+  "xls",
+  "xlsx",
+  "ppt",
+  "pptx",
+]);
+
+const getFileExtension = (value: string) => {
+  const cleanValue = value.split("?")[0].split("#")[0];
+  const parts = cleanValue.split(".");
+  if (parts.length < 2) return "";
+  return String(parts[parts.length - 1] || "")
+    .trim()
+    .toLowerCase();
+};
+
+const getFileNameFromUrl = (url: string) => {
+  const cleanUrl = url.split("?")[0];
+  const lastSegment = cleanUrl.split("/").pop() || "Tep dinh kem";
+  try {
+    return decodeURIComponent(lastSegment);
+  } catch {
+    return lastSegment;
+  }
+};
+
+const buildFilePreviewTarget = (
+  fileUrl?: string,
+  fileName?: string,
+): FilePreviewTarget | null => {
+  const normalizedUrl = String(fileUrl || "").trim();
+  if (!normalizedUrl || !/^https?:\/\//i.test(normalizedUrl)) return null;
+
+  const resolvedName =
+    String(fileName || "").trim() || getFileNameFromUrl(normalizedUrl);
+  const ext = getFileExtension(resolvedName || normalizedUrl);
+
+  if (ext === "pdf") {
+    return {
+      name: resolvedName,
+      fileUrl: normalizedUrl,
+      previewUrl: normalizedUrl,
+    };
+  }
+
+  if (OFFICE_EXTENSIONS.has(ext)) {
+    return {
+      name: resolvedName,
+      fileUrl: normalizedUrl,
+      previewUrl: `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(normalizedUrl)}`,
+    };
+  }
+
+  return null;
+};
+
 const normalizeCallType = (
   value: unknown,
 ): ParsedCallPayload["callType"] | null => {
-  const normalized = String(value || "").trim().toLowerCase();
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
   if (normalized === "video") return "video";
   if (normalized === "audio" || normalized === "voice") return "audio";
   return null;
 };
 
 const normalizeCallStatus = (value: unknown): string | null => {
-  const normalized = String(value || "").trim().toLowerCase();
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
   if (!normalized) return null;
   return normalized === "ended" ? "finished" : normalized;
 };
@@ -235,14 +307,8 @@ export default function MessageBubble({
   const [showReactionPicker, setShowReactionPicker] = useState(false);
   const [showConfirmRecall, setShowConfirmRecall] = useState(false);
   const [showVoiceTranscript, setShowVoiceTranscript] = useState(false);
-  const [activeFilePreview, setActiveFilePreview] = useState<{
-    kind: FilePreviewKind;
-    mediaUrl: string;
-    fileName: string;
-  } | null>(null);
-  const [textPreviewContent, setTextPreviewContent] = useState("");
-  const [textPreviewLoading, setTextPreviewLoading] = useState(false);
-  const [textPreviewError, setTextPreviewError] = useState("");
+  const [activeFilePreview, setActiveFilePreview] =
+    useState<FilePreviewTarget | null>(null);
   const reactionRef = useRef<HTMLDivElement>(null);
   const confirmRef = useRef<HTMLDivElement>(null);
   const isAnnouncement = Boolean(message.metadata?.isAnnouncement);
@@ -262,6 +328,12 @@ export default function MessageBubble({
   const transcriptText = String(
     content.transcript || message.metadata?.transcript || "",
   ).trim();
+  const filePreviewTarget = buildFilePreviewTarget(
+    content.mediaUrl,
+    content.fileName,
+  );
+  const fileNameLabel =
+    content.fileName || getFileNameFromUrl(content.mediaUrl || "");
 
   const transcriptLabel =
     transcriptText ||
@@ -284,7 +356,7 @@ export default function MessageBubble({
   const getCallStatusText = (status: string, callType: "audio" | "video") => {
     const suffix = callType === "video" ? " video" : "";
     if (status === "finished") {
-      return isSent ? `Cuoc goi di${suffix}` : `Cuoc goi den${suffix}`;
+      return isSent ? `Cuộc gọi đến${suffix}` : `Cuộc gọi đến${suffix}`;
     }
     if (status === "missed") {
       return isSent ? "Thue bao khong nhac may" : `Cuoc goi nho${suffix}`;
@@ -304,7 +376,8 @@ export default function MessageBubble({
       );
     }
 
-    const isMissed = payload.status === "missed" || payload.status === "rejected";
+    const isMissed =
+      payload.status === "missed" || payload.status === "rejected";
     const CallIcon = payload.callType === "video" ? Video : Phone;
 
     return (
@@ -319,11 +392,13 @@ export default function MessageBubble({
             {getCallStatusText(payload.status, payload.callType)}
           </p>
           {payload.status === "finished" && (
-            <p className="text-xs opacity-70">{formatCallDuration(payload.duration)}</p>
+            <p className="text-xs opacity-70">
+              {formatCallDuration(payload.duration)}
+            </p>
           )}
           {isMissed && !isSent && (
             <p className="text-xs font-medium text-red-500 dark:text-red-300">
-              Nhan de goi lai
+              Nhấn để gọi lại
             </p>
           )}
         </div>
@@ -535,54 +610,43 @@ export default function MessageBubble({
                 {content.text}
               </p>
             )}
-            {previewKind && mediaUrl ? (
-              <button
-                type="button"
-                onClick={() => openFilePreview(previewKind, mediaUrl, resolvedFileName)}
-                className="flex items-center gap-3 p-3 text-left bg-black/10 dark:bg-white/10 rounded-lg hover:bg-black/20 dark:hover:bg-white/20 transition-colors"
-              >
-                <div className="w-10 h-10 bg-primary-500 rounded-lg flex items-center justify-center text-white text-sm font-medium">
-                  {resolvedFileName.split(".").pop()?.toUpperCase() || "FILE"}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium truncate">{resolvedFileName}</p>
-                  <p className="text-sm opacity-70">
-                    {content.fileSize
-                      ? `${(content.fileSize / 1024).toFixed(1)} KB`
-                      : "Nhấn để xem trước"}
-                  </p>
-                </div>
-              </button>
-            ) : (
-              <a
-                href={content.mediaUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-3 p-3 bg-black/10 dark:bg-white/10 rounded-lg hover:bg-black/20 dark:hover:bg-white/20 transition-colors"
-              >
-                <div className="w-10 h-10 bg-primary-500 rounded-lg flex items-center justify-center text-white text-sm font-medium">
-                  {resolvedFileName.split(".").pop()?.toUpperCase() || "FILE"}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium truncate">{resolvedFileName}</p>
-                  <p className="text-sm opacity-70">
-                    {content.fileSize
-                      ? `${(content.fileSize / 1024).toFixed(1)} KB`
-                      : ""}
-                  </p>
-                </div>
-              </a>
-            )}
-            {previewKind && mediaUrl && (
-              <a
-                href={mediaUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-xs underline opacity-75 hover:opacity-100"
-              >
-                Mở file ở tab mới
-              </a>
-            )}
+
+            <div className="flex items-center gap-3 p-3 bg-black/10 dark:bg-white/10 rounded-lg">
+              <div className="w-10 h-10 bg-primary-500 rounded-lg flex items-center justify-center text-white text-sm font-medium">
+                {fileNameLabel?.split(".").pop()?.toUpperCase() || "FILE"}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-medium truncate">{fileNameLabel}</p>
+                <p className="text-sm opacity-70">
+                  {content.fileSize
+                    ? `${(content.fileSize / 1024).toFixed(1)} KB`
+                    : ""}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {filePreviewTarget && (
+                <button
+                  onClick={() => setActiveFilePreview(filePreviewTarget)}
+                  className="px-3 py-1.5 text-xs font-semibold rounded-full bg-primary-500 text-white hover:bg-primary-600 transition-colors"
+                  type="button"
+                >
+                  Xem trước
+                </button>
+              )}
+
+              {content.mediaUrl && (
+                <a
+                  href={content.mediaUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-3 py-1.5 text-xs font-semibold rounded-full bg-black/10 dark:bg-white/10 hover:bg-black/20 dark:hover:bg-white/20 transition-colors"
+                >
+                  Mở file
+                </a>
+              )}
+            </div>
           </div>
         );
 
@@ -648,306 +712,292 @@ export default function MessageBubble({
         className={`flex ${isSent ? "justify-end" : "justify-start"} group mb-4`}
       >
         <div
-          className={`flex items-end gap-2 max-w-[75%] ${isSent ? "flex-row-reverse" : ""}`}
+          className={`flex ${isSent ? "justify-end" : "justify-start"} group mb-4`}
         >
-        {/* Avatar for received messages */}
-        {!isSent &&
-          showAvatar &&
-          (senderAvatar ? (
-            <img
-              src={senderAvatar}
-              alt={senderName || ""}
-              className="w-8 h-8 rounded-full object-cover flex-shrink-0"
-            />
-          ) : (
-            <div className="w-8 h-8 rounded-full bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center flex-shrink-0">
-              <span className="text-xs font-medium text-primary-600 dark:text-primary-400">
-                {(senderName || "?").charAt(0).toUpperCase()}
-              </span>
-            </div>
-          ))}
-        {!isSent && !showAvatar && <div className="w-8" />}
-
-        <div
-          className={`flex flex-col relative ${isSent ? "items-end" : "items-start"} max-w-full`}
-        >
-          {/* Reply reference */}
-          {replyMessage && (
-            <div
-              className={`mb-1 px-3 py-1.5 rounded-lg text-xs bg-black/5 dark:bg-white/5 border-l-2 border-primary-500 ${isSent ? "ml-auto" : "mr-auto"} max-w-full`}
-            >
-              <p className="font-medium text-primary-500 truncate">
-                {replySenderName || "Người dùng"}
-              </p>
-              <p className="text-gray-500 dark:text-gray-400 truncate">
-                {replyMessage.isDeleted
-                  ? "Tin nhắn đã bị xóa"
-                  : replyMessage.content?.text || "[Media]"}
-              </p>
-            </div>
-          )}
-
-          {/* Message bubble */}
           <div
-            className={`message-bubble ${isSent ? "message-sent" : "message-received"} ${isAnnouncement ? "border border-amber-300 dark:border-amber-700 bg-amber-50/90 dark:bg-amber-900/20" : ""}`}
+            className={`flex items-end gap-2 max-w-[75%] ${isSent ? "flex-row-reverse" : ""}`}
           >
-            {isForwarded && (
-              <div className="mb-1.5 inline-flex items-center gap-1 rounded-full bg-slate-100 dark:bg-slate-800/70 px-2 py-0.5 text-[11px] font-semibold text-slate-500 dark:text-slate-400">
-                <Share className="w-3 h-3" />
-                Đã chuyển tiếp
-              </div>
-            )}
-            {isAnnouncement && (
-              <div className="mb-1.5 inline-flex items-center rounded-full bg-amber-100 dark:bg-amber-900/40 px-2 py-0.5 text-[11px] font-semibold text-amber-700 dark:text-amber-300">
-                Thông báo
-              </div>
-            )}
-            {renderContent()}
-          </div>
-
-          {/* Reactions display */}
-          {reactions.length > 0 && (
-            <div
-              className={`flex gap-0.5 mt-0.5 ${isSent ? "justify-end" : "justify-start"}`}
-            >
-              <div className="flex items-center gap-0.5 bg-white dark:bg-dark-300 rounded-full px-1.5 py-0.5 shadow-sm border border-gray-100 dark:border-gray-700">
-                {[...new Set(reactions.map((r) => r.emoji))]
-                  .slice(0, 3)
-                  .map((emoji, i) => (
-                    <span key={i} className="text-sm">
-                      {emoji}
-                    </span>
-                  ))}
-                {reactions.length > 1 && (
-                  <span className="text-xs text-gray-500 ml-0.5">
-                    {reactions.length}
+            {/* Avatar for received messages */}
+            {!isSent &&
+              showAvatar &&
+              (senderAvatar ? (
+                <img
+                  src={senderAvatar}
+                  alt={senderName || ""}
+                  className="w-8 h-8 rounded-full object-cover flex-shrink-0"
+                />
+              ) : (
+                <div className="w-8 h-8 rounded-full bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center flex-shrink-0">
+                  <span className="text-xs font-medium text-primary-600 dark:text-primary-400">
+                    {(senderName || "?").charAt(0).toUpperCase()}
                   </span>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Time and status */}
-          <div
-            className={`flex items-center gap-1 mt-1 ${isSent ? "justify-end" : "justify-start"}`}
-          >
-            <span className="text-[10px] text-gray-500 dark:text-gray-400">
-              {formatDistanceToNow(new Date(message.createdAt), {
-                addSuffix: false,
-                locale: vi,
-              })}
-            </span>
-            {isSent && (
-              <div
-                className="group/receipt relative"
-                title={readBy.length > 0 ? getReadReceiptInfo() : "Đã gửi"}
-              >
-                {readBy.length > 0 ? (
-                  <>
-                    <CheckCheck className="w-3 h-3 text-primary-500 cursor-help" />
-                    {/* Tooltip on hover */}
-                    <div className="absolute bottom-full right-0 mb-2 hidden group-hover/receipt:block z-50">
-                      <div className="bg-gray-900 dark:bg-gray-800 text-white text-xs rounded px-2 py-1 whitespace-nowrap shadow-lg">
-                        {isGroupChat && participants.length > 0 ? (
-                          readBy.length === participants.length ? (
-                            <span>
-                              {readBy.length === 1
-                                ? `1 người đã đọc`
-                                : `Tất cả ${readBy.length} người đã đọc`}
-                            </span>
-                          ) : (
-                            <span>
-                              {readBy.length}/{participants.length} người đã đọc
-                            </span>
-                          )
-                        ) : (
-                          <span>Đã được đọc</span>
-                        )}
-                      </div>
-                    </div>
-                  </>
-                ) : (
-                  <Check className="w-3 h-3 text-gray-400" />
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Actions (shown on hover) */}
-        <div
-          className={`opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5 ${isSent ? "flex-row-reverse" : ""}`}
-        >
-          <button
-            onClick={onReply}
-            className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition-colors"
-            title="Trả lời"
-          >
-            <Reply className="w-4 h-4 text-gray-500" />
-          </button>
-
-          {!message.isDeleted && (
-            <button
-              onClick={onForward}
-              className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition-colors"
-              title="Chuyển tiếp"
-            >
-              <Share className="w-4 h-4 text-gray-500" />
-            </button>
-          )}
-
-          {!message.isDeleted && canPin && (
-            <button
-              onClick={onPin}
-              className="p-1.5 hover:bg-yellow-100 dark:hover:bg-yellow-900/30 rounded-full transition-colors"
-              title="Ghim tin nhắn"
-            >
-              <Pin className="w-4 h-4 text-yellow-500" />
-            </button>
-          )}
-
-          {/* Reaction button with mini picker */}
-          <div className="relative" ref={reactionRef}>
-            <button
-              onClick={() => setShowReactionPicker(!showReactionPicker)}
-              className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition-colors"
-              title="Thả cảm xúc"
-            >
-              <SmilePlus className="w-4 h-4 text-gray-500" />
-            </button>
-
-            {/* Quick reaction picker */}
-            {showReactionPicker && (
-              <div
-                className={`absolute bottom-full mb-1 z-50 ${isSent ? "right-0" : "left-0"}`}
-              >
-                <div className="flex items-center gap-1 bg-white dark:bg-dark-300 rounded-full shadow-lg border border-gray-200 dark:border-gray-700 px-2 py-1.5 animate-scale-in">
-                  {QUICK_REACTIONS.map((emoji) => (
-                    <button
-                      key={emoji}
-                      onClick={() => {
-                        onReact?.(emoji);
-                        setShowReactionPicker(false);
-                      }}
-                      className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-600 transition-transform hover:scale-125 text-lg"
-                    >
-                      {emoji}
-                    </button>
-                  ))}
                 </div>
-              </div>
-            )}
-          </div>
+              ))}
+            {!isSent && !showAvatar && <div className="w-8" />}
 
-          {/* Recall button — chỉ hiện với tin nhắn của mình */}
-          {isSent && !message.isDeleted && (
-            <div className="relative" ref={confirmRef}>
-              <button
-                onClick={() => setShowConfirmRecall(true)}
-                className="p-1.5 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-full transition-colors"
-                title="Thu hồi tin nhắn"
-              >
-                <Trash2 className="w-4 h-4 text-red-500" />
-              </button>
-
-              {/* Confirm recall dialog */}
-              {showConfirmRecall && (
+            <div
+              className={`flex flex-col relative ${isSent ? "items-end" : "items-start"} max-w-full`}
+            >
+              {/* Reply reference */}
+              {replyMessage && (
                 <div
-                  className={`absolute bottom-full mb-1 z-50 ${isSent ? "right-0" : "left-0"}`}
+                  className={`mb-1 px-3 py-1.5 rounded-lg text-xs bg-black/5 dark:bg-white/5 border-l-2 border-primary-500 ${isSent ? "ml-auto" : "mr-auto"} max-w-full`}
                 >
-                  <div className="bg-white dark:bg-dark-300 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-3 min-w-[200px] animate-scale-in">
-                    <p className="text-sm text-gray-700 dark:text-gray-300 mb-3">
-                      Thu hồi tin nhắn này?
-                    </p>
-                    <div className="flex gap-2 justify-end">
-                      <button
-                        onClick={() => setShowConfirmRecall(false)}
-                        className="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-                      >
-                        Hủy
-                      </button>
-                      <button
-                        onClick={() => {
-                          onRecall?.();
-                          setShowConfirmRecall(false);
-                        }}
-                        className="px-3 py-1.5 text-sm text-white bg-red-500 hover:bg-red-600 rounded-lg transition-colors"
-                      >
-                        Thu hồi
-                      </button>
-                    </div>
+                  <p className="font-medium text-primary-500 truncate">
+                    {replySenderName || "Người dùng"}
+                  </p>
+                  <p className="text-gray-500 dark:text-gray-400 truncate">
+                    {replyMessage.isDeleted
+                      ? "Tin nhắn đã bị xóa"
+                      : replyMessage.content?.text || "[Media]"}
+                  </p>
+                </div>
+              )}
+
+              {/* Message bubble */}
+              <div
+                className={`message-bubble ${isSent ? "message-sent" : "message-received"} ${isAnnouncement ? "border border-amber-300 dark:border-amber-700 bg-amber-50/90 dark:bg-amber-900/20" : ""}`}
+              >
+                {isForwarded && (
+                  <div className="mb-1.5 inline-flex items-center gap-1 rounded-full bg-slate-100 dark:bg-slate-800/70 px-2 py-0.5 text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+                    <Share className="w-3 h-3" />
+                    Đã chuyển tiếp
+                  </div>
+                )}
+                {isAnnouncement && (
+                  <div className="mb-1.5 inline-flex items-center rounded-full bg-amber-100 dark:bg-amber-900/40 px-2 py-0.5 text-[11px] font-semibold text-amber-700 dark:text-amber-300">
+                    Thông báo
+                  </div>
+                )}
+                {renderContent()}
+              </div>
+
+              {/* Reactions display */}
+              {reactions.length > 0 && (
+                <div
+                  className={`flex gap-0.5 mt-0.5 ${isSent ? "justify-end" : "justify-start"}`}
+                >
+                  <div className="flex items-center gap-0.5 bg-white dark:bg-dark-300 rounded-full px-1.5 py-0.5 shadow-sm border border-gray-100 dark:border-gray-700">
+                    {[...new Set(reactions.map((r) => r.emoji))]
+                      .slice(0, 3)
+                      .map((emoji, i) => (
+                        <span key={i} className="text-sm">
+                          {emoji}
+                        </span>
+                      ))}
+                    {reactions.length > 1 && (
+                      <span className="text-xs text-gray-500 ml-0.5">
+                        {reactions.length}
+                      </span>
+                    )}
                   </div>
                 </div>
               )}
+
+              {/* Time and status */}
+              <div
+                className={`flex items-center gap-1 mt-1 ${isSent ? "justify-end" : "justify-start"}`}
+              >
+                <span className="text-[10px] text-gray-500 dark:text-gray-400">
+                  {formatDistanceToNow(new Date(message.createdAt), {
+                    addSuffix: false,
+                    locale: vi,
+                  })}
+                </span>
+                {isSent && (
+                  <div
+                    className="group/receipt relative"
+                    title={readBy.length > 0 ? getReadReceiptInfo() : "Đã gửi"}
+                  >
+                    {readBy.length > 0 ? (
+                      <>
+                        <CheckCheck className="w-3 h-3 text-primary-500 cursor-help" />
+                        {/* Tooltip on hover */}
+                        <div className="absolute bottom-full right-0 mb-2 hidden group-hover/receipt:block z-50">
+                          <div className="bg-gray-900 dark:bg-gray-800 text-white text-xs rounded px-2 py-1 whitespace-nowrap shadow-lg">
+                            {isGroupChat && participants.length > 0 ? (
+                              readBy.length === participants.length ? (
+                                <span>
+                                  {readBy.length === 1
+                                    ? `1 người đã đọc`
+                                    : `Tất cả ${readBy.length} người đã đọc`}
+                                </span>
+                              ) : (
+                                <span>
+                                  {readBy.length}/{participants.length} người đã
+                                  đọc
+                                </span>
+                              )
+                            ) : (
+                              <span>Đã được đọc</span>
+                            )}
+                          </div>
+                        </div>
+                      </>
+                    ) : (
+                      <Check className="w-3 h-3 text-gray-400" />
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
-          )}
-        </div>
+
+            {/* Actions (shown on hover) */}
+            <div
+              className={`opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5 ${isSent ? "flex-row-reverse" : ""}`}
+            >
+              <button
+                onClick={onReply}
+                className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition-colors"
+                title="Trả lời"
+              >
+                <Reply className="w-4 h-4 text-gray-500" />
+              </button>
+
+              {!message.isDeleted && (
+                <button
+                  onClick={onForward}
+                  className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition-colors"
+                  title="Chuyển tiếp"
+                >
+                  <Share className="w-4 h-4 text-gray-500" />
+                </button>
+              )}
+
+              {!message.isDeleted && canPin && (
+                <button
+                  onClick={onPin}
+                  className="p-1.5 hover:bg-yellow-100 dark:hover:bg-yellow-900/30 rounded-full transition-colors"
+                  title="Ghim tin nhắn"
+                >
+                  <Pin className="w-4 h-4 text-yellow-500" />
+                </button>
+              )}
+
+              {/* Reaction button with mini picker */}
+              <div className="relative" ref={reactionRef}>
+                <button
+                  onClick={() => setShowReactionPicker(!showReactionPicker)}
+                  className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition-colors"
+                  title="Thả cảm xúc"
+                >
+                  <SmilePlus className="w-4 h-4 text-gray-500" />
+                </button>
+
+                {/* Quick reaction picker */}
+                {showReactionPicker && (
+                  <div
+                    className={`absolute bottom-full mb-1 z-50 ${isSent ? "right-0" : "left-0"}`}
+                  >
+                    <div className="flex items-center gap-1 bg-white dark:bg-dark-300 rounded-full shadow-lg border border-gray-200 dark:border-gray-700 px-2 py-1.5 animate-scale-in">
+                      {QUICK_REACTIONS.map((emoji) => (
+                        <button
+                          key={emoji}
+                          onClick={() => {
+                            onReact?.(emoji);
+                            setShowReactionPicker(false);
+                          }}
+                          className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-600 transition-transform hover:scale-125 text-lg"
+                        >
+                          {emoji}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Recall button — chỉ hiện với tin nhắn của mình */}
+              {isSent && !message.isDeleted && (
+                <div className="relative" ref={confirmRef}>
+                  <button
+                    onClick={() => setShowConfirmRecall(true)}
+                    className="p-1.5 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-full transition-colors"
+                    title="Thu hồi tin nhắn"
+                  >
+                    <Trash2 className="w-4 h-4 text-red-500" />
+                  </button>
+
+                  {/* Confirm recall dialog */}
+                  {showConfirmRecall && (
+                    <div
+                      className={`absolute bottom-full mb-1 z-50 ${isSent ? "right-0" : "left-0"}`}
+                    >
+                      <div className="bg-white dark:bg-dark-300 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-3 min-w-[200px] animate-scale-in">
+                        <p className="text-sm text-gray-700 dark:text-gray-300 mb-3">
+                          Thu hồi tin nhắn này?
+                        </p>
+                        <div className="flex gap-2 justify-end">
+                          <button
+                            onClick={() => setShowConfirmRecall(false)}
+                            className="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                          >
+                            Hủy
+                          </button>
+                          <button
+                            onClick={() => {
+                              onRecall?.();
+                              setShowConfirmRecall(false);
+                            }}
+                            className="px-3 py-1.5 text-sm text-white bg-red-500 hover:bg-red-600 rounded-lg transition-colors"
+                          >
+                            Thu hồi
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 
       {activeFilePreview && (
         <div
-          className="fixed inset-0 z-[120] bg-black/60 backdrop-blur-[1px] p-4 md:p-8"
-          onClick={closeFilePreview}
+          className="fixed inset-0 z-[1000] bg-black/60 p-4 md:p-8 flex items-center justify-center"
+          onClick={() => setActiveFilePreview(null)}
         >
           <div
-            className="mx-auto h-full max-w-5xl rounded-2xl bg-white dark:bg-dark-200 shadow-xl border border-gray-200 dark:border-gray-700 flex flex-col"
+            className="w-full max-w-6xl h-[88vh] bg-white dark:bg-dark-200 rounded-2xl overflow-hidden shadow-2xl flex flex-col"
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700">
-              <h3 className="text-sm md:text-base font-semibold truncate pr-3">
-                Xem trước: {activeFilePreview.fileName}
-              </h3>
+            <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+              <div className="min-w-0">
+                <p className="font-semibold text-gray-900 dark:text-gray-100 truncate">
+                  {activeFilePreview.name}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  Xem truoc tep dinh kem
+                </p>
+              </div>
+
               <div className="flex items-center gap-2">
                 <a
-                  href={activeFilePreview.mediaUrl}
+                  href={activeFilePreview.fileUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-xs md:text-sm px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 dark:bg-dark-300 dark:hover:bg-dark-100"
+                  className="px-3 py-1.5 text-xs font-semibold rounded-full bg-black/10 dark:bg-white/10 hover:bg-black/20 dark:hover:bg-white/20 transition-colors"
                 >
-                  Mở tab mới
+                  Mở file
                 </a>
+
                 <button
                   type="button"
-                  onClick={closeFilePreview}
-                  className="text-xs md:text-sm px-3 py-1.5 rounded-lg bg-primary-500 hover:bg-primary-600 text-white"
+                  onClick={() => setActiveFilePreview(null)}
+                  className="px-3 py-1.5 text-xs font-semibold rounded-full bg-gray-200 text-gray-700 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 transition-colors"
                 >
-                  Đóng
+                  Dong
                 </button>
               </div>
             </div>
 
-            <div className="flex-1 min-h-0 p-4">
-              {activeFilePreview.kind === "pdf" ? (
-                <iframe
-                  src={activeFilePreview.mediaUrl}
-                  title={activeFilePreview.fileName}
-                  className="w-full h-full rounded-lg border border-gray-200 dark:border-gray-700"
-                />
-              ) : textPreviewLoading ? (
-                <div className="h-full flex items-center justify-center text-sm text-gray-500">
-                  Đang tải nội dung file...
-                </div>
-              ) : textPreviewError ? (
-                <div className="h-full flex flex-col items-center justify-center gap-3 text-center">
-                  <p className="text-sm text-red-500">
-                    Không thể xem trước file này: {textPreviewError}
-                  </p>
-                  <a
-                    href={activeFilePreview.mediaUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-sm underline"
-                  >
-                    Mở file ở tab mới
-                  </a>
-                </div>
-              ) : (
-                <pre className="h-full w-full overflow-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-dark-300 p-4 text-xs md:text-sm whitespace-pre-wrap [overflow-wrap:anywhere] [word-break:break-word]">
-                  {textPreviewContent || "File rỗng"}
-                </pre>
-              )}
-            </div>
+            <iframe
+              src={activeFilePreview.previewUrl}
+              title={`file-preview-${message.id}`}
+              className="flex-1 w-full bg-gray-50 dark:bg-gray-900"
+            />
           </div>
         </div>
       )}
