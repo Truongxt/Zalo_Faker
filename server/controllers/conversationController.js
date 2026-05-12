@@ -1,6 +1,53 @@
 const conversationService = require("../services/conversationService");
 const messageService = require("../services/messageService");
 const userRepository = require("../repository/userRepository");
+const { summarizeTodayConversation } = require("../services/aiService");
+
+const getRequesterId = (req) => req.user?.userId;
+
+const getUsername = async (userId) => {
+    if (!userId) return "User";
+    try {
+        const user = await userRepository.getById(userId);
+        return user?.fullName || user?.userName || userId;
+    } catch (e) {
+        return userId;
+    }
+};
+
+const createSystemMessage = async (req, conversationId, actionText, extraMetadata = {}) => {
+    try {
+        const actorName = await getUsername(getRequesterId(req));
+        const text = `${actorName} ${actionText}`;
+
+        const payload = {
+            conversationId,
+            senderId: 'system',
+            type: 'system',
+            content: text,
+            metadata: { isAnnouncement: true, ...extraMetadata }
+        };
+        const message = await messageService.createMessage(payload);
+        const normalizedMessage = { ...message, id: message._id };
+
+        await conversationService.updateConversation(conversationId, {
+            lastMessage: {
+                content: `[Thông báo] ${text}`,
+                type: "text",
+                senderId: 'system',
+                timestamp: message.createdAt,
+            },
+        });
+
+        const io = req.app.get("io");
+        if (io) {
+            io.to(`conv:${conversationId}`).emit("chat:message", normalizedMessage);
+            io.to(conversationId).emit("chat:message", normalizedMessage);
+        }
+    } catch (e) {
+        console.error("Emit private system message error:", e);
+    }
+};
 
 const normalizeParticipantMuteState = (participant = {}) => {
     const normalized = { ...participant };
@@ -218,6 +265,38 @@ const getConversations = async (req, res) => {
     }
 };
 
+const summarizeConversationInDay = async (req, res) => {
+    try {
+        const userId = req.user?.userId;
+        const conversationId = req.params?.id;
+        const { date, tzOffsetMinutes } = req.query || {};
+
+        if (!userId) {
+            return res.status(401).json({
+                success: false,
+                message: "Unauthorized",
+            });
+        }
+
+        const data = await summarizeTodayConversation({
+            conversationId,
+            userId,
+            date,
+            tzOffsetMinutes,
+        });
+
+        return res.status(200).json({
+            success: true,
+            data,
+        });
+    } catch (error) {
+        return res.status(error.statusCode || 500).json({
+            success: false,
+            message: error.message || "Failed to summarize conversation",
+        });
+    }
+};
+
 const updateConversation = async (req, res) => {
     try {
         const conversation = await conversationService.updateConversation(req.params.id, req.body);
@@ -338,6 +417,27 @@ const pinMessage = async (req, res) => {
             groupSettings: nextSettings,
         });
 
+        const io = req.app.get("io");
+        if (io) {
+            io.to(`conv:${conversationId}`).emit("chat:pinned_message", {
+                conversationId,
+                pinnedMessage,
+                updatedBy: requesterId
+            });
+        }
+
+        // CREATE SYSTEM MESSAGE
+        let displayType = "tin nhắn";
+        if (message.type === "image") displayType = "ảnh";
+        else if (message.type === "video") displayType = "video";
+        else if (message.type === "file") displayType = "file";
+        else if (message.type === "sticker") displayType = "sticker";
+
+        void createSystemMessage(req, conversationId, `đã ghim một ${displayType}`, {
+            action: 'pin',
+            pinnedMessageId: messageId
+        });
+
         return res.json({
             message: "Message pinned successfully",
             pinnedMessage,
@@ -383,6 +483,36 @@ const unpinMessage = async (req, res) => {
             groupSettings: nextSettings,
         });
 
+        const io = req.app.get("io");
+        if (io) {
+            io.to(`conv:${conversationId}`).emit("chat:pinned_message", {
+                conversationId,
+                pinnedMessage: null,
+                updatedBy: requesterId
+            });
+        }
+
+        // CREATE SYSTEM MESSAGE
+        let displayPreview = "tin nhắn";
+        try {
+            const previousPin = conversation?.groupSettings?.pinnedMessage;
+            if (previousPin) {
+                if (previousPin.type === "text") {
+                    const txt = String(previousPin.content?.text || previousPin.content || "").trim();
+                    displayPreview = txt ? `"${txt.substring(0, 20)}${txt.length > 20 ? "..." : ""}"` : "tin nhắn";
+                } else if (previousPin.type === "image") displayPreview = "hình ảnh";
+                else if (previousPin.type === "video") displayPreview = "video";
+                else if (previousPin.type === "file") displayPreview = "tài liệu";
+                else if (previousPin.type === "sticker") displayPreview = "sticker";
+            }
+        } catch (e) {
+            console.error("Error fetching previous pin info:", e);
+        }
+
+        void createSystemMessage(req, conversationId, `đã bỏ ghim ${displayPreview}`, {
+            action: 'unpin'
+        });
+
         return res.json({
             message: "Pinned message cleared",
             conversation: updatedConversation,
@@ -396,6 +526,7 @@ module.exports = {
     createConversation,
     getConversation,
     getConversations,
+    summarizeConversationInDay,
     updateConversation,
     deleteConversation,
     updateParticipantSetting,

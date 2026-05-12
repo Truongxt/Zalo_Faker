@@ -6,7 +6,6 @@ import {
   Linking,
   Modal,
   ScrollView,
-  Switch,
   Text,
   TouchableOpacity,
   View,
@@ -26,8 +25,12 @@ import { useAuthStore } from "@/stores/authStore";
 import { useChatStore } from "@/stores/chatStore";
 import type { Conversation, Message } from "@/types";
 
-type SectionProps = {
+type SectionKey = "media" | "files" | "links";
+
+type SectionHeaderProps = {
+  icon: keyof typeof Ionicons.glyphMap;
   title: string;
+  count: number;
   expanded: boolean;
   onToggle: () => void;
 };
@@ -36,6 +39,8 @@ type MediaItem = {
   id: string;
   url: string;
   type: "image" | "video";
+  createdAt: string;
+  senderName: string;
 };
 
 type FileItem = {
@@ -45,6 +50,7 @@ type FileItem = {
   size?: number;
   createdAt: string;
   extension: string;
+  senderName: string;
 };
 
 type LinkItem = {
@@ -52,6 +58,7 @@ type LinkItem = {
   url: string;
   host: string;
   createdAt: string;
+  senderName: string;
 };
 
 const URL_REGEX = /(https?:\/\/[^\s]+)/gi;
@@ -85,50 +92,36 @@ const MUTE_OPTIONS = [
   },
 ] as const;
 
-const formatMuteUntilLabel = (muteUntil?: string | null) => {
-  if (!muteUntil) return "Đã tắt cho đến khi bạn bật lại";
-
-  const time = new Date(muteUntil);
-  if (Number.isNaN(time.getTime())) return "Đã tắt thông báo";
-
-  return `Đang tắt đến ${time.toLocaleString("vi-VN", {
-    hour: "2-digit",
-    minute: "2-digit",
-    day: "2-digit",
-    month: "2-digit",
-  })}`;
-};
-
 const isHttpUrl = (value: unknown): value is string =>
   typeof value === "string" && /^https?:\/\//i.test(value.trim());
 
 const parseFileName = (url: string) => {
   const clean = String(url || "").split("?")[0];
   const last = clean.split("/").pop() || "Tệp tin";
-  return decodeURIComponent(last);
+  try {
+    return decodeURIComponent(last);
+  } catch {
+    return last;
+  }
 };
 
-const parseFileExtension = (name: string) => {
-  const ext =
-    String(name || "")
-      .split(".")
-      .pop()
-      ?.toLowerCase() || "";
-  return ext;
-};
+const parseFileExtension = (name: string) =>
+  String(name || "")
+    .split(".")
+    .pop()
+    ?.toLowerCase() || "";
 
 const formatFileSize = (size?: number) => {
-  if (!size || size <= 0) return "-";
+  if (!size || size <= 0) return "";
   if (size >= 1024 * 1024) {
     return `${(size / (1024 * 1024)).toFixed(2)} MB`;
   }
-  return `${(size / 1024).toFixed(2)} KB`;
+  return `${(size / 1024).toFixed(0)} KB`;
 };
 
 const formatDate = (iso: string) => {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "--/--/----";
-
   return d.toLocaleDateString("vi-VN");
 };
 
@@ -144,63 +137,66 @@ const getFileBadge = (extension: string) => {
   const ext = extension.toLowerCase();
 
   if (ext === "pdf") {
-    return {
-      label: "PDF",
-      iconColor: "#EF4444",
-      boxColor: "#FEE2E2",
-    };
+    return { label: "PDF", iconColor: "#EF4444", boxColor: "#FEE2E2" };
   }
-
   if (["doc", "docx"].includes(ext)) {
-    return {
-      label: "DOC",
-      iconColor: "#2563EB",
-      boxColor: "#DBEAFE",
-    };
+    return { label: "DOC", iconColor: "#2563EB", boxColor: "#DBEAFE" };
   }
-
   if (["xls", "xlsx", "csv"].includes(ext)) {
-    return {
-      label: "XLS",
-      iconColor: "#059669",
-      boxColor: "#D1FAE5",
-    };
+    return { label: "XLS", iconColor: "#059669", boxColor: "#D1FAE5" };
   }
-
   if (["mp4", "mov", "mkv", "avi"].includes(ext)) {
-    return {
-      label: "VID",
-      iconColor: "#7C3AED",
-      boxColor: "#EDE9FE",
-    };
+    return { label: "VID", iconColor: "#7C3AED", boxColor: "#EDE9FE" };
   }
 
-  return {
-    label: "FILE",
-    iconColor: "#6B7280",
-    boxColor: "#E5E7EB",
-  };
+  return { label: "FILE", iconColor: "#6B7280", boxColor: "#E5E7EB" };
 };
 
-function SectionHeader({ title, expanded, onToggle }: SectionProps) {
+function SectionHeader({
+  icon,
+  title,
+  count,
+  expanded,
+  onToggle,
+}: SectionHeaderProps) {
   return (
     <TouchableOpacity
-      onPress={onToggle}
       activeOpacity={0.8}
+      onPress={onToggle}
       style={{
         flexDirection: "row",
         alignItems: "center",
         justifyContent: "space-between",
         paddingHorizontal: 14,
-        paddingTop: 14,
-        paddingBottom: 10,
+        paddingVertical: 14,
+        borderBottomWidth: expanded ? 1 : 0,
+        borderBottomColor: "#E2E8F0",
       }}
     >
-      <Text style={{ fontSize: 30 / 2, fontWeight: "700", color: "#1E293B" }}>
-        {title}
-      </Text>
+      <View style={{ flexDirection: "row", alignItems: "center" }}>
+        <Ionicons name={icon} size={18} color="#2563EB" />
+        <Text
+          style={{
+            marginLeft: 8,
+            fontSize: 15,
+            fontWeight: "700",
+            color: "#1E293B",
+          }}
+        >
+          {title}
+        </Text>
+        <Text
+          style={{
+            marginLeft: 6,
+            fontSize: 12,
+            color: "#64748B",
+          }}
+        >
+          ({count})
+        </Text>
+      </View>
       <Ionicons
-        name={expanded ? "chevron-up" : "chevron-down"}
+        name={expanded ? "chevron-down" : "chevron-forward"}
         size={18}
         color="#64748B"
       />
@@ -209,13 +205,13 @@ function SectionHeader({ title, expanded, onToggle }: SectionProps) {
 }
 
 function ActionItem({
-  icon,
   label,
+  tone = "default",
   onPress,
   disabled,
 }: {
-  icon: keyof typeof Ionicons.glyphMap;
   label: string;
+  tone?: "default" | "danger";
   onPress: () => void;
   disabled?: boolean;
 }) {
@@ -223,36 +219,92 @@ function ActionItem({
     <TouchableOpacity
       activeOpacity={0.8}
       onPress={onPress}
-      disabled={disabled}
       style={{
+        width: "31.5%",
+        minHeight: 44,
+        borderRadius: 14,
+        borderWidth: 1,
+        borderColor: tone === "danger" ? "#FECACA" : "#E2E8F0",
+        backgroundColor: tone === "danger" ? "#FEF2F2" : "#FFFFFF",
         alignItems: "center",
-        width: "23%",
-        opacity: disabled ? 0.5 : 1,
+        justifyContent: "center",
+        paddingHorizontal: 10,
+        paddingVertical: 10,
       }}
     >
-      <View
-        style={{
-          width: 44,
-          height: 44,
-          borderRadius: 22,
-          backgroundColor: "#E2E8F0",
-          alignItems: "center",
-          justifyContent: "center",
-          marginBottom: 8,
-        }}
-      >
-        <Ionicons name={icon} size={20} color="#475569" />
-      </View>
       <Text
         style={{
           fontSize: 13,
-          color: "#334155",
+          fontWeight: "600",
+          color: tone === "danger" ? "#DC2626" : "#334155",
           textAlign: "center",
-          lineHeight: 18,
+          lineHeight: 17,
         }}
       >
         {label}
       </Text>
+    </TouchableOpacity>
+  );
+}
+
+function InfoListItem({
+  icon,
+  iconColor,
+  iconBackground,
+  title,
+  subtitle,
+  onPress,
+  showBorder = false,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  iconColor: string;
+  iconBackground: string;
+  title: string;
+  subtitle: string;
+  onPress: () => void;
+  showBorder?: boolean;
+}) {
+  return (
+    <TouchableOpacity
+      activeOpacity={0.8}
+      onPress={onPress}
+      style={{
+        minHeight: 66,
+        paddingHorizontal: 14,
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        borderBottomWidth: showBorder ? 1 : 0,
+        borderBottomColor: "#E2E8F0",
+      }}
+    >
+      <View style={{ flexDirection: "row", alignItems: "center", flex: 1 }}>
+        <View
+          style={{
+            width: 38,
+            height: 38,
+            borderRadius: 12,
+            backgroundColor: iconBackground,
+            alignItems: "center",
+            justifyContent: "center",
+            marginRight: 12,
+          }}
+        >
+          <Ionicons name={icon} size={18} color={iconColor} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={{ fontSize: 14, fontWeight: "600", color: "#1E293B" }}>
+            {title}
+          </Text>
+          <Text
+            numberOfLines={1}
+            style={{ marginTop: 2, fontSize: 12, color: "#64748B" }}
+          >
+            {subtitle}
+          </Text>
+        </View>
+      </View>
+      <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
     </TouchableOpacity>
   );
 }
@@ -264,8 +316,7 @@ function collectMedia(messages: Message[]): MediaItem[] {
   messages.forEach((message) => {
     if (message.isDeleted) return;
 
-    const list = message.attachments || [];
-    list.forEach((attachment, index) => {
+    (message.attachments || []).forEach((attachment, index) => {
       if (attachment.type !== "image" && attachment.type !== "video") return;
       if (!isHttpUrl(attachment.url)) return;
 
@@ -277,6 +328,8 @@ function collectMedia(messages: Message[]): MediaItem[] {
         id,
         url: attachment.url,
         type: attachment.type,
+        createdAt: message.createdAt,
+        senderName: message.senderName || "Người dùng",
       });
     });
 
@@ -285,14 +338,15 @@ function collectMedia(messages: Message[]): MediaItem[] {
       isHttpUrl(message.content)
     ) {
       const fallbackId = `${message.id}-media-fallback`;
-      if (!seen.has(fallbackId)) {
-        seen.add(fallbackId);
-        output.push({
-          id: fallbackId,
-          url: message.content,
-          type: message.type,
-        });
-      }
+      if (seen.has(fallbackId)) return;
+      seen.add(fallbackId);
+      output.push({
+        id: fallbackId,
+        url: message.content,
+        type: message.type,
+        createdAt: message.createdAt,
+        senderName: message.senderName || "Người dùng",
+      });
     }
   });
 
@@ -306,24 +360,23 @@ function collectFiles(messages: Message[]): FileItem[] {
   messages.forEach((message) => {
     if (message.isDeleted) return;
 
-    const list = message.attachments || [];
-    list.forEach((attachment, index) => {
+    (message.attachments || []).forEach((attachment, index) => {
       if (attachment.type !== "file") return;
       if (!isHttpUrl(attachment.url)) return;
 
-      const name = attachment.name || parseFileName(attachment.url);
-      const extension = parseFileExtension(name);
       const id = `${message.id}-file-${index}`;
       if (seen.has(id)) return;
       seen.add(id);
 
+      const name = attachment.name || parseFileName(attachment.url);
       output.push({
         id,
         name,
         url: attachment.url,
         size: attachment.size,
         createdAt: message.createdAt,
-        extension,
+        extension: parseFileExtension(name),
+        senderName: message.senderName || "Người dùng",
       });
     });
 
@@ -339,6 +392,7 @@ function collectFiles(messages: Message[]): FileItem[] {
         url: message.content,
         createdAt: message.createdAt,
         extension: parseFileExtension(fileName),
+        senderName: message.senderName || "Người dùng",
       });
     }
   });
@@ -370,6 +424,7 @@ function collectLinks(messages: Message[]): LinkItem[] {
         url: normalized,
         host: getHost(normalized),
         createdAt: message.createdAt,
+        senderName: message.senderName || "Người dùng",
       });
     });
   });
@@ -380,10 +435,8 @@ function collectLinks(messages: Message[]): LinkItem[] {
 export default function ConversationInfoScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { conversationId } = useLocalSearchParams<{
-    conversationId?: string;
-  }>();
-
+  const headerTopPadding = insets.top + 8;
+  const { conversationId } = useLocalSearchParams<{ conversationId?: string }>();
   const { user } = useAuthStore();
   const { conversations, messages, updateConversation } = useChatStore();
 
@@ -394,19 +447,18 @@ export default function ConversationInfoScreen() {
     [conversations, id],
   );
 
-  const convMessages = useMemo<Message[]>(() => {
-    return (messages as Record<string, Message[]>)[id] || [];
-  }, [messages, id]);
+  const convMessages = useMemo<Message[]>(
+    () => (messages as Record<string, Message[]>)[id] || [],
+    [messages, id],
+  );
 
   useEffect(() => {
     if (!id || convMessages.length > 0) return;
-
     chatService.loadMessages(id).catch(() => null);
   }, [convMessages.length, id]);
 
   const otherParticipant = useMemo(() => {
     if (!conversation || !user?.id) return undefined;
-
     return conversation.participants.find(
       (participant) => String(participant.userId) !== String(user.id),
     );
@@ -414,7 +466,6 @@ export default function ConversationInfoScreen() {
 
   const currentParticipant = useMemo(() => {
     if (!conversation || !user?.id) return undefined;
-
     return conversation.participants.find(
       (participant) => String(participant.userId) === String(user.id),
     );
@@ -432,7 +483,6 @@ export default function ConversationInfoScreen() {
 
     return conversations.filter((item) => {
       if (item.type !== "group") return false;
-
       const participantIds = item.participants.map((participant) =>
         String(participant.userId),
       );
@@ -453,10 +503,15 @@ export default function ConversationInfoScreen() {
       ? conversation.avatarUrl
       : otherParticipant?.avatarUrl;
 
+  const subtitle =
+    conversation?.type === "group"
+      ? `${conversation.participants.length} thành viên`
+      : "Trò chuyện riêng tư";
+
   const isMuted = currentParticipant?.isMuted ?? false;
   const isPinned =
     currentParticipant?.isPinned ?? conversation?.isPinned ?? false;
-  const muteUntil = currentParticipant?.muteUntil ?? null;
+
   const [isUpdatingMute, setIsUpdatingMute] = useState(false);
   const [isUpdatingPin, setIsUpdatingPin] = useState(false);
   const [isSummarizing, setIsSummarizing] = useState(false);
@@ -467,14 +522,36 @@ export default function ConversationInfoScreen() {
   const [showMedia, setShowMedia] = useState(true);
   const [showFiles, setShowFiles] = useState(true);
   const [showLinks, setShowLinks] = useState(true);
+  const [showAllInfoItems, setShowAllInfoItems] = useState<
+    Record<SectionKey, boolean>
+  >({
+    media: false,
+    files: false,
+    links: false,
+  });
+
+  useEffect(() => {
+    setShowMedia(true);
+    setShowFiles(true);
+    setShowLinks(true);
+    setShowAllInfoItems({
+      media: false,
+      files: false,
+      links: false,
+    });
+  }, [id]);
 
   const mediaItems = useMemo(() => collectMedia(convMessages), [convMessages]);
   const fileItems = useMemo(() => collectFiles(convMessages), [convMessages]);
   const linkItems = useMemo(() => collectLinks(convMessages), [convMessages]);
 
-  const mediaPreview = mediaItems.slice(0, 9);
-  const filePreview = fileItems.slice(0, 3);
-  const linkPreview = linkItems.slice(0, 3);
+  const visibleMedia = showAllInfoItems.media ? mediaItems : mediaItems.slice(0, 6);
+  const visibleFiles = showAllInfoItems.files ? fileItems : fileItems.slice(0, 4);
+  const visibleLinks = showAllInfoItems.links ? linkItems : linkItems.slice(0, 4);
+
+  const toggleShowAllInfoItems = (key: SectionKey) => {
+    setShowAllInfoItems((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
 
   const openLink = async (url: string) => {
     try {
@@ -490,9 +567,8 @@ export default function ConversationInfoScreen() {
     const liveConversation =
       useChatStore
         .getState()
-        .conversations.find(
-          (item) => String(item.id) === String(conversation.id),
-        ) || conversation;
+        .conversations.find((item) => String(item.id) === String(conversation.id)) ||
+      conversation;
 
     updateConversation(conversation.id, {
       ...(Object.prototype.hasOwnProperty.call(updates, "isPinned")
@@ -508,7 +584,7 @@ export default function ConversationInfoScreen() {
 
   const updateMuteSetting = async ({
     isMuted: nextMuted,
-    muteUntil: nextMuteUntil,
+    muteUntil,
     successMessage,
   }: {
     isMuted: boolean;
@@ -519,20 +595,14 @@ export default function ConversationInfoScreen() {
 
     try {
       setIsUpdatingMute(true);
-      await conversationService.updateParticipantSetting(
-        conversation.id,
-        user.id,
-        {
-          isMuted: nextMuted,
-          muteUntil: nextMuteUntil,
-        },
-      );
-      patchCurrentParticipant({ isMuted: nextMuted, muteUntil: nextMuteUntil });
+      await conversationService.updateParticipantSetting(conversation.id, user.id, {
+        isMuted: nextMuted,
+        muteUntil,
+      });
+      patchCurrentParticipant({ isMuted: nextMuted, muteUntil });
       GrayToast(successMessage);
     } catch {
-      GrayToast(
-        nextMuted ? "Không thể tắt thông báo" : "Không thể bật thông báo",
-      );
+      GrayToast(nextMuted ? "Không thể tắt thông báo" : "Không thể bật thông báo");
     } finally {
       setIsUpdatingMute(false);
     }
@@ -545,35 +615,30 @@ export default function ConversationInfoScreen() {
       void updateMuteSetting({
         isMuted: false,
         muteUntil: null,
-        successMessage: "Đã bật thông báo",
+        successMessage: "Đã tắt thông báo",
       });
       return;
     }
 
     Alert.alert(
       "Tắt thông báo",
-      "Chọn thời gian tắt thông báo cho cuộc trò chuyện này",
+      "Chọn thời gian tắt thông báo cho hội thoại này",
       [
         ...MUTE_OPTIONS.map((option) => ({
           text: option.label,
           onPress: () => {
             const nextMuteUntil = option.getUntil();
-            const successMessage =
-              option.id === "forever"
-                ? "Đã tắt thông báo cho đến khi bật lại"
-                : `Đã tắt thông báo ${option.label.toLowerCase()}`;
-
             void updateMuteSetting({
               isMuted: true,
               muteUntil: nextMuteUntil,
-              successMessage,
+              successMessage:
+                option.id === "forever"
+                  ? "Đã tắt thông báo cho đến khi được mở lại."
+                  : `Đã tắt thông báo ${option.label.toLowerCase()}`,
             });
           },
         })),
-        {
-          text: "Hủy",
-          style: "cancel",
-        },
+        { text: "Hủy", style: "cancel" as const },
       ],
       { cancelable: true },
     );
@@ -619,13 +684,14 @@ export default function ConversationInfoScreen() {
 
   if (!id || !conversation) {
     return (
-      <SafeAreaView className="flex-1 bg-[#ECEEF3]" edges={["top", "bottom"]}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: "#ECEEF3" }} edges={["bottom"]}>
         <View
           style={{
             flex: 1,
             alignItems: "center",
             justifyContent: "center",
             paddingHorizontal: 24,
+            paddingTop: headerTopPadding,
           }}
         >
           <Text style={{ fontSize: 16, color: "#64748B", textAlign: "center" }}>
@@ -649,11 +715,13 @@ export default function ConversationInfoScreen() {
   }
 
   return (
-    <SafeAreaView className="flex-1 bg-[#ECEEF3]" edges={["top", "bottom"]}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: "#ECEEF3" }} edges={["bottom"]}>
       <View
         style={{
-          height: 56 + Math.max(insets.top, 0),
-          paddingTop: Math.max(insets.top, 0),
+          minHeight: 56 + headerTopPadding,
+          paddingTop: headerTopPadding,
+          paddingBottom: 10,
+          paddingHorizontal: 12,
           backgroundColor: "#FFFFFF",
           borderBottomWidth: 1,
           borderBottomColor: "#E2E8F0",
@@ -664,9 +732,10 @@ export default function ConversationInfoScreen() {
       >
         <TouchableOpacity
           onPress={() => router.back()}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
           style={{
             position: "absolute",
-            left: 8,
+            left: 12,
             bottom: 10,
             width: 36,
             height: 36,
@@ -676,55 +745,51 @@ export default function ConversationInfoScreen() {
         >
           <Ionicons name="arrow-back" size={22} color="#1E293B" />
         </TouchableOpacity>
-        <Text style={{ fontSize: 25 / 2, fontWeight: "700", color: "#1E293B" }}>
+        <Text style={{ fontSize: 20, fontWeight: "700", color: "#1E293B" }}>
           Thông tin hội thoại
         </Text>
       </View>
 
       <ScrollView
-        className="flex-1"
+        style={{ flex: 1 }}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 24) }}
+        contentContainerStyle={{
+          paddingHorizontal: 12,
+          paddingTop: 12,
+          paddingBottom: Math.max(insets.bottom, 24),
+        }}
       >
         <View
           style={{
-            marginTop: 8,
             backgroundColor: "#FFFFFF",
-            borderTopWidth: 1,
-            borderBottomWidth: 1,
+            borderWidth: 1,
             borderColor: "#E2E8F0",
-            paddingVertical: 14,
+            borderRadius: 24,
+            paddingHorizontal: 16,
+            paddingVertical: 18,
           }}
         >
           <View style={{ alignItems: "center" }}>
-            <Avatar name={displayName} uri={displayAvatar} size={70} />
-            <View
+            <Avatar name={displayName} uri={displayAvatar} size={80} />
+            <Text
               style={{
-                flexDirection: "row",
-                alignItems: "center",
-                marginTop: 10,
-                gap: 6,
+                marginTop: 12,
+                fontSize: 22,
+                fontWeight: "700",
+                color: "#0F172A",
               }}
             >
-              <Text
-                style={{ fontSize: 18, fontWeight: "700", color: "#0F172A" }}
-              >
-                {displayName}
-              </Text>
-              <TouchableOpacity
-                onPress={() => GrayToast("Tính năng đổi tên đang phát triển")}
-                style={{
-                  width: 24,
-                  height: 24,
-                  borderRadius: 12,
-                  backgroundColor: "#E2E8F0",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                <Ionicons name="create-outline" size={14} color="#334155" />
-              </TouchableOpacity>
-            </View>
+              {displayName}
+            </Text>
+            <Text
+              style={{
+                marginTop: 4,
+                fontSize: 13,
+                color: "#64748B",
+              }}
+            >
+              {subtitle}
+            </Text>
           </View>
 
           <View
@@ -732,334 +797,183 @@ export default function ConversationInfoScreen() {
               marginTop: 18,
               flexDirection: "row",
               justifyContent: "space-between",
-              paddingHorizontal: 12,
             }}
           >
             <ActionItem
-              icon="notifications-off-outline"
-              label="Tắt thông báo"
+              label={isMuted ? "Bật thông báo" : "Tắt thông báo"}
               onPress={handleMutePress}
             />
             <ActionItem
-              icon="pin-outline"
-              label="Ghim hội thoại"
+              label={isPinned ? "Bỏ ghim" : "Ghim hội thoại"}
               onPress={() => {
                 void handlePinPress();
               }}
             />
             <ActionItem
-              icon="sparkles-outline"
-              label={isSummarizing ? "Đang tóm tắt" : "Tóm tắt hôm nay"}
-              onPress={() => {
-                void handleSummarizeToday();
-              }}
-              disabled={isSummarizing}
-            />
-            <ActionItem
-              icon="people-outline"
-              label="Tạo nhóm trò chuyện"
-              onPress={() => {
-                if (conversation.type === "group") {
-                  GrayToast("Đây đã là nhóm trò chuyện");
-                  return;
-                }
-                GrayToast("Tính năng đang phát triển");
-              }}
+              label={conversation.type === "group" ? "Quản lý nhóm" : "Tạo nhóm chat"}
+              onPress={() => GrayToast("Tính năng đang phát triển")}
             />
           </View>
         </View>
 
         <View
           style={{
-            marginTop: 8,
+            marginTop: 12,
             backgroundColor: "#FFFFFF",
-            borderTopWidth: 1,
-            borderBottomWidth: 1,
+            borderWidth: 1,
             borderColor: "#E2E8F0",
+            borderRadius: 24,
+            overflow: "hidden",
           }}
         >
-          <TouchableOpacity
-            activeOpacity={0.8}
+          <InfoListItem
+            icon="time-outline"
+            iconColor="#2563EB"
+            iconBackground="#DBEAFE"
+            title="Nhắc hẹn"
+            subtitle="Tạo lời nhắc trong đoạn chat"
             onPress={() => GrayToast("Tính năng đang phát triển")}
-            style={{
-              minHeight: 50,
-              paddingHorizontal: 14,
-              flexDirection: "row",
-              alignItems: "center",
-              borderBottomWidth: 1,
-              borderBottomColor: "#E2E8F0",
-              gap: 10,
-            }}
-          >
-            <Ionicons name="time-outline" size={19} color="#334155" />
-            <Text style={{ color: "#1E293B", fontSize: 16 }}>
-              Danh sách nhắc hẹn
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            activeOpacity={0.8}
+            showBorder
+          />
+          <InfoListItem
+            icon="people-outline"
+            iconColor="#2563EB"
+            iconBackground="#DBEAFE"
+            title="Nhóm chat chung"
+            subtitle={
+              conversation.type === "group"
+                ? "Cuộc trò chuyện nhóm hiện tại"
+                : `${commonGroupCount} nhóm chung`
+            }
             onPress={() => GrayToast("Tính năng đang phát triển")}
-            style={{
-              minHeight: 50,
-              paddingHorizontal: 14,
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 10,
-            }}
-          >
-            <Ionicons name="people-outline" size={19} color="#334155" />
-            <Text style={{ color: "#1E293B", fontSize: 16 }}>
-              {commonGroupCount} nhóm chung
-            </Text>
-          </TouchableOpacity>
+          />
         </View>
 
         <View
           style={{
-            marginTop: 8,
+            marginTop: 12,
             backgroundColor: "#FFFFFF",
-            borderTopWidth: 1,
-            borderBottomWidth: 1,
+            borderWidth: 1,
             borderColor: "#E2E8F0",
+            borderRadius: 24,
+            overflow: "hidden",
           }}
         >
           <SectionHeader
+            icon="images-outline"
             title="Ảnh/Video"
+            count={mediaItems.length}
             expanded={showMedia}
             onToggle={() => setShowMedia((prev) => !prev)}
           />
 
           {showMedia ? (
-            <>
-              <View style={{ paddingHorizontal: 12, paddingBottom: 10 }}>
-                {mediaPreview.length ? (
-                  <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
-                    {mediaPreview.map((item) => (
-                      <TouchableOpacity
-                        key={item.id}
-                        activeOpacity={0.85}
-                        onPress={() =>
-                          GrayToast("Tính năng xem media đang phát triển")
-                        }
-                        style={{
-                          width: "33.33%",
-                          padding: 3,
-                        }}
-                      >
-                        <View
-                          style={{
-                            borderRadius: 8,
-                            overflow: "hidden",
-                            backgroundColor: "#CBD5E1",
-                            aspectRatio: 1,
-                          }}
-                        >
-                          <Image
-                            source={{ uri: item.url }}
-                            style={{ width: "100%", height: "100%" }}
-                            resizeMode="cover"
-                          />
-                          {item.type === "video" ? (
-                            <View
-                              style={{
-                                position: "absolute",
-                                top: 0,
-                                right: 0,
-                                bottom: 0,
-                                left: 0,
-                                alignItems: "center",
-                                justifyContent: "center",
-                              }}
-                            >
-                              <View
-                                style={{
-                                  width: 30,
-                                  height: 30,
-                                  borderRadius: 15,
-                                  backgroundColor: "rgba(15,23,42,0.55)",
-                                  alignItems: "center",
-                                  justifyContent: "center",
-                                }}
-                              >
-                                <Ionicons name="play" size={16} color="#fff" />
-                              </View>
-                            </View>
-                          ) : null}
-                        </View>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                ) : (
-                  <Text style={{ color: "#64748B", paddingVertical: 6 }}>
-                    Chưa có ảnh/video
-                  </Text>
-                )}
-              </View>
-
-              <View style={{ paddingHorizontal: 12, paddingBottom: 12 }}>
-                <TouchableOpacity
-                  activeOpacity={0.85}
-                  onPress={() =>
-                    GrayToast("Tính năng xem toàn bộ media đang phát triển")
-                  }
+            <View style={{ paddingHorizontal: 12, paddingTop: 12, paddingBottom: 12 }}>
+              {visibleMedia.length === 0 ? (
+                <Text style={{ color: "#64748B", fontSize: 12 }}>
+                  Chưa có ảnh hoặc video được chia sẻ.
+                </Text>
+              ) : (
+                <View
                   style={{
-                    height: 42,
-                    borderRadius: 7,
-                    backgroundColor: "#E5E7EB",
-                    alignItems: "center",
-                    justifyContent: "center",
+                    flexDirection: "row",
+                    flexWrap: "wrap",
+                    justifyContent: "space-between",
                   }}
                 >
-                  <Text
-                    style={{
-                      fontSize: 24 / 2,
-                      fontWeight: "700",
-                      color: "#1E293B",
-                    }}
-                  >
-                    Xem tất cả
+                  {visibleMedia.map((item) => (
+                    <TouchableOpacity
+                      key={item.id}
+                      activeOpacity={0.85}
+                      onPress={() => openLink(item.url)}
+                      style={{
+                        width: "31.8%",
+                        marginBottom: 8,
+                      }}
+                    >
+                      <View
+                        style={{
+                          borderRadius: 14,
+                          overflow: "hidden",
+                          backgroundColor: "#CBD5E1",
+                          aspectRatio: 1,
+                        }}
+                      >
+                        <Image
+                          source={{ uri: item.url }}
+                          style={{ width: "100%", height: "100%" }}
+                          resizeMode="cover"
+                        />
+                        {item.type === "video" ? (
+                          <View
+                            style={{
+                              position: "absolute",
+                              right: 8,
+                              bottom: 8,
+                              paddingHorizontal: 8,
+                              paddingVertical: 4,
+                              borderRadius: 999,
+                              backgroundColor: "rgba(15,23,42,0.72)",
+                            }}
+                          >
+                            <Text style={{ color: "#fff", fontSize: 10, fontWeight: "700" }}>
+                              Video
+                            </Text>
+                          </View>
+                        ) : null}
+                      </View>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+
+              {mediaItems.length > 6 ? (
+                <TouchableOpacity
+                  activeOpacity={0.85}
+                  onPress={() => toggleShowAllInfoItems("media")}
+                  style={{ marginTop: 4, alignSelf: "flex-start" }}
+                >
+                  <Text style={{ fontSize: 13, fontWeight: "600", color: "#2563EB" }}>
+                    {showAllInfoItems.media ? "Thu gọn" : "Xem tất cả"}
                   </Text>
                 </TouchableOpacity>
-              </View>
-            </>
+              ) : null}
+            </View>
           ) : null}
         </View>
 
         <View
           style={{
-            marginTop: 8,
+            marginTop: 12,
             backgroundColor: "#FFFFFF",
-            borderTopWidth: 1,
-            borderBottomWidth: 1,
+            borderWidth: 1,
             borderColor: "#E2E8F0",
+            borderRadius: 24,
+            overflow: "hidden",
           }}
         >
           <SectionHeader
+            icon="document-text-outline"
             title="File"
+            count={fileItems.length}
             expanded={showFiles}
             onToggle={() => setShowFiles((prev) => !prev)}
           />
 
           {showFiles ? (
-            <>
-              <View style={{ paddingHorizontal: 12, paddingBottom: 10 }}>
-                {filePreview.length ? (
-                  filePreview.map((item) => {
-                    const badge = getFileBadge(item.extension);
-                    return (
-                      <TouchableOpacity
-                        key={item.id}
-                        activeOpacity={0.8}
-                        onPress={() => openLink(item.url)}
-                        style={{
-                          flexDirection: "row",
-                          alignItems: "center",
-                          paddingVertical: 8,
-                        }}
-                      >
-                        <View
-                          style={{
-                            width: 40,
-                            height: 40,
-                            borderRadius: 8,
-                            backgroundColor: badge.boxColor,
-                            alignItems: "center",
-                            justifyContent: "center",
-                            marginRight: 10,
-                          }}
-                        >
-                          <Text
-                            style={{
-                              color: badge.iconColor,
-                              fontWeight: "800",
-                              fontSize: 12,
-                            }}
-                          >
-                            {badge.label}
-                          </Text>
-                        </View>
+            <View style={{ paddingHorizontal: 12, paddingTop: 12, paddingBottom: 12 }}>
+              {visibleFiles.length === 0 ? (
+                <Text style={{ color: "#64748B", fontSize: 12 }}>
+                  Chưa có tệp được chia sẻ.
+                </Text>
+              ) : (
+                visibleFiles.map((item) => {
+                  const badge = getFileBadge(item.extension);
+                  const fileMeta = [formatDate(item.createdAt), formatFileSize(item.size), item.senderName]
+                    .filter(Boolean)
+                    .join(" • ");
 
-                        <View style={{ flex: 1, paddingRight: 8 }}>
-                          <Text
-                            numberOfLines={1}
-                            style={{ color: "#1E293B", fontWeight: "600" }}
-                          >
-                            {item.name}
-                          </Text>
-                          <Text
-                            style={{
-                              marginTop: 3,
-                              color: "#64748B",
-                              fontSize: 13,
-                            }}
-                          >
-                            {formatFileSize(item.size)}
-                          </Text>
-                        </View>
-
-                        <Text style={{ color: "#64748B", fontSize: 13 }}>
-                          {formatDate(item.createdAt)}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })
-                ) : (
-                  <Text style={{ color: "#64748B", paddingVertical: 6 }}>
-                    Chưa có file
-                  </Text>
-                )}
-              </View>
-
-              <View style={{ paddingHorizontal: 12, paddingBottom: 12 }}>
-                <TouchableOpacity
-                  activeOpacity={0.85}
-                  onPress={() =>
-                    GrayToast("Tính năng xem toàn bộ file đang phát triển")
-                  }
-                  style={{
-                    height: 42,
-                    borderRadius: 7,
-                    backgroundColor: "#E5E7EB",
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                >
-                  <Text
-                    style={{
-                      fontSize: 24 / 2,
-                      fontWeight: "700",
-                      color: "#1E293B",
-                    }}
-                  >
-                    Xem tất cả
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            </>
-          ) : null}
-        </View>
-
-        <View
-          style={{
-            marginTop: 8,
-            backgroundColor: "#FFFFFF",
-            borderTopWidth: 1,
-            borderBottomWidth: 1,
-            borderColor: "#E2E8F0",
-          }}
-        >
-          <SectionHeader
-            title="Link"
-            expanded={showLinks}
-            onToggle={() => setShowLinks((prev) => !prev)}
-          />
-
-          {showLinks ? (
-            <>
-              <View style={{ paddingHorizontal: 12, paddingBottom: 10 }}>
-                {linkPreview.length ? (
-                  linkPreview.map((item) => (
+                  return (
                     <TouchableOpacity
                       key={item.id}
                       activeOpacity={0.8}
@@ -1067,157 +981,163 @@ export default function ConversationInfoScreen() {
                       style={{
                         flexDirection: "row",
                         alignItems: "center",
-                        paddingVertical: 8,
+                        paddingHorizontal: 10,
+                        paddingVertical: 10,
+                        borderRadius: 16,
+                        backgroundColor: "#F8FAFC",
+                        marginBottom: 8,
                       }}
                     >
                       <View
                         style={{
                           width: 40,
                           height: 40,
-                          borderRadius: 8,
-                          backgroundColor: "#E2E8F0",
+                          borderRadius: 10,
+                          backgroundColor: badge.boxColor,
                           alignItems: "center",
                           justifyContent: "center",
                           marginRight: 10,
                         }}
                       >
-                        <Ionicons
-                          name="link-outline"
-                          size={18}
-                          color="#475569"
-                        />
-                      </View>
-
-                      <View style={{ flex: 1, paddingRight: 8 }}>
                         <Text
-                          numberOfLines={1}
-                          style={{ color: "#1E293B", fontWeight: "600" }}
-                        >
-                          {item.host}
-                        </Text>
-                        <Text
-                          numberOfLines={1}
                           style={{
-                            marginTop: 3,
-                            color: "#2563EB",
-                            fontSize: 13,
+                            color: badge.iconColor,
+                            fontWeight: "800",
+                            fontSize: 12,
                           }}
                         >
-                          {item.url}
+                          {badge.label}
                         </Text>
                       </View>
 
-                      <Text style={{ color: "#64748B", fontSize: 13 }}>
-                        {formatDate(item.createdAt)}
-                      </Text>
+                      <View style={{ flex: 1 }}>
+                        <Text
+                          numberOfLines={1}
+                          style={{ color: "#1E293B", fontWeight: "600", fontSize: 14 }}
+                        >
+                          {item.name}
+                        </Text>
+                        <Text
+                          numberOfLines={1}
+                          style={{ marginTop: 3, color: "#64748B", fontSize: 12 }}
+                        >
+                          {fileMeta}
+                        </Text>
+                      </View>
                     </TouchableOpacity>
-                  ))
-                ) : (
-                  <Text style={{ color: "#64748B", paddingVertical: 6 }}>
-                    Chưa có liên kết
-                  </Text>
-                )}
-              </View>
+                  );
+                })
+              )}
 
-              <View style={{ paddingHorizontal: 12, paddingBottom: 12 }}>
+              {fileItems.length > 4 ? (
                 <TouchableOpacity
                   activeOpacity={0.85}
-                  onPress={() =>
-                    GrayToast("Tính năng xem toàn bộ liên kết đang phát triển")
-                  }
-                  style={{
-                    height: 42,
-                    borderRadius: 7,
-                    backgroundColor: "#E5E7EB",
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
+                  onPress={() => toggleShowAllInfoItems("files")}
+                  style={{ marginTop: 4, alignSelf: "flex-start" }}
                 >
-                  <Text
-                    style={{
-                      fontSize: 24 / 2,
-                      fontWeight: "700",
-                      color: "#1E293B",
-                    }}
-                  >
-                    Xem tất cả
+                  <Text style={{ fontSize: 13, fontWeight: "600", color: "#2563EB" }}>
+                    {showAllInfoItems.files ? "Thu gọn" : "Xem tất cả"}
                   </Text>
                 </TouchableOpacity>
-              </View>
-            </>
+              ) : null}
+            </View>
           ) : null}
         </View>
 
         <View
           style={{
-            marginTop: 8,
+            marginTop: 12,
             backgroundColor: "#FFFFFF",
-            borderTopWidth: 1,
-            borderBottomWidth: 1,
+            borderWidth: 1,
             borderColor: "#E2E8F0",
-            paddingHorizontal: 14,
-            paddingVertical: 12,
+            borderRadius: 24,
+            overflow: "hidden",
           }}
         >
-          <View
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              justifyContent: "space-between",
-            }}
-          >
-            <View style={{ flex: 1, paddingRight: 12 }}>
-              <Text
-                style={{ color: "#1E293B", fontSize: 15, fontWeight: "600" }}
-              >
-                Tắt thông báo
-              </Text>
-              <Text style={{ marginTop: 2, color: "#64748B", fontSize: 12 }}>
-                {isMuted
-                  ? formatMuteUntilLabel(muteUntil)
-                  : "Đang bật thông báo"}
-              </Text>
-            </View>
-            <Switch
-              value={isMuted}
-              onValueChange={handleMutePress}
-              disabled={isUpdatingMute}
-              trackColor={{ false: "#CBD5E1", true: "#93C5FD" }}
-              thumbColor="#fff"
-            />
-          </View>
+          <SectionHeader
+            icon="link-outline"
+            title="Link"
+            count={linkItems.length}
+            expanded={showLinks}
+            onToggle={() => setShowLinks((prev) => !prev)}
+          />
 
-          <View
-            style={{
-              marginTop: 12,
-              flexDirection: "row",
-              alignItems: "center",
-              justifyContent: "space-between",
-            }}
-          >
-            <View style={{ flex: 1, paddingRight: 12 }}>
-              <Text
-                style={{ color: "#1E293B", fontSize: 15, fontWeight: "600" }}
-              >
-                Ghim hội thoại
-              </Text>
-              <Text style={{ marginTop: 2, color: "#64748B", fontSize: 12 }}>
-                {isPinned ? "Đang ghim" : "Chưa ghim"}
-              </Text>
+          {showLinks ? (
+            <View style={{ paddingHorizontal: 12, paddingTop: 12, paddingBottom: 12 }}>
+              {visibleLinks.length === 0 ? (
+                <Text style={{ color: "#64748B", fontSize: 12 }}>
+                  Chưa có liên kết được chia sẻ.
+                </Text>
+              ) : (
+                visibleLinks.map((item) => {
+                  const linkMeta = [item.host, formatDate(item.createdAt), item.senderName]
+                    .filter(Boolean)
+                    .join(" • ");
+
+                  return (
+                    <TouchableOpacity
+                      key={item.id}
+                      activeOpacity={0.8}
+                      onPress={() => openLink(item.url)}
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "flex-start",
+                        paddingHorizontal: 10,
+                        paddingVertical: 10,
+                        borderRadius: 16,
+                        backgroundColor: "#F8FAFC",
+                        marginBottom: 8,
+                      }}
+                    >
+                      <View
+                        style={{
+                          width: 40,
+                          height: 40,
+                          borderRadius: 10,
+                          backgroundColor: "#DBEAFE",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          marginRight: 10,
+                        }}
+                      >
+                        <Ionicons name="link-outline" size={18} color="#2563EB" />
+                      </View>
+
+                      <View style={{ flex: 1 }}>
+                        <Text
+                          numberOfLines={1}
+                          style={{ color: "#1E293B", fontWeight: "600", fontSize: 14 }}
+                        >
+                          {item.url}
+                        </Text>
+                        <Text
+                          numberOfLines={1}
+                          style={{ marginTop: 3, color: "#64748B", fontSize: 12 }}
+                        >
+                          {linkMeta}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })
+              )}
+
+              {linkItems.length > 4 ? (
+                <TouchableOpacity
+                  activeOpacity={0.85}
+                  onPress={() => toggleShowAllInfoItems("links")}
+                  style={{ marginTop: 4, alignSelf: "flex-start" }}
+                >
+                  <Text style={{ fontSize: 13, fontWeight: "600", color: "#2563EB" }}>
+                    {showAllInfoItems.links ? "Thu gọn" : "Xem tất cả"}
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
             </View>
-            <Switch
-              value={isPinned}
-              onValueChange={() => {
-                void handlePinPress();
-              }}
-              disabled={isUpdatingPin}
-              trackColor={{ false: "#CBD5E1", true: "#93C5FD" }}
-              thumbColor="#fff"
-            />
-          </View>
+          ) : null}
         </View>
 
-        <View style={{ height: 16 }} />
+        <View style={{ height: 4 }} />
       </ScrollView>
 
       <Modal

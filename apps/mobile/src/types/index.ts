@@ -86,7 +86,37 @@ export interface LoginHistoryItem {
 // ========================
 // Message
 // ========================
-export type MessageType = "text" | "image" | "video" | "file" | "voice" | "sticker" | "call" | "system";
+export type MessageType = "text" | "image" | "video" | "file" | "voice" | "sticker" | "call" | "system" | "poll";
+
+export interface PollOption {
+  id: string;
+  text: string;
+  createdBy: string;
+  createdAt: string;
+}
+
+export interface PollVote {
+  userId: string;
+  optionIds: string[];
+  votedAt: string;
+}
+
+export interface PollSettings {
+  anonymousVoters: boolean;
+  hideResultsUntilVote: boolean;
+  allowMultipleChoices: boolean;
+  allowAddOptions: boolean;
+  expiresAt: string | null;
+}
+
+export interface PollContent {
+  question: string;
+  options: PollOption[];
+  settings: PollSettings;
+  votes: PollVote[];
+  createdBy: string;
+  createdAt: string;
+}
 
 export interface MessageReaction {
   emoji: string;
@@ -156,6 +186,7 @@ export interface GroupSettings {
     code: string;
     approvalRequired: boolean;
   };
+  joinRequests?: any[];
   permissions: {
     sendMedia: GroupPermissionScope;
     pinMessage: GroupPermissionScope;
@@ -168,7 +199,7 @@ export interface Participant {
   userId: string;
   fullName: string;
   avatarUrl: string | null;
-  role: "admin" | "member";
+  role: "admin" | "deputy" | "member";
   joinedAt: string;
   nickname?: string;
   isPinned?: boolean;
@@ -183,6 +214,7 @@ export interface Conversation {
   type: ConversationType;
   name: string | null; // null for private, group name for group
   avatarUrl: string | null;
+  avatar?: string | null;
   background?: string;
   participants: Participant[];
   groupSettings?: GroupSettings;

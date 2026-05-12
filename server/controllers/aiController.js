@@ -141,4 +141,4 @@ module.exports = {
   getAssistantHistory,
   deleteAssistantConversationHistory,
   summarizeConversation,
-};
+};

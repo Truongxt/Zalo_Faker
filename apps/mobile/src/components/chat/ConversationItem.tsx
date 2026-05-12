@@ -28,7 +28,9 @@ const getConversationName = (conversation: Conversation, currentUserId: string) 
 };
 
 const getConversationAvatar = (conversation: Conversation, currentUserId: string) => {
-  if (conversation.type === "group") return conversation.avatarUrl;
+  if (conversation.type === "group") {
+    return conversation.avatarUrl || conversation.avatar || null;
+  }
   const partner = conversation.participants?.find(
     (p) => String(p.userId) !== String(currentUserId),
   );
@@ -93,11 +95,11 @@ const parseCallPayload = (value: unknown): ParsedCallPayload | null => {
 
 const getCallPreviewText = (payload: ParsedCallPayload) => {
   const suffix = payload.callType === "video" ? " video" : "";
-  if (payload.status === "finished") return `Cuoc goi${suffix}`;
-  if (payload.status === "missed") return `Cuoc goi nho${suffix}`;
-  if (payload.status === "rejected") return "Cuoc goi bi tu choi";
-  if (payload.status === "cancelled") return "Cuoc goi da huy";
-  return payload.callType === "video" ? "Cuoc goi video" : "Cuoc goi";
+  if (payload.status === "finished") return `Cuộc gọi${suffix}`;
+  if (payload.status === "missed") return `Cuộc gọi nhỡ${suffix}`;
+  if (payload.status === "rejected") return "Cuộc gọi bị từ chối";
+  if (payload.status === "cancelled") return "Cuộc gọi đã hủy";
+  return payload.callType === "video" ? "Cuộc gọi video" : "Cuộc gọi";
 };
 
 const extractTextContent = (content: unknown): string => {

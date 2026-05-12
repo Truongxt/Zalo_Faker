@@ -13,6 +13,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Header } from "@/components/ui";
 import { Colors } from "@/constants/colors";
 import { socketService } from "@/lib/socket";
+import { groupCallInviteStore } from "@/lib/groupCallInviteStore";
 import { useAuthStore } from "@/stores/authStore";
 
 type MenuItem = {
@@ -26,6 +27,16 @@ const MENU_ITEMS: MenuItem[] = [
     icon: "person-add-outline",
     label: "Thêm bạn",
     route: "/friends/add",
+  },
+  {
+    icon: "phone-portrait-outline",
+    label: "Gợi ý từ danh bạ",
+    route: "/friends/suggestions",
+  },
+  {
+    icon: "people-outline",
+    label: "Tạo nhóm",
+    route: "/group/create",
   },
 ];
 
@@ -66,19 +77,37 @@ export default function TabsLayout() {
 
       const callerName = data?.callerName || "Nguoi dung";
       const callTypeLabel = data?.callType === "video" ? "video" : "thoai";
+      const isGroupCall = data?.isGroupCall === true;
+      const conversationId = String(data?.conversationId || "");
+      const roomId = String(data?.roomId || "");
+
+      if (isGroupCall && conversationId && roomId) {
+        groupCallInviteStore.set({
+          conversationId,
+          roomId,
+          callType: data?.callType === "video" ? "video" : "audio",
+          hostUserId: String(data?.hostUserId || data?.fromUserId || ""),
+          callerName: String(callerName || ""),
+          callerAvatar: data?.callerAvatar || null,
+          updatedAt: Date.now(),
+        });
+      }
 
       Alert.alert(
         "Cuoc goi den",
-        `${callerName} dang goi ${callTypeLabel} cho ban`,
+        `${callerName} dang goi ${callTypeLabel} cho ban${isGroupCall ? " trong nhom" : ""}`,
         [
           {
             text: "Tu choi",
             style: "cancel",
             onPress: () => {
-              socketService.emit("video:reject-call", {
-                toUserId: data?.fromUserId,
-                conversationId: data?.conversationId,
-              });
+              if (!isGroupCall) {
+                socketService.emit("video:reject-call", {
+                  toUserId: data?.fromUserId,
+                  conversationId: data?.conversationId,
+                  isGroupCall: false,
+                });
+              }
               incomingHandledRef.current = null;
             },
           },
@@ -91,15 +120,17 @@ export default function TabsLayout() {
                 params: {
                   callId,
                   callType: data?.callType || "audio",
-                  conversationId: String(data?.conversationId || ""),
-                  fromUserId: String(data?.fromUserId || ""),
+                  conversationId,
+                  fromUserId: String(data?.fromUserId || data?.hostUserId || ""),
                   toUserId: String(user.id),
                   toUserName: user.fullName || "",
                   toUserAvatar: user.avatarUrl || "",
                   callerName: callerName,
                   callerAvatar: data?.callerAvatar || "",
                   isCaller: "false",
-                  autoAccept: "true",
+                  autoAccept: isGroupCall ? "false" : "true",
+                  isGroupCall: isGroupCall ? "true" : "false",
+                  roomId,
                 },
               });
               incomingHandledRef.current = null;
@@ -109,9 +140,21 @@ export default function TabsLayout() {
       );
     };
 
+    // Handle new-style group call invite (from web clients using group:create + group:invite)
+    const handleGroupIncoming = (data: any) => {
+      // Convert to the same format as video:incoming-call
+      handleIncomingCall({
+        ...data,
+        fromUserId: data?.hostUserId,
+        isGroupCall: true,
+      });
+    };
+
     socket.on("video:incoming-call", handleIncomingCall);
+    socket.on("group:incoming", handleGroupIncoming);
     return () => {
       socket.off("video:incoming-call", handleIncomingCall);
+      socket.off("group:incoming", handleGroupIncoming);
     };
   }, [router, user?.id, user?.fullName, user?.avatarUrl]);
 
@@ -120,9 +163,10 @@ export default function TabsLayout() {
   const isInChatStack = segments.includes("chat");
   const isChatListScreen = activeLeafSegment === "chats";
   const isDetailScreen =
-    (isInChatStack && !isChatListScreen) || segments.includes("[callId]");
-  const tabBarBottomInset =
-    Platform.OS === "ios" ? Math.max(insets.bottom, 4) : 4;
+    segments.includes("[conversationId]") ||
+    segments.includes("[callId]") ||
+    segments.includes("conversation-info") ||
+    segments.includes("group-management");
 
   return (
     <View style={{ flex: 1 }}>
@@ -136,14 +180,15 @@ export default function TabsLayout() {
           tabBarActiveTintColor: Colors.primary,
           tabBarInactiveTintColor: "#9CA3AF",
           tabBarHideOnKeyboard: true,
-          tabBarStyle: {
-            display: isDetailScreen ? "none" : "flex",
-            borderTopWidth: 0.5,
-            borderTopColor: "#E5E7EB",
-            paddingTop: 4,
-            paddingBottom: tabBarBottomInset,
-            height: 60 + tabBarBottomInset,
-          },
+          tabBarStyle: isDetailScreen
+            ? { display: "none" }
+            : {
+                borderTopWidth: 0.5,
+                borderTopColor: "#E5E7EB",
+                paddingTop: 4,
+                paddingBottom: Math.max(insets.bottom, 4),
+                height: 60 + Math.max(insets.bottom, 4),
+              },
           tabBarLabelStyle: {
             fontSize: 10,
             fontWeight: "600",

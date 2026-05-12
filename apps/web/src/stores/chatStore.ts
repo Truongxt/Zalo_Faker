@@ -11,11 +11,50 @@ export interface Label {
     color: string
 }
 
+export interface PollOption {
+    id: string
+    text: string
+    createdBy: string
+    createdAt: string
+}
+
+export interface PollVote {
+    userId: string
+    optionIds: string[]
+    votedAt: string
+}
+
+export interface PollSettings {
+    anonymousVoters: boolean
+    hideResultsUntilVote: boolean
+    allowMultipleChoices: boolean
+    allowAddOptions: boolean
+    expiresAt: string | null
+}
+
+export interface MessageAttachment {
+    url: string
+    type: 'image' | 'video' | 'file' | 'voice'
+    name?: string
+    size?: number
+    duration?: number
+    thumbnailUrl?: string
+}
+
+export interface PollContent {
+    question: string
+    options: PollOption[]
+    settings: PollSettings
+    votes: PollVote[]
+    createdBy: string
+    createdAt: string
+}
+
 export interface Message {
     id: string
     conversationId: string
     senderId: string
-    type: 'text' | 'image' | 'video' | 'file' | 'sticker' | 'voice' | 'call' | 'system'
+    type: 'text' | 'image' | 'video' | 'file' | 'sticker' | 'voice' | 'call' | 'system' | 'poll'
     content: {
         text?: string
         mediaUrl?: string
@@ -26,7 +65,9 @@ export interface Message {
         transcript?: string
         callType?: 'audio' | 'video'
         callStatus?: string
+        poll?: PollContent
     }
+    attachments?: MessageAttachment[]
     metadata?: {
         isAnnouncement?: boolean
         isImportant?: boolean
@@ -39,7 +80,7 @@ export interface Message {
         transcriptProvider?: string
     } | null
     replyTo?: string
-    reactions: { userId: string; emoji: string }[]
+    reactions: { userId: string; emoji: string; userName?: string }[]
     readBy: { userId: string; readAt: string }[]
     isDeleted: boolean
     createdAt: string
@@ -110,12 +151,60 @@ const parseCallPayload = (value: unknown): ParsedCallPayload | null => {
     return nestedText ? parseCallPayload(nestedText) : null
 }
 
+const looksLikeMediaUrl = (value: string): boolean => {
+    const normalized = value.trim()
+    if (!normalized) return false
+
+    if (/^https?:\/\//i.test(normalized)) return true
+    if (/^data:image\//i.test(normalized)) return true
+    if (/^blob:/i.test(normalized)) return true
+    if (/^\/(uploads|images|media|stickers)\//i.test(normalized)) return true
+
+    return /\.(png|jpe?g|gif|webp|svg|avif)(\?.*)?$/i.test(normalized)
+}
+
 const normalizeMessageContent = (rawContent: unknown): Message['content'] => {
     const parsedCall = parseCallPayload(rawContent)
 
-    if (typeof rawContent === 'string') {
+    if (
+        rawContent
+        && typeof rawContent === 'object'
+        && !Array.isArray(rawContent)
+        && (rawContent as Record<string, unknown>).poll
+        && typeof (rawContent as Record<string, unknown>).poll === 'object'
+        && !Array.isArray((rawContent as Record<string, unknown>).poll)
+    ) {
+        const poll = (rawContent as Record<string, unknown>).poll as PollContent
         return {
-            text: rawContent,
+            poll,
+            text: typeof (rawContent as Record<string, unknown>).text === 'string'
+                ? String((rawContent as Record<string, unknown>).text)
+                : typeof poll.question === 'string'
+                    ? poll.question
+                    : undefined,
+        }
+    }
+
+    if (
+        rawContent
+        && typeof rawContent === 'object'
+        && !Array.isArray(rawContent)
+        && typeof (rawContent as Record<string, unknown>).question === 'string'
+        && Array.isArray((rawContent as Record<string, unknown>).options)
+    ) {
+        return {
+            poll: rawContent as PollContent,
+            text: typeof (rawContent as Record<string, unknown>).question === 'string'
+                ? String((rawContent as Record<string, unknown>).question)
+                : undefined,
+        }
+    }
+
+    if (typeof rawContent === 'string') {
+        const mediaUrl = looksLikeMediaUrl(rawContent) ? rawContent : undefined
+        return {
+            text: mediaUrl ? undefined : rawContent,
+            mediaUrl,
             callType: parsedCall?.callType,
             callStatus: parsedCall?.callStatus,
             duration: parsedCall?.duration,
@@ -166,19 +255,14 @@ const normalizeMessageMetadata = (rawMetadata: unknown): Message['metadata'] => 
         return null
     }
 
-    const metadata = rawMetadata as Record<string, unknown>
+    const metadata = rawMetadata as Record<string, any>
 
     return {
+        ...metadata,
         isAnnouncement: Boolean(metadata.isAnnouncement),
         isImportant: Boolean(metadata.isImportant),
         isForwarded: Boolean(metadata.isForwarded),
-        forwardedFromMessageId: typeof metadata.forwardedFromMessageId === 'string' ? metadata.forwardedFromMessageId : undefined,
-        forwardedAt: typeof metadata.forwardedAt === 'string' ? metadata.forwardedAt : undefined,
-        transcript: typeof metadata.transcript === 'string' ? metadata.transcript : undefined,
-        transcriptStatus: typeof metadata.transcriptStatus === 'string' ? metadata.transcriptStatus : undefined,
-        transcriptUpdatedAt: typeof metadata.transcriptUpdatedAt === 'string' ? metadata.transcriptUpdatedAt : undefined,
-        transcriptProvider: typeof metadata.transcriptProvider === 'string' ? metadata.transcriptProvider : undefined,
-    }
+    } as any
 }
 
 export const normalizeMessage = (msg: any): Message => ({
@@ -186,10 +270,12 @@ export const normalizeMessage = (msg: any): Message => ({
     id: msg?.id || msg?._id || `temp-${Date.now()}-${Math.random()}`,
     content: normalizeMessageContent(msg?.content),
     metadata: normalizeMessageMetadata(msg?.metadata),
+    attachments: Array.isArray(msg?.attachments) ? msg.attachments : undefined,
     reactions: Array.isArray(msg?.reactions) ? msg.reactions : [],
     readBy: Array.isArray(msg?.readBy) ? msg.readBy : [],
     isDeleted: Boolean(msg?.isDeleted),
     createdAt: msg?.createdAt || new Date().toISOString(),
+    lastRead: msg?.lastRead,
 })
 
 

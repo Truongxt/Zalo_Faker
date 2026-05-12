@@ -6,6 +6,7 @@ import {
   StyleSheet,
   TouchableOpacity,
   ActivityIndicator,
+  Modal,
 } from "react-native";
 import { useRouter } from "expo-router";
 import {
@@ -14,12 +15,16 @@ import {
   useCameraPermissions,
 } from "expo-camera";
 import * as ImagePicker from "expo-image-picker";
+import { requestJoinByInviteCode } from "@/services/groupService";
+import { chatService } from "@/services/chat";
 
 export default function QRScanner() {
   const router = useRouter();
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
   const [isPickingImage, setIsPickingImage] = useState(false);
+  const [pendingInviteCode, setPendingInviteCode] = useState<string | null>(null);
+  const [isSubmittingJoin, setIsSubmittingJoin] = useState(false);
 
   useEffect(() => {
     const getPermission = async () => {
@@ -29,20 +34,90 @@ export default function QRScanner() {
     getPermission();
   }, [requestPermission]);
 
+  const extractInviteCode = (rawData: string): string | null => {
+    const trimmed = String(rawData || "").trim();
+    if (!trimmed) return null;
+
+    const directMatch = /^(?:groupInvite|inviteCode):(.+)$/i.exec(trimmed);
+    if (directMatch?.[1]) {
+      return String(directMatch[1]).trim();
+    }
+
+    try {
+      const parsedUrl = new URL(trimmed);
+      const code = parsedUrl.searchParams.get("code") || parsedUrl.searchParams.get("inviteCode");
+      if (code?.trim()) {
+        return code.trim();
+      }
+    } catch (_error) {
+      // Not a URL, continue fallback parsing.
+    }
+
+    const fallbackMatch = /(?:\?|&|^)code=([^&]+)/i.exec(trimmed);
+    if (fallbackMatch?.[1]) {
+      return decodeURIComponent(fallbackMatch[1]).trim();
+    }
+
+    return null;
+  };
+
+  const handleSubmitJoinRequest = async () => {
+    if (!pendingInviteCode || isSubmittingJoin) return;
+
+    try {
+      setIsSubmittingJoin(true);
+      const result = await requestJoinByInviteCode(pendingInviteCode);
+
+      if (result.status === "joined") {
+        const joinedGroupId = String(
+          result.group?.id || result.group?._id || result.groupId || "",
+        );
+        await chatService.loadConversations();
+
+        if (joinedGroupId) {
+          router.replace({
+            pathname: "/(tabs)/chat/[conversationId]",
+            params: { conversationId: joinedGroupId },
+          });
+          return;
+        }
+
+        alert("Đã tham gia nhóm thành công.");
+      } else if (result.status === "requested" || result.status === "pending") {
+        alert("Đã gửi yêu cầu tham gia nhóm. Vui lòng chờ duyệt.");
+      } else {
+        alert(result.message || "Đã xử lý yêu cầu tham gia nhóm.");
+      }
+    } catch (error: any) {
+      alert(error?.message || "Không thể gửi yêu cầu tham gia nhóm.");
+    } finally {
+      setIsSubmittingJoin(false);
+      setPendingInviteCode(null);
+      setScanned(false);
+    }
+  };
+
   const navigateByQrData = (data: string) => {
+    const normalizedData = String(data || "").trim();
     setScanned(true);
 
-    const matched = /^userId:(.+)$/.exec(data.trim());
-    if (!matched?.[1]) {
-      alert("Mã QR không hợp lệ");
+    const userMatch = /^userId:(.+)$/i.exec(normalizedData);
+    if (userMatch?.[1]) {
+      const userId = userMatch[1];
+      router.replace({
+        pathname: "/friends/UserSearchResult",
+        params: { userId: String(userId) },
+      });
       return;
     }
 
-    const userId = matched[1];
-    router.replace({
-      pathname: "/friends/UserSearchResult",
-      params: { userId: String(userId) },
-    });
+    const inviteCode = extractInviteCode(normalizedData);
+    if (inviteCode) {
+      setPendingInviteCode(inviteCode);
+      return;
+    }
+
+    alert("Mã QR không hợp lệ");
   };
 
   const handleBarCodeScanned = ({ data }: { type: string; data: string }) => {
@@ -127,6 +202,55 @@ export default function QRScanner() {
           </View>
         )}
       </View>
+
+      <Modal
+        visible={Boolean(pendingInviteCode)}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          if (isSubmittingJoin) return;
+          setPendingInviteCode(null);
+          setScanned(false);
+        }}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Xin tham gia nhóm?</Text>
+            <Text style={styles.modalSubtitle}>
+              Mã mời: {pendingInviteCode || "---"}
+            </Text>
+            <Text style={styles.modalHint}>
+              Bạn muốn gửi yêu cầu tham gia nhóm bằng mã QR vừa quét.
+            </Text>
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.cancelButton]}
+                onPress={() => {
+                  if (isSubmittingJoin) return;
+                  setPendingInviteCode(null);
+                  setScanned(false);
+                }}
+                disabled={isSubmittingJoin}
+              >
+                <Text style={styles.cancelButtonText}>Hủy</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.modalButton, styles.confirmButton]}
+                onPress={handleSubmitJoinRequest}
+                disabled={isSubmittingJoin}
+              >
+                {isSubmittingJoin ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.confirmButtonText}>Gửi yêu cầu</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -161,5 +285,62 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255, 255, 255, 0.92)",
     borderRadius: 12,
     overflow: "hidden",
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.45)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 20,
+  },
+  modalCard: {
+    width: "100%",
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 18,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#111827",
+  },
+  modalSubtitle: {
+    marginTop: 8,
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#1D4ED8",
+  },
+  modalHint: {
+    marginTop: 8,
+    fontSize: 14,
+    color: "#4B5563",
+    lineHeight: 20,
+  },
+  modalActions: {
+    marginTop: 16,
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: 10,
+  },
+  modalButton: {
+    minWidth: 100,
+    paddingVertical: 10,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cancelButton: {
+    backgroundColor: "#F3F4F6",
+  },
+  cancelButtonText: {
+    color: "#374151",
+    fontWeight: "600",
+  },
+  confirmButton: {
+    backgroundColor: "#0068FF",
+  },
+  confirmButtonText: {
+    color: "#fff",
+    fontWeight: "700",
   },
 });

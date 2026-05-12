@@ -11,6 +11,29 @@ import { labelService } from "@/services";
 import { socketService } from "@/lib/socket";
 import type { Conversation } from "@/types";
 
+const resolveConversationSortTime = (conversation: Conversation): number => {
+  const rawTime =
+    (conversation.lastMessage as any)?.createdAt ||
+    (conversation.lastMessage as any)?.timestamp ||
+    conversation.updatedAt ||
+    conversation.createdAt;
+
+  const parsed = rawTime ? new Date(rawTime).getTime() : 0;
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const resolvePinnedState = (conversation: Conversation, userId?: string): boolean => {
+  const participant = conversation.participants?.find(
+    (p) => String(p.userId) === String(userId || ""),
+  );
+
+  if (typeof participant?.isPinned === "boolean") {
+    return participant.isPinned;
+  }
+
+  return Boolean(conversation.isPinned);
+};
+
 export default function ChatsScreen() {
   const router = useRouter();
   const { user } = useAuthStore();
@@ -95,9 +118,13 @@ export default function ChatsScreen() {
       return true;
     })
     .sort((a, b) => {
-      if (a.isPinned && !b.isPinned) return -1;
-      if (!a.isPinned && b.isPinned) return 1;
-      return 0;
+      const aPinned = resolvePinnedState(a, user?.id);
+      const bPinned = resolvePinnedState(b, user?.id);
+
+      if (aPinned && !bPinned) return -1;
+      if (!aPinned && bPinned) return 1;
+
+      return resolveConversationSortTime(b) - resolveConversationSortTime(a);
     });
 
   const onRefresh = useCallback(async () => {

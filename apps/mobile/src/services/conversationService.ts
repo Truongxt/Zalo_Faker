@@ -1,6 +1,15 @@
 import apiClient from "./apiClient";
 import { Conversation } from "@/types";
 
+export interface DailyConversationSummary {
+    conversationId: string;
+    conversationName: string;
+    summary: string;
+    messageCount: number;
+    date: string;
+    tzOffsetMinutes: number;
+}
+
 
 class ConversationService {
 
@@ -61,6 +70,38 @@ class ConversationService {
 
     async unpinMessage(conversationId: string): Promise<any> {
         const response = await apiClient.delete<any>(`/api/conversations/${conversationId}/pin-message`);
+        return response.data;
+    }
+
+    async getDailySummary(
+        conversationId: string,
+        options: { date?: string; tzOffsetMinutes?: number } = {},
+    ): Promise<DailyConversationSummary> {
+        const query: string[] = [];
+        if (typeof options.date === "string" && options.date.trim()) {
+            query.push(`date=${encodeURIComponent(options.date.trim())}`);
+        }
+        if (Number.isFinite(options.tzOffsetMinutes)) {
+            query.push(`tzOffsetMinutes=${Math.trunc(Number(options.tzOffsetMinutes))}`);
+        }
+
+        const endpoint = `/api/conversations/${conversationId}/daily-summary${query.length ? `?${query.join("&")}` : ""}`;
+        const response = await apiClient.get<any>(endpoint);
+        const payload = response.data || {};
+        const data = payload?.data || payload;
+
+        return {
+            conversationId: String(data?.conversationId || conversationId),
+            conversationName: String(data?.conversationName || ""),
+            summary: String(data?.summary || ""),
+            messageCount: Number(data?.messageCount || 0),
+            date: String(data?.date || ""),
+            tzOffsetMinutes: Number(data?.tzOffsetMinutes || options.tzOffsetMinutes || 0),
+        };
+    }
+
+    async deleteHistory(conversationId: string): Promise<any> {
+        const response = await apiClient.delete<any>(`/api/messages/room/${conversationId}`);
         return response.data;
     }
 

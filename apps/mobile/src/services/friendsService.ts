@@ -1,4 +1,4 @@
-import { Friends } from "@/types";
+import type { Friends, ServerUser, User } from "@/types";
 import { apiFetch } from "./fetchClient";
 
 type FriendsApiResponse = {
@@ -7,6 +7,19 @@ type FriendsApiResponse = {
 
 type FriendApiResponse = {
   data: Friends;
+};
+
+type SuggestedServerUser = ServerUser & {
+  matchedPhone?: string;
+  avatarUrl?: string | null;
+};
+
+type SuggestedFriendsApiResponse = {
+  data?: SuggestedServerUser[];
+};
+
+export type SuggestedFriend = User & {
+  matchedPhone: string;
 };
 
 const resolvePresenceStatus = (
@@ -25,6 +38,20 @@ const resolvePresenceStatus = (
 
   return "offline";
 };
+
+const mapServerUserToMobile = (u: SuggestedServerUser): User => ({
+  id: String(u.userId || ""),
+  email: u.email ?? null,
+  phone: u.phone ?? null,
+  fullName: u.userName || "Unknown",
+  avatarUrl: u.avatarUrl || u.avartarUrl || null,
+  birthday: u.birthday ?? null,
+  gender: u.gender ?? null,
+  bio: null,
+  status: resolvePresenceStatus(u.presenceStatus, u.status),
+  lastSeen: u.lastActiveAt ?? null,
+  createdAt: u.createdAt || new Date().toISOString(),
+});
 
 class FriendsService {
   async sendFriendRequests(
@@ -142,6 +169,31 @@ class FriendsService {
       method: "GET",
     });
     return response.data || [];
+  }
+
+  async suggestFriendsByPhones(phones: string[]): Promise<SuggestedFriend[]> {
+    const normalized = [...new Set(
+      (phones || [])
+        .map((phone) => String(phone || "").trim())
+        .filter(Boolean),
+    )];
+
+    if (!normalized.length) {
+      return [];
+    }
+
+    const response = await apiFetch<SuggestedFriendsApiResponse>("/api/users/suggest-friends", {
+      method: "POST",
+      body: { phones: normalized },
+    });
+
+    const raw = response?.data || [];
+    return raw
+      .map((item) => ({
+        ...mapServerUserToMobile(item),
+        matchedPhone: item.matchedPhone || item.phone || "",
+      }))
+      .filter((item) => !!item.id);
   }
 }
 

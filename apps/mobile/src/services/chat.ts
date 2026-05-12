@@ -4,6 +4,7 @@ import { useAuthStore } from "@/stores/authStore";
 import { API_URL } from "@/constants/config";
 import type { Message, Conversation } from "@/types";
 import apiClient from "./apiClient";
+import { notificationService } from "./notificationService";
 
 let isRealtimeInitialized = false;
 
@@ -109,6 +110,92 @@ const parseCallPayload = (value: unknown) => {
   return nestedText ? parseCallPayload(nestedText) : null;
 };
 
+const getReplyPreviewText = (message: Message | null | undefined): string => {
+  if (!message) return "Tin nhan";
+  if (message.isDeleted) return "Tin nhan da thu hoi";
+
+  switch (message.type) {
+    case "poll":
+      return String((message.content as any)?.question || "").trim() || "[Binh chon]";
+    case "image":
+      return "[Hinh anh]";
+    case "video":
+      return "[Video]";
+    case "voice":
+      return "[Tin nhan thoai]";
+    case "sticker":
+      return "[Sticker]";
+    case "file":
+      return String(message.attachments?.[0]?.name || "").trim() || "[Tap tin]";
+    default: {
+      if (typeof message.content === "string" && message.content.trim()) {
+        return message.content.trim();
+      }
+
+      if (message.content && typeof message.content === "object") {
+        const nestedText = String(
+          (message.content as any).text
+            || (message.content as any).message
+            || (message.content as any).content
+            || "",
+        ).trim();
+        if (nestedText) return nestedText;
+      }
+
+      return "Tin nhan";
+    }
+  }
+};
+
+const getConversationPreviewText = (message: Message): string => {
+  if (message.type === "poll") {
+    return String((message.content as any)?.question || "").trim()
+      ? `[Binh chon] ${String((message.content as any).question).trim()}`
+      : "[Binh chon]";
+  }
+
+  return getReplyPreviewText(message);
+};
+
+const normalizeReplyTo = (
+  replyTo: unknown,
+  conversationId: string,
+): Message["replyTo"] => {
+  if (!replyTo) return null;
+
+  if (typeof replyTo === "object" && !Array.isArray(replyTo)) {
+    const replyObject = replyTo as Record<string, unknown>;
+    const replyId = String(
+      replyObject.id || replyObject._id || replyObject.messageId || "",
+    ).trim();
+    const replyContent = String(replyObject.content || "").trim();
+    const replySenderName = String(
+      replyObject.senderName || replyObject.fullName || "",
+    ).trim();
+
+    if (replyId || replyContent || replySenderName) {
+      return {
+        id: replyId || `reply-${Date.now()}`,
+        content: replyContent || "Tin nhan",
+        senderName: replySenderName || "Nguoi dung",
+      };
+    }
+  }
+
+  const replyId = String(replyTo).trim();
+  if (!replyId) return null;
+
+  const repliedMessage = (
+    useChatStore.getState().messages[conversationId] || []
+  ).find((message) => String(message.id) === replyId);
+
+  return {
+    id: replyId,
+    content: getReplyPreviewText(repliedMessage),
+    senderName: repliedMessage?.senderName || "Nguoi dung",
+  };
+};
+
 const normalizeMessage = (msg: any): Message => {
   const type = (msg?.type || "text") as Message["type"];
   const rawContent = msg?.content;
@@ -175,7 +262,14 @@ const normalizeMessage = (msg: any): Message => {
 
   const parsedCallPayload = parseCallPayload(rawContent);
   let normalizedContent: any = contentText;
-  if (type === "call") {
+  if (
+    type === "poll" &&
+    rawContent &&
+    typeof rawContent === "object" &&
+    !Array.isArray(rawContent)
+  ) {
+    normalizedContent = rawContent;
+  } else if (type === "call") {
     normalizedContent = parsedCallPayload || rawContent || "";
   } else if (!normalizedContent) {
     if (type === "voice") normalizedContent = "Tin nhan thoai";
@@ -195,6 +289,10 @@ const normalizeMessage = (msg: any): Message => {
     readBy: Array.isArray(msg?.readBy) ? msg.readBy : [],
     isDeleted: Boolean(msg?.isDeleted),
     isEdited: Boolean(msg?.isEdited),
+    replyTo: normalizeReplyTo(
+      msg?.replyTo,
+      String(msg?.conversationId || msg?.conversation?.id || ""),
+    ),
     senderName: msg?.senderName || "",
     senderAvatar: msg?.senderAvatar || null,
   };
@@ -211,6 +309,33 @@ const toServerContent = (type: Message["type"], content: string) => {
   return { mediaUrl: content };
 };
 
+export async function uploadFile(
+  uri: string,
+  name: string,
+  mimeType: string,
+  accessToken: string | null,
+  folder?: string,
+  subfolder?: string,
+): Promise<string> {
+  const formData = new FormData();
+  formData.append("file", { uri, name, type: mimeType } as any);
+  if (folder) formData.append("folder", folder);
+  if (subfolder) formData.append("subfolder", subfolder);
+
+  const response = await fetch(`${API_URL}/api/upload`, {
+    method: "POST",
+    headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+    body: formData,
+  });
+
+  if (!response.ok) {
+    throw new Error("Upload that bai");
+  }
+
+  const data = await response.json();
+  return data.url as string;
+}
+
 export const chatService = {
   init() {
     if (isRealtimeInitialized) return;
@@ -219,14 +344,14 @@ export const chatService = {
     if (!socket) return;
     isRealtimeInitialized = true;
 
-    socket.on("chat:message", (rawMessage: Message) => {
+    socketService.on("chat:message", (rawMessage: Message) => {
       const message = normalizeMessage(rawMessage);
       const { addMessage, updateConversation } = useChatStore.getState();
       addMessage(message.conversationId, message);
 
       updateConversation(message.conversationId, {
         lastMessage: {
-          content: message.content || "[Media]",
+          content: getConversationPreviewText(message),
           type: message.type,
           senderId: message.senderId,
           senderName: message.senderName,
@@ -234,9 +359,37 @@ export const chatService = {
           metadata: message.metadata,
         },
       });
+
+      // Show notification if not in active conversation
+      const { activeConversation } = useChatStore.getState();
+      const { user } = useAuthStore.getState();
+      
+      if (
+        String(message.senderId) !== String(user?.id) && 
+        (!activeConversation || String(activeConversation.id) !== String(message.conversationId))
+      ) {
+        notificationService.showLocalNotification(
+          message.senderName || "Tin nhan moi",
+          getConversationPreviewText(message),
+          { conversationId: message.conversationId },
+          message.senderAvatar || undefined
+        );
+      }
     });
 
-    socket.on("chat:typing", ({ conversationId, userId }: { conversationId: string; userId: string }) => {
+    socketService.on("video:incoming-call", (data: any) => {
+      const { user } = useAuthStore.getState();
+      if (String(data.callerId) === String(user?.id)) return;
+
+      notificationService.showLocalNotification(
+        "Cuoc goi den",
+        `${data.callerName || "Ai do"} dang goi cho ban`,
+        { callId: data.callId },
+        data.callerAvatar || undefined
+      );
+    });
+
+    socketService.on("chat:typing", ({ conversationId, userId }: { conversationId: string; userId: string }) => {
       const { addTypingUser, removeTypingUser } = useChatStore.getState();
       addTypingUser(conversationId, userId);
 
@@ -245,18 +398,26 @@ export const chatService = {
       }, 3000);
     });
 
-    socket.on("chat:read", ({ conversationId, messageId }: { conversationId: string; messageId: string }) => {
+    socketService.on("chat:read", ({ conversationId, messageId }: { conversationId: string; messageId: string }) => {
       const { updateMessage } = useChatStore.getState();
       updateMessage(conversationId, messageId, {});
     });
 
-    socket.on("chat:recalled", ({ conversationId, messageId }: { conversationId: string; messageId: string }) => {
+    socketService.on("chat:recalled", ({ conversationId, messageId }: { conversationId: string; messageId: string }) => {
       const { updateMessage } = useChatStore.getState();
       updateMessage(conversationId, messageId, { isDeleted: true });
     });
 
-    socket.on("chat:reaction", ({ messageId, reactions }: { messageId: string; reactions: any[] }) => {
+    socketService.on("chat:reaction", ({ messageId, conversationId, reactions }: { messageId: string; conversationId: string; reactions: any[] }) => {
       const state = useChatStore.getState();
+      
+      // If we have conversationId, update directly
+      if (conversationId) {
+        state.updateMessage(conversationId, messageId, { reactions });
+        return;
+      }
+
+      // Fallback: search across all conversations if conversationId is missing
       for (const [convId, messages] of Object.entries(state.messages)) {
         const msg = (messages as Message[]).find((m) => m.id === messageId);
         if (msg) {
@@ -264,6 +425,17 @@ export const chatService = {
           break;
         }
       }
+    });
+
+    socketService.on("chat:message_updated", ({ conversationId, message }: { conversationId: string; message: any }) => {
+      if (!conversationId || !message) return;
+      const normalized = normalizeMessage(message);
+      useChatStore.getState().updateMessage(conversationId, normalized.id, normalized);
+    });
+
+    socket.on("chat:update_conversation", ({ id, ...updates }: { id: string; [key: string]: any }) => {
+      if (!id || !updates || Object.keys(updates).length === 0) return;
+      useChatStore.getState().updateConversation(String(id), updates);
     });
   },
 
@@ -317,14 +489,22 @@ export const chatService = {
     data: {
       type: Message["type"];
       content: any;
+      attachments?: any[];
       replyTo?: string;
       metadata?: any;
     },
-  ) {
+  ): Promise<Message | undefined> {
     const { accessToken, user } = useAuthStore.getState();
-    const { addMessage, updateMessage, removeMessage } = useChatStore.getState();
+    const { addMessage, updateMessage, removeMessage, messages } = useChatStore.getState();
 
     if (!user) return;
+
+    const replyToMessage =
+      data.replyTo && conversationId
+        ? (messages[conversationId] || []).find(
+            (message) => String(message.id) === String(data.replyTo),
+          )
+        : null;
 
     const tempMessage: Message = {
       id: `temp-${Date.now()}`,
@@ -334,7 +514,15 @@ export const chatService = {
       senderAvatar: user.avatarUrl,
       type: data.type,
       content: data.content,
+      attachments: data.attachments,
       metadata: data.metadata,
+      replyTo: data.replyTo
+        ? {
+            id: String(data.replyTo),
+            content: getReplyPreviewText(replyToMessage),
+            senderName: replyToMessage?.senderName || "Nguoi dung",
+          }
+        : null,
       reactions: [],
       readBy: [],
       isDeleted: false,
@@ -349,12 +537,14 @@ export const chatService = {
       conversationId,
       type: data.type,
       content: typeof data.content === "string" ? toServerContent(data.type, data.content) : data.content,
+      attachments: data.attachments,
       replyTo: data.replyTo,
       metadata: data.metadata,
       clientTempId: tempMessage.id,
     };
 
     if (canUseSocket) {
+      let savedMessage: Message | undefined;
       await new Promise<void>((resolve, reject) => {
         socketService.emit(
           "chat:send",
@@ -363,6 +553,7 @@ export const chatService = {
             if (ack?.success && ack.message) {
               const saved = normalizeMessage(ack.message);
               updateMessage(conversationId, tempMessage.id, saved);
+              savedMessage = saved;
               resolve();
             } else {
               console.error("chat:send ack failed:", ack);
@@ -372,7 +563,7 @@ export const chatService = {
           },
         );
       });
-      return;
+      return savedMessage;
     }
 
     try {
@@ -380,11 +571,13 @@ export const chatService = {
         conversationId,
         type: data.type,
         content: typeof data.content === "string" ? toServerContent(data.type, data.content) : data.content,
+        attachments: data.attachments,
         replyTo: data.replyTo,
         metadata: data.metadata,
       });
       const saved = normalizeMessage(response.data);
       updateMessage(conversationId, tempMessage.id, saved);
+      return saved;
     } catch (error) {
       console.error("Failed to send message:", error);
       removeMessage(conversationId, tempMessage.id);
@@ -441,3 +634,33 @@ export const chatService = {
 };
 
 export default chatService;
+
+export async function votePollMessage(
+  messageId: string,
+  optionIds: string[],
+): Promise<Message> {
+  const response = await apiClient.post(`/api/messages/${messageId}/poll/vote`, {
+    optionIds,
+  });
+  return normalizeMessage(response.data);
+}
+
+export async function addPollOptionMessage(
+  messageId: string,
+  text: string,
+): Promise<Message> {
+  const response = await apiClient.post(`/api/messages/${messageId}/poll/options`, {
+    text,
+  });
+  return normalizeMessage(response.data);
+}
+
+export async function removePollOptionMessage(
+  messageId: string,
+  optionId: string,
+): Promise<Message> {
+  const response = await apiClient.delete(
+    `/api/messages/${messageId}/poll/options/${optionId}`,
+  );
+  return normalizeMessage(response.data);
+}

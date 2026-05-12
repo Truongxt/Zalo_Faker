@@ -46,6 +46,10 @@ import {
   Link2,
   ChevronDown,
   ChevronRight,
+  BarChart3,
+  Edit2,
+  Check,
+  Camera
 } from "lucide-react";
 import MessageBubble from "@/components/chat/MessageBubble";
 import TypingIndicator from "@/components/chat/TypingIndicator";
@@ -55,10 +59,13 @@ import {
   getMessages,
   getConversation,
   getGroupSettings,
+  getDailyConversationSummary,
   pinGroupMessage,
   pinConversationMessage,
   unpinGroupMessage,
   unpinConversationMessage,
+  renameGroup,
+  updateGroupAvatar,
 } from "@/services/api";
 
 import { socketService } from "@/lib/socket";
@@ -69,12 +76,17 @@ import {
   updateConversationBackground,
   uploadMedia,
   sendMessage as sendMessageApi,
+  votePoll,
+  addPollOption,
+  removePollOption,
 } from "@/services/api";
 import GroupManagementModal from "@/components/chat/GroupManagementModal";
 import ForwardMessageModal from "@/components/chat/ForwardMessageModal";
 import BackgroundPickerModal from "@/components/chat/BackgroundPickerModal";
+import PollComposerModal from "@/components/chat/PollComposerModal";
 import { useCallStore } from "@/stores/callStore";
 import { friendsService } from "@/services/friendsService";
+
 
 type InfoPanelSectionKey = "media" | "files" | "links";
 
@@ -140,6 +152,25 @@ const formatPanelFileSize = (size?: number) => {
   return `${(size / 1024).toFixed(0)} KB`;
 };
 
+const isImageBackground = (value?: string | null) =>
+  Boolean(value && /^(https?:\/\/|data:|blob:|\/)/i.test(value.trim()));
+
+const getSolidBackgroundColor = (value?: string | null) => {
+  const normalized = String(value || "").trim();
+  if (!normalized) return undefined;
+
+  if (/^linear-gradient/i.test(normalized)) {
+    const colors = normalized.match(/#(?:[0-9a-fA-F]{3}){1,2}/g);
+    return colors?.[0] || undefined;
+  }
+
+  if (/^(#|rgb|hsl)/i.test(normalized)) {
+    return normalized;
+  }
+
+  return undefined;
+};
+
 export default function ChatRoom() {
   const navigate = useNavigate();
   const { conversationId } = useParams<{ conversationId: string }>();
@@ -192,10 +223,12 @@ export default function ChatRoom() {
   const [searchMessageQuery, setSearchMessageQuery] = useState("");
   const debouncedSearchQuery = useDebounce(searchMessageQuery, 300);
   const [showGroupManagement, setShowGroupManagement] = useState(false);
+  const [showPollComposer, setShowPollComposer] = useState(false);
   const [forwardMessage, setForwardMessage] = useState<Message | null>(null);
   const [showBackgroundPicker, setShowBackgroundPicker] = useState(false);
   const [announcementMode, setAnnouncementMode] = useState(false);
   const [isPinningMessage, setIsPinningMessage] = useState(false);
+  const groupAvatarInputRef = useRef<HTMLInputElement>(null);
   const [pendingMediaList, setPendingMediaList] = useState<
     {
       file: File;
@@ -203,6 +236,8 @@ export default function ChatRoom() {
       previewUrl?: string;
     }[]
   >([]);
+  const [isEditingGroupName, setIsEditingGroupName] = useState(false);
+  const [newGroupName, setNewGroupName] = useState("");
   const [isMutingConversation, setIsMutingConversation] = useState(false);
   const [isSummarizing, setIsSummarizing] = useState(false);
   const [summaryResult, setSummaryResult] = useState<AISummaryResponse | null>(
@@ -213,6 +248,23 @@ export default function ChatRoom() {
   const [blockStatus, setBlockStatus] = useState<
     "none" | "blocked_by_me" | "blocked_by_other"
   >("none");
+  const [isSummarizingConversation, setIsSummarizingConversation] =
+    useState(false);
+  const [dailySummary, setDailySummary] = useState<{
+    conversationName: string;
+    summary: string;
+    messageCount: number;
+    date: string;
+  } | null>(null);
+
+  // Active group call state (for "join later" banner)
+  const [activeGroupCall, setActiveGroupCall] = useState<{
+    roomId: string;
+    conversationId: string;
+    callType: 'audio' | 'video';
+    hostUserId: string;
+    participantCount: number;
+  } | null>(null);
 
   // Pagination state
   const pagination = useMessagePagination(conversationId);
@@ -225,6 +277,7 @@ export default function ChatRoom() {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const pinnedMessageRef = useRef<any>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -234,6 +287,7 @@ export default function ChatRoom() {
   const stickerPickerRef = useRef<HTMLDivElement>(null);
 
   const typing = conversationId ? typingUsers[conversationId] || [] : [];
+  const displayMessages = messages;
 
   const markMessageAsRead = useCallback(
     (messageId: string) => {
@@ -295,13 +349,22 @@ export default function ChatRoom() {
   // Scroll to bottom khi có tin nhắn mới
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [displayMessages]);
+
+  useEffect(() => {
+    pinnedMessageRef.current = activeConversation?.groupSettings?.pinnedMessage || null;
+  }, [activeConversation?.groupSettings?.pinnedMessage]);
+
+
 
   // Load messages từ API lần đầu
   useEffect(() => {
     if (!conversationId) return;
     const msgs = useChatStore.getState().messages[conversationId] || [];
-    if (msgs.length === 0) {
+    const hasBrokenPollCache = msgs.some(
+      (msg) => msg.type === "poll" && !msg.content?.poll,
+    );
+    if (msgs.length === 0 || hasBrokenPollCache) {
       getMessages(conversationId)
         .then((data) => setMessages(conversationId, data))
         .catch((err) => console.error("Load messages error:", err));
@@ -345,6 +408,8 @@ export default function ChatRoom() {
 
   useEffect(() => {
     setAnnouncementMode(false);
+    setDailySummary(null);
+    setIsSummarizingConversation(false);
     setShowAllInfoItems({
       media: false,
       files: false,
@@ -399,6 +464,78 @@ export default function ChatRoom() {
       });
   }, [conversationId, activeConversation?.id, activeConversation?.type]);
 
+  // Check for active group call on this conversation
+  useEffect(() => {
+    if (!conversationId || activeConversation?.type !== 'group') {
+      setActiveGroupCall(null);
+      return;
+    }
+
+    const socket = socketService.getSocket();
+    if (!socket) return;
+
+    // Query server for any active call
+    socket.emit('group:check-active', { conversationId }, (res: any) => {
+      if (res?.success && res.room) {
+        setActiveGroupCall({
+          roomId: res.room.roomId,
+          conversationId: res.room.conversationId,
+          callType: res.room.callType || 'audio',
+          hostUserId: res.room.hostUserId,
+          participantCount: res.room.participants?.length || 0,
+        });
+      } else {
+        setActiveGroupCall(null);
+      }
+    });
+
+    // Listen for new incoming group call on this conversation
+    const handleGroupIncomingForBanner = (data: any) => {
+      if (String(data?.conversationId) !== String(conversationId)) return;
+      setActiveGroupCall({
+        roomId: data.roomId,
+        conversationId: data.conversationId,
+        callType: data.callType || 'audio',
+        hostUserId: data.hostUserId,
+        participantCount: data.participantCount || 0,
+      });
+    };
+
+    // Listen for room ended
+    const handleGroupRoomEnded = (data: any) => {
+      if (String(data?.conversationId) !== String(conversationId)) return;
+      setActiveGroupCall(null);
+    };
+
+    // Listen for participant changes to update count
+    const handleUserJoinedBanner = (data: any) => {
+      setActiveGroupCall((prev) => {
+        if (!prev || prev.roomId !== data?.roomId) return prev;
+        return { ...prev, participantCount: data.participantCount || prev.participantCount + 1 };
+      });
+    };
+
+    const handleUserLeftBanner = (data: any) => {
+      setActiveGroupCall((prev) => {
+        if (!prev || prev.roomId !== data?.roomId) return prev;
+        const newCount = data.participantCount ?? Math.max(0, prev.participantCount - 1);
+        return { ...prev, participantCount: newCount };
+      });
+    };
+
+    socket.on('group:incoming', handleGroupIncomingForBanner);
+    socket.on('group:room-ended', handleGroupRoomEnded);
+    socket.on('group:user-joined', handleUserJoinedBanner);
+    socket.on('group:user-left', handleUserLeftBanner);
+
+    return () => {
+      socket.off('group:incoming', handleGroupIncomingForBanner);
+      socket.off('group:room-ended', handleGroupRoomEnded);
+      socket.off('group:user-joined', handleUserJoinedBanner);
+      socket.off('group:user-left', handleUserLeftBanner);
+    };
+  }, [conversationId, activeConversation?.type]);
+
   // ✅ Vào phòng socket + lắng nghe tin nhắn realtime
   useEffect(() => {
     if (!conversationId) return;
@@ -422,10 +559,26 @@ export default function ChatRoom() {
     socketService.on("chat:typing", handleTyping);
     socketService.on("chat:stop_typing", handleStopTyping);
 
+    const onUpdateConversation = ({
+      id: incomingId,
+      ...updates
+    }: {
+      id: string;
+      [key: string]: any;
+    }) => {
+      if (!incomingId) return;
+      if (updates && Object.keys(updates).length > 0) {
+        useChatStore.getState().updateConversation(String(incomingId), updates);
+      }
+    };
+
+    socketService.on("chat:update_conversation", onUpdateConversation);
+
     return () => {
       socketService.leaveRoom(conversationId);
       socketService.off("chat:typing", handleTyping);
       socketService.off("chat:stop_typing", handleStopTyping);
+      socketService.off("chat:update_conversation", onUpdateConversation);
     };
   }, [conversationId, user?.id, updateConversation]);
 
@@ -481,15 +634,36 @@ export default function ChatRoom() {
     }
     if (pendingMediaList.length > 0) {
       const caption = message.trim();
-      for (const media of pendingMediaList) {
-        await sendMediaMessage(
-          media.file,
-          media.type,
-          undefined,
+      const images = pendingMediaList.filter((m) => m.type === "image");
+      const others = pendingMediaList.filter((m) => m.type !== "image");
+
+      if (images.length >= 2) {
+        // Gộp ảnh
+        await sendGroupedImagesMessage(
+          images.map((m) => m.file),
           caption || undefined,
         );
-        // Only attach caption to the first media
-        if (caption) caption === "";
+        // Sau khi gộp ảnh, các media khác gửi lẻ và KHÔNG kèm caption (tránh lặp)
+        for (const media of others) {
+          await sendMediaMessage(
+            media.file,
+            media.type,
+            undefined,
+            undefined,
+          );
+        }
+      } else {
+        // Gửi lẻ như cũ
+        let isFirst = true;
+        for (const media of pendingMediaList) {
+          await sendMediaMessage(
+            media.file,
+            media.type,
+            undefined,
+            isFirst ? caption || undefined : undefined,
+          );
+          isFirst = false;
+        }
       }
       clearPendingMedia();
       setMessage("");
@@ -807,6 +981,150 @@ export default function ChatRoom() {
       if (item?.previewUrl) URL.revokeObjectURL(item.previewUrl);
       return prev.filter((_, i) => i !== index);
     });
+  };
+
+  const sendGroupedImagesMessage = async (
+    files: File[],
+    caption?: string,
+  ) => {
+    if (!conversationId || !user) return;
+    if (isMessagingBlocked) {
+      addToast(
+        isBlockedByMe
+          ? "Bạn đã chặn người dùng này. Hãy mở chặn để gửi tin."
+          : "Bạn đã bị chặn",
+        "warning",
+        3500,
+      );
+      return;
+    }
+
+    try {
+      setIsSendingMedia(true);
+      addToast(`Đang gửi ${files.length} hình ảnh...`, "info");
+
+      if (!isOnline) {
+        addToast("Bạn đang offline. Không thể gửi media lúc này.", "warning", 3000);
+        return;
+      }
+
+      // Logic folder cho nhóm: groups/{conversationId}/{messageFolderId}
+      const isGroup = activeConversation?.type === 'group';
+      const folderId = isGroup ? `msg-${Date.now()}` : undefined;
+      const folder = isGroup ? "groups" : "uploads";
+      const subfolder = isGroup ? `${conversationId}/${folderId}` : "chat";
+
+      // Upload all images in parallel
+      const uploadPromises = files.map(file => uploadMedia(file, folder, subfolder));
+      const uploadResults = await Promise.all(uploadPromises);
+      
+      const attachments: MessageAttachment[] = uploadResults.map((res, index) => ({
+        url: res.url,
+        type: "image",
+        name: files[index].name,
+        size: files[index].size
+      }));
+
+      const content: any = {
+        mediaUrl: attachments[0].url, // Fallback for legacy clients
+        text: caption,
+      };
+
+      const metadata = isGroup ? { folderId, folder, subfolder } : null;
+
+      const tempId = `temp-group-media-${Date.now()}`;
+      const optimisticMsg: Message = {
+        id: tempId,
+        conversationId,
+        senderId: user.id,
+        type: "image",
+        content,
+        attachments,
+        metadata,
+        replyTo: replyTo || undefined,
+        reactions: [],
+        readBy: [],
+        isDeleted: false,
+        createdAt: new Date().toISOString(),
+      };
+      addMessage(conversationId, optimisticMsg);
+
+      const canUseSocket = socketService.isConnected();
+      let sentMessage: Message | null = null;
+
+      if (canUseSocket) {
+        const ack = await new Promise<{
+          success: boolean;
+          message?: Message;
+          error?: string;
+        }>((resolve) => {
+          let done = false;
+          const timeout = setTimeout(() => {
+            if (done) return;
+            done = true;
+            resolve({ success: false, error: "ACK_TIMEOUT" });
+          }, 5000); // Higher timeout for multiple images
+
+          socketService.sendMessage(
+            {
+              conversationId,
+              senderId: user.id,
+              type: "image",
+              content,
+              attachments,
+              metadata,
+              replyTo: replyTo || undefined,
+            },
+            (res) => {
+              if (done) return;
+              done = true;
+              clearTimeout(timeout);
+              resolve(res);
+            },
+          );
+        });
+
+        if (ack.success && ack.message) {
+          sentMessage = normalizeMessage(ack.message);
+        }
+      }
+
+      if (!sentMessage) {
+        try {
+          sentMessage = await sendMessageApi({
+            conversationId,
+            type: "image",
+            content,
+            attachments,
+            metadata,
+            replyTo: replyTo || undefined,
+          });
+        } catch (httpError) {
+          useChatStore.getState().removeMessage(conversationId, tempId);
+          addToast("Gửi hình ảnh thất bại. Vui lòng thử lại.", "error", 5000);
+          console.error("Grouped media fallback HTTP failed:", httpError);
+          return;
+        }
+      }
+
+      useChatStore.getState().removeMessage(conversationId, tempId);
+      addMessage(conversationId, normalizeMessage(sentMessage));
+      addToast("Gửi thành công!", "success", 3000);
+
+      updateConversation(conversationId, {
+        lastMessage: {
+          content: `[${files.length} hình ảnh]${caption ? " " + caption : ""}`,
+          type: "image",
+          senderId: user.id,
+          timestamp: new Date().toISOString(),
+        },
+        updatedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      handleUploadError(error, "image");
+    } finally {
+      setIsSendingMedia(false);
+    }
   };
 
   const sendMediaMessage = async (
@@ -1255,6 +1573,132 @@ export default function ChatRoom() {
     });
   };
 
+  const handleSubmitPoll = useCallback(
+    async (values: {
+      question: string;
+      options: string[];
+      pinToConversation: boolean;
+      anonymousVoters: boolean;
+      hideResultsUntilVote: boolean;
+      allowMultipleChoices: boolean;
+      allowAddOptions: boolean;
+      expiresAt: string | null;
+    }) => {
+      if (!conversationId || !activeConversation || activeConversation.type !== "group") {
+        addToast("Chỉ tạo được bình chọn trong nhóm", "error", 3000);
+        return;
+      }
+
+      const role = String(
+        activeConversation.participants.find(
+          (participant) => String(participant.userId) === String(user?.id),
+        )?.role || "member",
+      ).toLowerCase();
+      const pinScope = String(
+        activeConversation.groupSettings?.permissions?.pinMessage || "admin_deputy",
+      ).toLowerCase();
+      const roleRank: Record<string, number> = {
+        member: 1,
+        deputy: 2,
+        admin: 3,
+      };
+      const scopeRank: Record<string, number> = {
+        all: 1,
+        admin_deputy: 2,
+        admin: 3,
+      };
+      const canPinCreatedPoll =
+        (roleRank[role] || 0) >= (scopeRank[pinScope] || Number.MAX_SAFE_INTEGER);
+
+      try {
+        const saved = await sendMessageApi({
+          conversationId,
+          type: "poll",
+          content: {
+            question: values.question,
+            options: values.options.map((text) => ({ text })),
+            settings: {
+              anonymousVoters: values.anonymousVoters,
+              hideResultsUntilVote: values.hideResultsUntilVote,
+              allowMultipleChoices: values.allowMultipleChoices,
+              allowAddOptions: values.allowAddOptions,
+              expiresAt: values.expiresAt,
+            },
+          },
+        });
+
+        addMessage(conversationId, normalizeMessage(saved));
+
+        if (values.pinToConversation && canPinCreatedPoll) {
+          try {
+            await pinGroupMessage(conversationId, saved.id);
+          } catch (error) {
+            console.error("Pin poll error:", error);
+            addToast("Đã tạo bình chọn nhưng không thể ghim bình chọn", "warning", 3200);
+          }
+        }
+
+        addToast("Đã tạo bình chọn", "success", 2500);
+      } catch (error) {
+        console.error("Create poll error:", error);
+        addToast("Không thể tạo bình chọn lúc này", "error", 3200);
+        throw error;
+      }
+    },
+    [activeConversation, addMessage, addToast, conversationId, user?.id],
+  );
+
+  const handleVotePoll = useCallback(
+    async (messageId: string, optionIds: string[]) => {
+      try {
+        const updated = await votePoll(messageId, optionIds);
+        useChatStore
+          .getState()
+          .updateMessage(String(updated.conversationId), String(updated.id), updated);
+        addToast("Đã cập nhật bình chọn", "success", 2200);
+      } catch (error) {
+        console.error("Vote poll error:", error);
+        addToast("Không thể cập nhật bình chọn", "error", 3200);
+        throw error;
+      }
+    },
+    [addToast],
+  );
+
+  const handleAddPollOption = useCallback(
+    async (messageId: string, text: string) => {
+      try {
+        const updated = await addPollOption(messageId, text);
+        useChatStore
+          .getState()
+          .updateMessage(String(updated.conversationId), String(updated.id), updated);
+        addToast("Đã thêm phương án", "success", 2200);
+      } catch (error) {
+        console.error("Add poll option error:", error);
+        addToast("Không thể thêm phương án", "error", 3200);
+        throw error;
+      }
+    },
+    [addToast],
+  );
+
+  const handleRemovePollOption = useCallback(
+    async (messageId: string, optionId: string) => {
+      try {
+        const updated = await removePollOption(messageId, optionId);
+        useChatStore
+          .getState()
+          .updateMessage(String(updated.conversationId), String(updated.id), updated);
+        addToast("Đã xóa phương án", "success", 2200);
+      } catch (error) {
+        console.error("Remove poll option error:", error);
+        addToast("Không thể xóa phương án", "error", 3200);
+        throw error;
+      }
+    },
+    [addToast],
+  );
+
   const buildPinnedSettings = useCallback(
     (nextPinned: any) => ({
       ...(activeConversation?.groupSettings || {
@@ -1272,6 +1716,57 @@ export default function ChatRoom() {
     }),
     [activeConversation?.groupSettings, activeConversation?.type],
   );
+
+  const getPinnedMessagePreview = useCallback((message: any) => {
+    if (!message) return "Tin nhắn đã ghim";
+    if (message.metadata?.isAnnouncement) {
+      const announceText = String(message.content?.text || "").trim();
+      return announceText ? `[Thông báo] ${announceText}` : "[Thông báo]";
+    }
+
+    if (typeof message.content?.text === "string" && message.content.text.trim()) {
+      return message.content.text.trim();
+    }
+    if (
+      typeof message.content?.fileName === "string" &&
+      message.content.fileName.trim()
+    ) {
+      return `[File] ${message.content.fileName.trim()}`;
+    }
+
+    if (message.type === "image") return "[Hình ảnh]";
+    if (message.type === "video") return "[Video]";
+    if (message.type === "voice") return "[Tin nhắn thoại]";
+    if (message.type === "sticker") return "[Nhãn dán]";
+    if (message.type === "file") return "[Tập tin]";
+    return "Tin nhắn đã ghim";
+  }, []);
+
+  const resolvePinActorName = useCallback(
+    (actorId: string) => {
+      const normalizedActorId = String(actorId || "").trim();
+      if (!normalizedActorId) return "User";
+
+      if (String(user?.id || "") === normalizedActorId) {
+        return String(user?.fullName || "User").trim() || "User";
+      }
+
+      const participantName = activeConversation?.participants?.find(
+        (participant) => String(participant.userId) === normalizedActorId,
+      )?.fullName;
+      if (typeof participantName === "string" && participantName.trim()) {
+        return participantName.trim();
+      }
+
+      return "User";
+    },
+    [activeConversation?.participants, user?.fullName, user?.id],
+  );
+
+  void getPinnedMessagePreview;
+  void resolvePinActorName;
+
+
 
   const handlePinMessage = async (messageId: string) => {
     if (!conversationId || !activeConversation) return;
@@ -1297,12 +1792,11 @@ export default function ChatRoom() {
         result.group?.groupSettings?.pinnedMessage ||
         null;
 
+      // No longer need client-side pin history tracking as server handles it via system messages
+      // appendPinnedHistory(nextPinned; user?.id);
       useChatStore.getState().updateConversation(conversationId, {
         groupSettings: buildPinnedSettings(nextPinned),
       });
-      socketService
-        .getSocket()
-        ?.emit("chat:sync_pinned_message", { conversationId });
       addToast("Đã ghim tin nhắn", "success", 2000);
     } catch (error: any) {
       addToast(error?.message || "Không thể ghim tin nhắn", "error", 4000);
@@ -1331,12 +1825,10 @@ export default function ChatRoom() {
         await unpinConversationMessage(conversationId);
       }
 
+      // appendPinnedHistory(null, user?.id);
       useChatStore.getState().updateConversation(conversationId, {
         groupSettings: buildPinnedSettings(null),
       });
-      socketService
-        .getSocket()
-        ?.emit("chat:sync_pinned_message", { conversationId });
       addToast("Đã bỏ ghim tin nhắn", "success", 2000);
     } catch (error: any) {
       addToast(error?.message || "Không thể bỏ ghim tin nhắn", "error", 4000);
@@ -1344,6 +1836,36 @@ export default function ChatRoom() {
       setIsPinningMessage(false);
     }
   };
+
+  useEffect(() => {
+    if (!conversationId || !user?.id) return;
+
+    const socket = socketService.getSocket() || socketService.connect(user.id);
+    if (!socket) return;
+
+    const onPinnedMessage = ({
+      conversationId: incomingConversationId,
+      pinnedMessage: nextPinnedMessage,
+      updatedBy: _updatedBy,
+    }: {
+      conversationId: string;
+      pinnedMessage: any | null;
+      updatedBy?: string;
+    }) => {
+      if (String(incomingConversationId) !== String(conversationId)) return;
+      // appendPinnedHistory(nextPinnedMessage || null, updatedBy);
+      // Update conversation state to reflect pin/unpin changes from other users
+      useChatStore.getState().updateConversation(conversationId, {
+        groupSettings: buildPinnedSettings(nextPinnedMessage || null),
+      });
+    };
+
+    socket.on("chat:pinned_message", onPinnedMessage);
+
+    return () => {
+      socket.off("chat:pinned_message", onPinnedMessage);
+    };
+  }, [conversationId, user?.id]);
 
   const getOtherParticipant = () => {
     if (!activeConversation || activeConversation.type === "group") return null;
@@ -1375,25 +1897,37 @@ export default function ChatRoom() {
     }
   };
 
-  const handleSummarizeToday = async () => {
+  const handleSummarizeConversationInDay = async () => {
     if (!conversationId) return;
-    setShowMenu(false);
-    setIsSummarizing(true);
-    setSummaryResult(null);
-    setShowSummaryModal(true);
+
     try {
-      const result = await summarizeConversation(conversationId);
-      setSummaryResult(result);
-    } catch (error) {
-      console.error("Lỗi tóm tắt:", error);
-      setSummaryResult({
-        conversationId: conversationId,
-        date: new Date().toISOString().slice(0, 10),
-        messageCount: 0,
-        summary: "Không thể tóm tắt lúc này. Vui lòng thử lại sau.",
+      setIsSummarizingConversation(true);
+
+      const result = await getDailyConversationSummary(
+        conversationId,
+        undefined,
+        new Date().getTimezoneOffset(),
+      );
+
+      setDailySummary({
+        conversationName: result.conversationName || "Cuộc trò chuyện",
+        summary: result.summary,
+        messageCount: result.messageCount,
+        date: result.date,
       });
+
+      addToast(
+        result.messageCount > 0
+          ? "Đã tạo tóm tắt cuộc trò chuyện hôm nay."
+          : "Không có tin nhắn trong ngày để tóm tắt.",
+        "success",
+        2500,
+      );
+    } catch (error) {
+      console.error("Summarize conversation error:", error);
+      addToast("Không thể tóm tắt cuộc trò chuyện lúc này.", "error", 3500);
     } finally {
-      setIsSummarizing(false);
+      setIsSummarizingConversation(false);
     }
   };
 
@@ -1547,6 +2081,10 @@ export default function ChatRoom() {
       : activeConversation?.type === "private";
   const pinnedMessage =
     activeConversation?.groupSettings?.pinnedMessage || null;
+  const conversationBackground = String(activeConversation?.background || "").trim();
+  const usesImageBackground = isImageBackground(conversationBackground);
+  const chatAreaBackgroundColor =
+    getSolidBackgroundColor(conversationBackground) || undefined;
 
   const handleUpdateNickname = async () => {
     if (!conversationId || !user) return;
@@ -1811,10 +2349,56 @@ export default function ChatRoom() {
     }).length;
   }, [conversations, otherUser?.userId, user?.id]);
 
+  const startGroupCallFlow = (callType: 'audio' | 'video') => {
+    if (!conversationId || !user) return;
+    const socket = socketService.getSocket();
+    if (!socket) return;
+
+    // Create room on server
+    socket.emit('group:create', { conversationId, callType }, (res: any) => {
+      if (!res?.success || !res.room) {
+        console.error('[GroupCall] Failed to create room:', res?.error);
+        return;
+      }
+
+      const { roomId } = res.room;
+
+      // Start the group call locally
+      useCallStore.getState().startGroupCall(
+        roomId,
+        conversationId,
+        callType,
+        true, // isHost
+        user.id,
+      );
+
+      // Invite all other participants in the conversation
+      const otherParticipantIds = (activeConversation?.participants || [])
+        .map((p) => String(p.userId))
+        .filter((uid) => uid !== String(user.id));
+
+      if (otherParticipantIds.length > 0) {
+        socket.emit('group:invite', { roomId, userIds: otherParticipantIds }, (inviteRes: any) => {
+          console.log('[GroupCall] Invite result:', inviteRes);
+        });
+      }
+
+      // Also emit legacy video:call-user for mobile compatibility
+      socket.emit('video:call-user', {
+        fromUserId: user.id,
+        conversationId,
+        callerName: user.fullName || 'Người dùng',
+        callerAvatar: user.avatarUrl || null,
+        callType,
+        isGroupCall: true,
+      });
+    });
+  };
+
   const handleStartVideoCall = () => {
     if (!conversationId || !user) return;
     if (activeConversation?.type === "group") {
-      alert("Tính năng gọi video nhóm đang được phát triển!");
+      startGroupCallFlow('video');
       return;
     }
     if (!otherUser) return;
@@ -1831,7 +2415,7 @@ export default function ChatRoom() {
   const handleStartVoiceCall = () => {
     if (!conversationId || !user) return;
     if (activeConversation?.type === "group") {
-      alert("Tính năng gọi thoại nhóm đang được phát triển!");
+      startGroupCallFlow('audio');
       return;
     }
     if (!otherUser) return;
@@ -1848,6 +2432,46 @@ export default function ChatRoom() {
   const handleOpenOtherProfile = () => {
     if (activeConversation?.type === "group" || !otherUser?.userId) return;
     navigate(`/profile/${otherUser.userId}`);
+  };
+
+  const handleStartEditingGroupName = () => {
+    setNewGroupName(activeConversation?.name || "");
+    setIsEditingGroupName(true);
+  };
+
+  const handleSaveGroupName = async () => {
+    if (!conversationId || !newGroupName.trim() || newGroupName === activeConversation?.name) {
+      setIsEditingGroupName(false);
+      return;
+    }
+
+    try {
+      await renameGroup(conversationId, newGroupName.trim());
+      updateConversation(conversationId, { name: newGroupName.trim() });
+      setIsEditingGroupName(false);
+      addToast("Đã đổi tên nhóm", "success", 2500);
+    } catch (error: any) {
+      addToast(error.message || "Không thể đổi tên nhóm", "error", 4000);
+    }
+  };
+
+  const handleGroupAvatarChange = async (e: ChangeEvent<HTMLInputElement>) => {
+    if (!conversationId) return;
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const uploadRes = await uploadMedia(file);
+      const avatarUrl = uploadRes.url;
+
+      await updateGroupAvatar(conversationId, { avatar: avatarUrl });
+      updateConversation(conversationId, { avatar: avatarUrl });
+      addToast("Đã đổi ảnh đại diện nhóm", "success", 2500);
+    } catch (error: any) {
+      addToast(error.message || "Không thể đổi ảnh đại diện", "error", 4000);
+    } finally {
+      if (groupAvatarInputRef.current) groupAvatarInputRef.current.value = "";
+    }
   };
 
   if (!conversationId || !activeConversation) {
@@ -2117,6 +2741,44 @@ export default function ChatRoom() {
         </div>
       )}
 
+      {/* Active Group Call Banner */}
+      {activeGroupCall && useCallStore.getState().groupCall.callStatus === 'idle' && (
+        <div className="px-4 py-2.5 border-b border-green-200 dark:border-green-800 bg-green-50/90 dark:bg-green-900/20 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="relative flex-shrink-0">
+              <Phone className="w-4 h-4 text-green-600 dark:text-green-400" />
+              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-green-700 dark:text-green-300">
+                Cuộc gọi {activeGroupCall.callType === 'video' ? 'video' : 'thoại'} nhóm đang diễn ra
+              </p>
+              <p className="text-xs text-green-600 dark:text-green-400">
+                {activeGroupCall.participantCount > 0
+                  ? `${activeGroupCall.participantCount} người đang tham gia`
+                  : 'Đang chờ người tham gia'}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => {
+              useCallStore.getState().startGroupCall(
+                activeGroupCall.roomId,
+                activeGroupCall.conversationId,
+                activeGroupCall.callType,
+                false,
+                activeGroupCall.hostUserId,
+              );
+              setActiveGroupCall(null);
+            }}
+            className="flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-green-500 hover:bg-green-600 text-white text-sm font-medium transition-all transform hover:scale-105 shadow-md shadow-green-500/30"
+          >
+            <Phone className="w-3.5 h-3.5" />
+            Tham gia
+          </button>
+        </div>
+      )}
+
       {pinnedMessage && (
         <div className="px-4 py-2 border-b border-amber-200 dark:border-amber-800 bg-amber-50/80 dark:bg-amber-900/20 flex items-center justify-between gap-3">
           <div className="flex items-start gap-2 min-w-0">
@@ -2129,17 +2791,17 @@ export default function ChatRoom() {
                 {pinnedMessage.metadata?.isAnnouncement
                   ? `[Thông báo] ${pinnedMessage.content?.text || ""}`.trim()
                   : pinnedMessage.content?.text ||
-                    (pinnedMessage.type === "image"
-                      ? "[Hình ảnh]"
-                      : pinnedMessage.type === "video"
-                        ? "[Video]"
-                        : pinnedMessage.type === "voice"
-                          ? "[Tin nhắn thoại]"
-                          : pinnedMessage.type === "sticker"
-                            ? "[Nhãn dán]"
-                            : pinnedMessage.content?.fileName
-                              ? `[File] ${pinnedMessage.content.fileName}`
-                              : "[Tin nhắn]")}
+                  (pinnedMessage.type === "image"
+                    ? "[Hình ảnh]"
+                    : pinnedMessage.type === "video"
+                      ? "[Video]"
+                      : pinnedMessage.type === "voice"
+                        ? "[Tin nhắn thoại]"
+                        : pinnedMessage.type === "sticker"
+                          ? "[Nhãn dán]"
+                          : pinnedMessage.content?.fileName
+                            ? `[File] ${pinnedMessage.content.fileName}`
+                            : "[Tin nhắn]")}
               </p>
             </div>
           </div>
@@ -2157,12 +2819,20 @@ export default function ChatRoom() {
       )}
 
       {/* Messages */}
-      <div className="flex-1 relative overflow-hidden flex flex-col">
+      <div
+        className="flex-1 relative overflow-hidden flex flex-col"
+        style={{
+          background:
+            !usesImageBackground && conversationBackground
+              ? conversationBackground
+              : chatAreaBackgroundColor,
+        }}
+      >
         {/* Custom Background */}
-        {activeConversation?.background && (
+        {usesImageBackground && (
           <div
             className="absolute inset-0 z-0 bg-cover bg-center pointer-events-none"
-            style={{ backgroundImage: `url(${activeConversation.background})` }}
+            style={{ backgroundImage: `url(${conversationBackground})` }}
           >
             <div className="absolute inset-0 bg-white/70 dark:bg-black/70" />
           </div>
@@ -2175,10 +2845,12 @@ export default function ChatRoom() {
           className="relative z-10"
         >
           {(() => {
-            const filteredMessages = messages.filter((msg) => {
+            const filteredMessages = displayMessages.filter((msg) => {
               if (!debouncedSearchQuery) return true;
 
               const query = debouncedSearchQuery.toLowerCase();
+
+
 
               // Search text messages
               if (msg.type === "text" && msg.content.text) {
@@ -2218,6 +2890,8 @@ export default function ChatRoom() {
             return (
               <>
                 {filteredMessages.map((msg, index) => {
+
+
                   const isSent = msg.senderId === user?.id;
                   const showAvatar =
                     !isSent &&
@@ -2243,18 +2917,18 @@ export default function ChatRoom() {
                       replySenderName={
                         msg.replyTo
                           ? (() => {
-                              const repliedMsg = messages.find(
-                                (m) => m.id === msg.replyTo,
+                            const repliedMsg = messages.find(
+                              (m) => m.id === msg.replyTo,
+                            );
+                            if (!repliedMsg) return undefined;
+                            const repliedSender =
+                              activeConversation?.participants.find(
+                                (p) =>
+                                  String(p.userId) ===
+                                  String(repliedMsg.senderId),
                               );
-                              if (!repliedMsg) return undefined;
-                              const repliedSender =
-                                activeConversation?.participants.find(
-                                  (p) =>
-                                    String(p.userId) ===
-                                    String(repliedMsg.senderId),
-                                );
-                              return repliedSender?.fullName;
-                            })()
+                            return repliedSender?.fullName;
+                          })()
                           : undefined
                       }
                       onReply={() => setReplyTo(msg.id)}
@@ -2270,6 +2944,10 @@ export default function ChatRoom() {
                         })) ?? []
                       }
                       isGroupChat={activeConversation?.type === "group"}
+                      currentUserId={user?.id}
+                      onVotePoll={handleVotePoll}
+                      onAddPollOption={handleAddPollOption}
+                      onRemovePollOption={handleRemovePollOption}
                     />
                   );
                 })}
@@ -2288,8 +2966,8 @@ export default function ChatRoom() {
           const repliedMsg = messages.find((m) => m.id === replyTo);
           const repliedSender = repliedMsg
             ? activeConversation?.participants.find(
-                (p) => String(p.userId) === String(repliedMsg.senderId),
-              )
+              (p) => String(p.userId) === String(repliedMsg.senderId),
+            )
             : null;
           return (
             <div className="px-4 py-2 bg-gray-50 dark:bg-dark-300 border-t border-gray-200 dark:border-gray-800 flex items-center justify-between">
@@ -2315,7 +2993,7 @@ export default function ChatRoom() {
         })()}
 
       {/* Input */}
-      <div className="p-4 border-t border-gray-200 dark:border-gray-800">
+      <div className="p-4 border-t border-gray-200 dark:border-gray-800 relative z-30 bg-white dark:bg-dark-200">
         {isMessagingBlocked && (
           <div className="mb-3 rounded-xl border border-amber-200 dark:border-amber-800/50 bg-amber-50 dark:bg-amber-900/20 px-3 py-2.5 text-sm flex items-center justify-between gap-3">
             <span className="text-amber-800 dark:text-amber-200">
@@ -2396,6 +3074,29 @@ export default function ChatRoom() {
                   </button>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+        {dailySummary && (
+          <div className="mb-3 rounded-xl border border-primary-200 dark:border-primary-800/50 bg-primary-50 dark:bg-primary-900/20 px-3 py-2.5">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <p className="text-xs text-primary-700 dark:text-primary-300 font-medium">
+                  Tóm tắt ngày {dailySummary.date} • {dailySummary.messageCount}{" "}
+                  tin nhắn
+                </p>
+                <p className="text-sm text-gray-700 dark:text-gray-200 mt-1 max-h-20 overflow-y-auto pr-1">
+                  {dailySummary.summary}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDailySummary(null)}
+                className="p-1 rounded-md hover:bg-primary-100 dark:hover:bg-primary-900/40 text-primary-700 dark:text-primary-300"
+                title="Ẩn tóm tắt"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </div>
           </div>
         )}
@@ -2546,6 +3247,39 @@ export default function ChatRoom() {
                     </button>
                   )}
 
+                  {activeConversation?.type === "group" && (
+                    <button
+                      type="button"
+                      onClick={() => setShowPollComposer(true)}
+                      disabled={isMessagingBlocked}
+                      className="rounded-full p-1 text-gray-500 transition-colors hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-gray-700"
+                      title="Tao binh chon"
+                    >
+                      <BarChart3 className="h-5 w-5" />
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={handleSummarizeConversationInDay}
+                    disabled={isSummarizingConversation || !conversationId}
+                    className={`p-1 rounded-full transition-colors ${dailySummary
+                      ? "bg-primary-100 text-primary-500"
+                      : "hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500"
+                      } disabled:opacity-40 disabled:cursor-not-allowed`}
+                    title={
+                      isSummarizingConversation
+                        ? "Đang tóm tắt..."
+                        : "Tóm tắt cuộc trò chuyện trong ngày"
+                    }
+                  >
+                    {isSummarizingConversation ? (
+                      <Loader className="w-5 h-5 animate-spin-fast" />
+                    ) : (
+                      <FileText className="w-5 h-5" />
+                    )}
+                  </button>
+
                   <div ref={stickerPickerRef} className="relative">
                     <button
                       type="button"
@@ -2555,14 +3289,13 @@ export default function ChatRoom() {
                         (activeConversation?.type === "group" &&
                           !canSendMediaInGroup)
                       }
-                      className={`p-1 rounded-full transition-colors ${
-                        showStickerPicker
-                          ? "bg-primary-100 text-primary-500"
-                          : "hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500"
-                      } disabled:opacity-40 disabled:cursor-not-allowed`}
+                      className={`p-1 rounded-full transition-colors ${showStickerPicker
+                        ? "bg-primary-100 text-primary-500"
+                        : "hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500"
+                        } disabled:opacity-40 disabled:cursor-not-allowed`}
                       title={
                         activeConversation?.type === "group" &&
-                        !canSendMediaInGroup
+                          !canSendMediaInGroup
                           ? "Bạn không có quyền gửi media"
                           : "Nhãn dán"
                       }
@@ -2582,11 +3315,10 @@ export default function ChatRoom() {
                     type="button"
                     onClick={() => setShowEmojiPicker(!showEmojiPicker)}
                     disabled={isMessagingBlocked}
-                    className={`p-1 rounded-full transition-colors ${
-                      showEmojiPicker
-                        ? "bg-primary-100 text-primary-500"
-                        : "hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500"
-                    } disabled:opacity-40 disabled:cursor-not-allowed`}
+                    className={`p-1 rounded-full transition-colors ${showEmojiPicker
+                      ? "bg-primary-100 text-primary-500"
+                      : "hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500"
+                      } disabled:opacity-40 disabled:cursor-not-allowed`}
                   >
                     <SmileIcon className="w-5 h-5" />
                   </button>
@@ -2676,56 +3408,113 @@ export default function ChatRoom() {
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
             <div className="rounded-2xl bg-white dark:bg-dark-200 border border-gray-200 dark:border-gray-700 p-4">
               <div className="flex flex-col items-center text-center">
+                <input
+                  type="file"
+                  ref={groupAvatarInputRef}
+                  className="hidden"
+                  accept="image/*"
+                  onChange={handleGroupAvatarChange}
+                />
                 {conversationAvatar ? (
                   <button
                     type="button"
-                    onClick={handleOpenOtherProfile}
-                    disabled={activeConversation.type === "group"}
-                    className="rounded-full disabled:cursor-default"
+                    onClick={() => {
+                        if (activeConversation.type === 'group') {
+                            groupAvatarInputRef.current?.click();
+                        } else {
+                            handleOpenOtherProfile();
+                        }
+                    }}
+                    className="relative group rounded-full overflow-hidden"
                     title={
                       activeConversation.type === "group"
-                        ? ""
+                        ? "Đổi ảnh đại diện nhóm"
                         : "Xem trang cá nhân"
                     }
                   >
                     <img
                       src={conversationAvatar}
                       alt={conversationName}
-                      className="w-20 h-20 rounded-full object-cover"
+                      className="w-20 h-20 rounded-full object-cover group-hover:scale-110 transition-transform duration-300"
                     />
+                    {activeConversation.type === 'group' && (
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                            <Camera className="w-5 h-5 text-white" />
+                        </div>
+                    )}
                   </button>
                 ) : (
                   <button
                     type="button"
-                    onClick={handleOpenOtherProfile}
-                    disabled={activeConversation.type === "group"}
-                    className="rounded-full disabled:cursor-default"
+                    onClick={() => {
+                        if (activeConversation.type === 'group') {
+                            groupAvatarInputRef.current?.click();
+                        } else {
+                            handleOpenOtherProfile();
+                        }
+                    }}
+                    className="relative group rounded-full overflow-hidden"
                     title={
                       activeConversation.type === "group"
-                        ? ""
+                        ? "Đổi ảnh đại diện nhóm"
                         : "Xem trang cá nhân"
                     }
                   >
-                    <div className="w-20 h-20 rounded-full bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center">
+                    <div className="w-20 h-20 rounded-full bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center group-hover:scale-110 transition-transform duration-300">
                       <span className="text-2xl font-semibold text-primary-600 dark:text-primary-300">
                         {conversationName?.charAt(0).toUpperCase()}
                       </span>
                     </div>
+                    {activeConversation.type === 'group' && (
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                            <Camera className="w-5 h-5 text-white" />
+                        </div>
+                    )}
                   </button>
                 )}
-                <button
-                  type="button"
-                  onClick={handleOpenOtherProfile}
-                  disabled={activeConversation.type === "group"}
-                  className="mt-3 font-semibold text-gray-900 dark:text-white disabled:cursor-default"
-                  title={
-                    activeConversation.type === "group"
-                      ? ""
-                      : "Xem trang cá nhân"
-                  }
-                >
-                  {conversationName}
-                </button>
+                {isEditingGroupName ? (
+                  <div className="mt-3 flex items-center gap-2">
+                    <input
+                      type="text"
+                      className="flex-1 bg-gray-100 dark:bg-dark-100 text-gray-900 dark:text-white border-none rounded-lg px-2 py-1 text-sm focus:ring-2 focus:ring-primary-500 focus:outline-none"
+                      value={newGroupName}
+                      autoFocus
+                      onChange={(e) => setNewGroupName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") handleSaveGroupName();
+                        if (e.key === "Escape") setIsEditingGroupName(false);
+                      }}
+                    />
+                    <button onClick={handleSaveGroupName} className="p-1 hover:bg-gray-100 dark:hover:bg-dark-100 rounded">
+                      <Check className="w-4 h-4 text-primary-600" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="mt-3 flex items-center justify-center gap-2 group">
+                    <button
+                      type="button"
+                      onClick={handleOpenOtherProfile}
+                      disabled={activeConversation.type === "group"}
+                      className="font-semibold text-gray-900 dark:text-white disabled:cursor-default"
+                      title={
+                        activeConversation.type === "group"
+                          ? ""
+                          : "Xem trang cá nhân"
+                      }
+                    >
+                      {conversationName}
+                    </button>
+                    {activeConversation.type === "group" && (
+                      <button
+                        onClick={handleStartEditingGroupName}
+                        className="p-1 opacity-0 group-hover:opacity-100 hover:bg-gray-100 dark:hover:bg-dark-100 rounded transition-all"
+                        title="Đổi tên nhóm"
+                      >
+                        <Edit2 className="w-3.5 h-3.5 text-gray-400" />
+                      </button>
+                    )}
+                  </div>
+                )}
                 <p className="text-xs text-gray-500 dark:text-gray-400">
                   {activeConversation.type === "group"
                     ? `${activeConversation.participants.length} thành viên`
@@ -3058,6 +3847,14 @@ export default function ChatRoom() {
         isOpen={showGroupManagement}
         onClose={() => setShowGroupManagement(false)}
         group={activeConversation}
+      />
+
+      <PollComposerModal
+        open={showPollComposer}
+        onClose={() => setShowPollComposer(false)}
+        onSubmit={handleSubmitPoll}
+        canPinInConversation={Boolean(canPinMessage)}
+        conversationName={activeConversation?.name}
       />
 
       <ForwardMessageModal

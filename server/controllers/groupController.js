@@ -3,6 +3,76 @@ const { uploadFile } = require("../services/file.service");
 
 const getRequesterId = (req) => req.user?.userId;
 
+const getUsername = async (userId) => {
+  if (!userId) return "User";
+  try {
+    const userService = require("../services/userService");
+    const user = await userService.getById(userId);
+    return user?.fullName || user?.userName || userId;
+  } catch(e) {
+    return userId;
+  }
+};
+
+const createSystemMessage = async (req, conversationId, actionText, extraMetadata = {}) => {
+  try {
+    const messageService = require("../services/messageService");
+    const conversationModel = require("../models/conversation");
+    
+    const actorName = await getUsername(getRequesterId(req));
+    const text = `${actorName} ${actionText}`;
+    
+    const payload = {
+        conversationId,
+        senderId: 'system',
+        type: 'system',
+        content: text,
+        metadata: { isAnnouncement: true, ...extraMetadata }
+    };
+    const message = await messageService.createMessage(payload);
+    const normalizedMessage = { ...message, id: message._id };
+    
+    await conversationModel.updateConversation(conversationId, {
+        lastMessage: {
+            content: `[Thông báo] ${text}`,
+            type: "text",
+            senderId: 'system',
+            timestamp: message.createdAt,
+        },
+    });
+    
+    const io = req.app.get("io");
+    if (io) {
+        io.to(`conv:${conversationId}`).emit("chat:message", normalizedMessage);
+        io.to(conversationId).emit("chat:message", normalizedMessage);
+    }
+  } catch(e) {
+    console.error("Emit system message error:", e);
+  }
+};
+
+const emitGroupConversationUpdate = (req, conversationId, updates = {}) => {
+  try {
+    const io = req.app.get("io");
+    if (!io || !conversationId) return;
+
+    const payload = {
+      id: String(conversationId),
+      ...updates,
+    };
+
+    io.to(`conv:${conversationId}`).emit("chat:update_conversation", payload);
+    io.to(String(conversationId)).emit("chat:update_conversation", payload);
+  } catch (error) {
+    console.error("Emit group conversation update error:", error);
+  }
+};
+
+const buildGroupConversationUpdates = (group) => ({
+  participants: group?.participants,
+  groupSettings: group?.groupSettings,
+});
+
 const handleError = (res, error) => {
   return res.status(error.statusCode || 500).json({
     message: error.message
@@ -42,6 +112,11 @@ const GroupController = {
         name: req.body.name,
         userId: getRequesterId(req)
       });
+      await createSystemMessage(req, req.params.id, `đã đổi tên nhóm thành "${req.body.name}"`, { action: 'rename_group' });
+      
+      emitGroupConversationUpdate(req, req.params.id, {
+        name: group?.name || req.body.name
+      });
 
       return res.json(group);
     } catch (error) {
@@ -54,6 +129,11 @@ const GroupController = {
       const group = await GroupService.updateAvatar(req.params.id, {
         avatar: req.body.avatar,
         userId: getRequesterId(req)
+      });
+      await createSystemMessage(req, req.params.id, "đã thay đổi ảnh đại diện nhóm", { action: 'update_avatar' });
+      
+      emitGroupConversationUpdate(req, req.params.id, {
+        avatar: group?.avatar || req.body.avatar
       });
 
       return res.json(group);
@@ -68,7 +148,9 @@ const GroupController = {
         newUserId: req.body.newUserId,
         userId: getRequesterId(req)
       });
-
+      emitGroupConversationUpdate(req, req.params.id, buildGroupConversationUpdates(group));
+      const targetName = await getUsername(req.body.newUserId);
+      await createSystemMessage(req, req.params.id, `đã thêm ${targetName} vào nhóm`, { action: 'add_member' });
       return res.json(group);
     } catch (error) {
       return handleError(res, error);
@@ -92,7 +174,10 @@ const GroupController = {
       const result = await GroupService.rotateInviteCode(req.params.id, {
         userId: getRequesterId(req)
       });
-
+      emitGroupConversationUpdate(req, req.params.id, {
+        groupSettings: result.group?.groupSettings,
+      });
+      await createSystemMessage(req, req.params.id, "đã làm mới liên kết tham gia nhóm", { action: 'rotate_invite_code' });
       return res.json(result);
     } catch (error) {
       return handleError(res, error);
@@ -105,7 +190,10 @@ const GroupController = {
         userId: getRequesterId(req),
         approvalRequired: req.body.approvalRequired
       });
-
+      emitGroupConversationUpdate(req, req.params.id, {
+        groupSettings: result.group?.groupSettings,
+      });
+      await createSystemMessage(req, req.params.id, "đã thay đổi cài đặt phê duyệt tham gia nhóm", { action: 'update_invite_settings' });
       return res.json(result);
     } catch (error) {
       return handleError(res, error);
@@ -118,6 +206,16 @@ const GroupController = {
         inviteCode: req.body.inviteCode,
         userId: getRequesterId(req)
       });
+
+      const targetGroupId = String(
+        result?.group?._id || result?.group?.id || result?.groupId || ""
+      );
+      if (targetGroupId && result?.group) {
+        emitGroupConversationUpdate(req, targetGroupId, {
+          participants: result.group.participants,
+          groupSettings: result.group.groupSettings,
+        });
+      }
 
       return res.json(result);
     } catch (error) {
@@ -145,7 +243,11 @@ const GroupController = {
         action: req.body.action,
         userId: getRequesterId(req)
       });
-
+      emitGroupConversationUpdate(req, req.params.id, {
+        participants: result.group?.participants,
+        groupSettings: result.group?.groupSettings,
+      });
+      await createSystemMessage(req, req.params.id, `đã ${req.body.action === 'approve' ? 'phê duyệt' : 'từ chối'} duyệt tham gia nhóm`, { action: 'review_join_request' });
       return res.json(result);
     } catch (error) {
       return handleError(res, error);
@@ -158,7 +260,8 @@ const GroupController = {
         userId: getRequesterId(req),
         permissions: req.body
       });
-
+      emitGroupConversationUpdate(req, req.params.id, buildGroupConversationUpdates(result.group));
+      await createSystemMessage(req, req.params.id, "đã cập nhật quyền trong nhóm", { action: 'update_permissions' });
       return res.json(result);
     } catch (error) {
       return handleError(res, error);
@@ -172,6 +275,19 @@ const GroupController = {
         userId: getRequesterId(req)
       });
 
+      const io = req.app.get("io");
+      if (io) {
+        io.to(`conv:${req.params.id}`).emit("chat:pinned_message", {
+          conversationId: req.params.id,
+          pinnedMessage: result.pinnedMessage,
+          updatedBy: getRequesterId(req)
+        });
+      }
+      const pinnedContent = result.pinnedMessage?.content;
+      const previewText = typeof pinnedContent === 'string' ? pinnedContent : pinnedContent?.text || "";
+      const displayPreview = previewText ? ` "${previewText.length > 30 ? previewText.substring(0, 30) + "..." : previewText}"` : "";
+
+      await createSystemMessage(req, req.params.id, `đã ghim 1 tin nhắn${displayPreview}`, { action: 'pin' });
       return res.json(result);
     } catch (error) {
       return handleError(res, error);
@@ -184,6 +300,31 @@ const GroupController = {
         userId: getRequesterId(req)
       });
 
+      const io = req.app.get("io");
+      if (io) {
+        io.to(`conv:${req.params.id}`).emit("chat:pinned_message", {
+          conversationId: req.params.id,
+          pinnedMessage: null,
+          updatedBy: getRequesterId(req)
+        });
+      }
+      let displayPreview = "";
+      try {
+        const groupModel = require("../models/conversation");
+        const group = await groupModel.getById(req.params.id);
+        const wasPinned = group?.groupSettings?.pinnedMessage;
+        if (wasPinned) {
+          const pinnedContent = wasPinned.content;
+          const previewText = typeof pinnedContent === 'string' ? pinnedContent : pinnedContent?.text || "";
+          if (previewText) {
+            displayPreview = ` "${previewText.length > 30 ? previewText.substring(0, 30) + "..." : previewText}"`;
+          }
+        }
+      } catch (e) {
+        console.error("Error getting unpinned message preview:", e);
+      }
+
+      await createSystemMessage(req, req.params.id, `đã bỏ ghim 1 tin nhắn${displayPreview}`, { action: 'unpin' });
       return res.json(result);
     } catch (error) {
       return handleError(res, error);
@@ -196,7 +337,9 @@ const GroupController = {
         removeUserId: req.body.removeUserId,
         userId: getRequesterId(req)
       });
-
+      emitGroupConversationUpdate(req, req.params.id, buildGroupConversationUpdates(result.group));
+      const targetName = await getUsername(req.body.removeUserId);
+      await createSystemMessage(req, req.params.id, `đã xóa ${targetName} khỏi nhóm`);
       return res.json(result);
     } catch (error) {
       return handleError(res, error);
@@ -209,7 +352,9 @@ const GroupController = {
         newAdminUserId: req.body.newAdminUserId,
         userId: getRequesterId(req)
       });
-
+      emitGroupConversationUpdate(req, req.params.id, buildGroupConversationUpdates(result.group));
+      const targetName = await getUsername(req.body.newAdminUserId);
+      await createSystemMessage(req, req.params.id, `đã chuyển quyền trưởng nhóm cho ${targetName}`);
       return res.json(result);
     } catch (error) {
       return handleError(res, error);
@@ -222,7 +367,9 @@ const GroupController = {
         deputyUserId: req.body.deputyUserId,
         userId: getRequesterId(req)
       });
-
+      emitGroupConversationUpdate(req, req.params.id, buildGroupConversationUpdates(result.group));
+      const targetName = await getUsername(req.body.deputyUserId);
+      await createSystemMessage(req, req.params.id, `đã bổ nhiệm ${targetName} làm phó nhóm`);
       return res.json(result);
     } catch (error) {
       return handleError(res, error);
@@ -235,7 +382,9 @@ const GroupController = {
         deputyUserId: req.body.deputyUserId,
         userId: getRequesterId(req)
       });
-
+      emitGroupConversationUpdate(req, req.params.id, buildGroupConversationUpdates(result.group));
+      const targetName = await getUsername(req.body.deputyUserId);
+      await createSystemMessage(req, req.params.id, `đã tước quyền phó nhóm của ${targetName}`);
       return res.json(result);
     } catch (error) {
       return handleError(res, error);
@@ -258,9 +407,11 @@ const GroupController = {
   leaveGroup: async (req, res) => {
     try {
       const result = await GroupService.leaveGroup(req.params.id, {
-        userId: getRequesterId(req)
+        userId: getRequesterId(req),
+        newAdminUserId: req.body.newAdminUserId
       });
-
+      emitGroupConversationUpdate(req, req.params.id, buildGroupConversationUpdates(result.group));
+      await createSystemMessage(req, req.params.id, "đã rời nhóm");
       return res.json(result);
     } catch (error) {
       return handleError(res, error);

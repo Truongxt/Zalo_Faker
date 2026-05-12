@@ -55,7 +55,7 @@ const router = express.Router();
  *         description: Lỗi server
  */
 
-router.post("/chat",  auth , askAssistant);
+router.post("/chat", auth, askAssistant);
 router.get("/history", auth, getAssistantHistory);
 router.delete("/history/:conversationId", auth, deleteAssistantConversationHistory);
 
@@ -66,4 +66,4 @@ router.delete("/history/:conversationId", auth, deleteAssistantConversationHisto
 router.post("/summarize/:conversationId", auth, summarizeConversation);
 
 
-module.exports = router;
+module.exports = router;

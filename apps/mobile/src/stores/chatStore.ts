@@ -44,6 +44,29 @@ const trimCachedMessages = (messages: Record<string, Message[]>) => {
   return next;
 };
 
+const normalizeConversationRecord = <T extends Partial<Conversation>>(conversation: T): T => {
+  if (!conversation || typeof conversation !== "object") {
+    return conversation;
+  }
+
+  const normalized = { ...conversation } as T & {
+    avatar?: string | null;
+    avatarUrl?: string | null;
+  };
+  const hasAvatar = Object.prototype.hasOwnProperty.call(conversation, "avatar");
+  const hasAvatarUrl = Object.prototype.hasOwnProperty.call(conversation, "avatarUrl");
+
+  if (hasAvatar && !hasAvatarUrl) {
+    normalized.avatarUrl = normalized.avatar ?? null;
+  }
+
+  if (hasAvatarUrl && !hasAvatar) {
+    normalized.avatar = normalized.avatarUrl ?? null;
+  }
+
+  return normalized;
+};
+
 interface ChatState {
   conversations: Conversation[];
   activeConversation: Conversation | null;
@@ -95,23 +118,39 @@ export const useChatStore = create<ChatState>()(
     (set, get) => ({
       ...createInitialState(),
 
-      setConversations: (conversations) => set({ conversations }),
+      setConversations: (conversations) =>
+        set({
+          conversations: conversations.map((conversation) =>
+            normalizeConversationRecord(conversation),
+          ),
+        }),
 
       addConversation: (conversation) =>
         set((state) => ({
-          conversations: [conversation, ...state.conversations],
+          conversations: [
+            normalizeConversationRecord(conversation),
+            ...state.conversations,
+          ],
         })),
 
-      updateConversation: (id, updates) =>
+      updateConversation: (id, updates) => {
+        const normalizedUpdates = normalizeConversationRecord(updates);
+
         set((state) => ({
           conversations: state.conversations.map((c) =>
-            c.id === id ? { ...c, ...updates } : c,
+            c.id === id
+              ? normalizeConversationRecord({ ...c, ...normalizedUpdates })
+              : c,
           ),
           activeConversation:
             state.activeConversation?.id === id
-              ? { ...state.activeConversation, ...updates }
+              ? normalizeConversationRecord({
+                  ...state.activeConversation,
+                  ...normalizedUpdates,
+                })
               : state.activeConversation,
-        })),
+        }));
+      },
 
       removeConversation: (id) =>
         set((state) => ({
@@ -121,7 +160,11 @@ export const useChatStore = create<ChatState>()(
         })),
 
       setActiveConversation: (conversation) =>
-        set({ activeConversation: conversation }),
+        set({
+          activeConversation: conversation
+            ? normalizeConversationRecord(conversation)
+            : null,
+        }),
 
       setMessages: (conversationId, messages) =>
         set((state) => ({

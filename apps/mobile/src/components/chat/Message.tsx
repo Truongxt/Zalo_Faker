@@ -3,18 +3,10 @@ import { Colors } from "@/constants/colors";
 import type { Message as ChatMessage } from "@/types";
 import { formatDistanceToNow } from "date-fns";
 import { vi } from "date-fns/locale";
-import {
-  ActivityIndicator,
-  Linking,
-  Modal,
-  Pressable,
-  ScrollView,
-  Text,
-  TouchableOpacity,
-  View,
-} from "react-native";
-import { useEffect, useState } from "react";
+import { Text, View, Pressable, Image } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { Video, ResizeMode } from 'expo-av';
+import { useAuthStore } from "@/stores/authStore";
 
 interface MessageProps {
   message: ChatMessage;
@@ -27,7 +19,7 @@ interface MessageProps {
 const formatRelativeTime = (value: string) => {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
-    return "Vua xong";
+    return "Vừa xong";
   }
 
   return formatDistanceToNow(date, {
@@ -41,71 +33,29 @@ const formatAttachmentLabel = (
 ) => {
   switch (attachment.type) {
     case "image":
-      return attachment.name || "Hinh anh";
+      return attachment.name || "Hình anh";
     case "video":
       return attachment.name || "Video";
     case "voice":
-      return attachment.name || "Tin nhan giong noi";
+      return attachment.name || "Tin nhắn giọng nói";
     default:
-      return attachment.name || "Tap tin";
+      return attachment.name || "Tập tin";
   }
 };
 
-type FilePreviewKind = "pdf" | "text";
-
-type FilePreviewState = {
-  kind: FilePreviewKind;
-  mediaUrl: string;
-  fileName: string;
+const VIDEO_EXTENSIONS = ["mp4", "webm", "ogg", "mov", "avi", "mkv", "3gp"];
+const isVideoFile = (name?: string) => {
+  if (!name) return false;
+  const ext = name.split(".").pop()?.toLowerCase() || "";
+  return VIDEO_EXTENSIONS.includes(ext);
 };
 
-const TEXT_FILE_EXTENSIONS = new Set([
-  "txt",
-  "md",
-  "log",
-  "csv",
-  "json",
-  "xml",
-  "yaml",
-  "yml",
-]);
-
-const getFileNameFromUrl = (url?: string) => {
-  if (!url) return "";
-
-  try {
-    const parsed = new URL(url);
-    const lastSegment = parsed.pathname.split("/").pop() || "";
-    return decodeURIComponent(lastSegment);
-  } catch {
-    const clean = String(url).split("?")[0].split("#")[0];
-    const lastSegment = clean.split("/").pop() || "";
-    return decodeURIComponent(lastSegment);
-  }
-};
-
-const getFileExtension = (fileName: string) => {
-  const normalized = String(fileName || "")
-    .trim()
-    .toLowerCase();
-  const segments = normalized.split(".");
-  if (segments.length < 2) return "";
-  return segments.pop() || "";
-};
-
-const getPreviewKind = (
-  fileName?: string,
-  mediaUrl?: string,
-): FilePreviewKind | null => {
-  const resolvedFileName = String(
-    fileName || getFileNameFromUrl(mediaUrl),
-  ).trim();
-  const extension = getFileExtension(resolvedFileName);
-
-  if (extension === "pdf") return "pdf";
-  if (TEXT_FILE_EXTENSIONS.has(extension)) return "text";
-
-  return null;
+const formatDuration = (s: number) => {
+  const mins = Math.floor(s / 60);
+  const secs = s % 60;
+  return `${mins.toString().padStart(2, "0")}:${secs
+    .toString()
+    .padStart(2, "0")}`;
 };
 
 const parseCallPayload = (value: unknown) => {
@@ -155,6 +105,65 @@ const parseCallPayload = (value: unknown) => {
   };
 };
 
+const ImageGrid = ({
+  attachments,
+}: {
+  attachments: NonNullable<ChatMessage["attachments"]>;
+}) => {
+  const images = attachments.filter((a) => a.type === "image");
+  const count = images.length;
+
+  if (count === 0) return null;
+
+  if (count === 1) {
+    return (
+      <Image
+        source={{ uri: images[0].url }}
+        className="rounded-2xl"
+        style={{ width: 240, height: 240 }}
+        resizeMode="cover"
+      />
+    );
+  }
+
+  if (count === 2) {
+    return (
+      <View className="flex-row gap-1 rounded-2xl overflow-hidden" style={{ width: 240, height: 160 }}>
+        <Image source={{ uri: images[0].url }} className="flex-1 h-full" resizeMode="cover" />
+        <Image source={{ uri: images[1].url }} className="flex-1 h-full" resizeMode="cover" />
+      </View>
+    );
+  }
+
+  if (count === 3) {
+    return (
+      <View className="flex-row gap-1 rounded-2xl overflow-hidden" style={{ width: 240, height: 180 }}>
+        <Image source={{ uri: images[0].url }} className="flex-1 h-full" resizeMode="cover" />
+        <View className="flex-1 gap-1">
+          <Image source={{ uri: images[1].url }} className="flex-1 w-full" resizeMode="cover" />
+          <Image source={{ uri: images[2].url }} className="flex-1 w-full" resizeMode="cover" />
+        </View>
+      </View>
+    );
+  }
+
+  // 4 or more
+  return (
+    <View className="flex-row flex-wrap gap-1 rounded-2xl overflow-hidden" style={{ width: 240 }}>
+      {images.slice(0, 4).map((img, i) => (
+        <View key={i} style={{ width: 118, height: 118 }}>
+          <Image source={{ uri: img.url }} className="w-full h-full" resizeMode="cover" />
+          {i === 3 && count > 4 && (
+            <View className="absolute inset-0 bg-black/40 items-center justify-center">
+              <Text className="text-white text-lg font-bold">+{count - 4}</Text>
+            </View>
+          )}
+        </View>
+      ))}
+    </View>
+  );
+};
+
 export function Message({
   message,
   isSent = false,
@@ -162,15 +171,17 @@ export function Message({
   showSenderName = !isSent,
   showTime = true,
 }: MessageProps) {
+  const currentUser = useAuthStore(state => state.user);
   const bubbleBackground = isSent ? Colors.bubbleSent : Colors.bubbleReceived;
   const bubbleTextColor = isSent
     ? Colors.bubbleSentText
     : Colors.bubbleReceivedText;
   const attachments = message.attachments || [];
   const reactions = message.reactions || [];
+  const isAnnouncement = Boolean(message.metadata?.isAnnouncement);
   const isForwarded = Boolean(message.metadata?.isForwarded);
   const content = message.isDeleted
-    ? "Tin nhan da bi thu hoi"
+    ? "Tin nhắn đã bị thu hồi"
     : message.content;
   const [activeFilePreview, setActiveFilePreview] =
     useState<FilePreviewState | null>(null);
@@ -251,6 +262,35 @@ export function Message({
       ? { callType: "audio" as const, status: "finished", duration: 0 }
       : null);
 
+  if (message.type === 'system' || isAnnouncement) {
+    const action = (message.metadata as any)?.action;
+    const isPinAction = action === 'pin' || action === 'unpin';
+    
+    const getIconName = () => {
+      if (action === 'pin' || action === 'unpin') return 'pricetag';
+      if (action === 'rename_group') return 'create';
+      if (action === 'update_avatar') return 'image';
+      if (action === 'add_member') return 'person-add';
+      if (action === 'remove_member') return 'person-remove';
+      if (action === 'update_permissions') return 'lock-closed';
+      if (action === 'update_settings') return 'settings';
+      return 'information-circle';
+    };
+
+    return (
+      <View className="flex-row justify-center my-3 w-full">
+        <View className="flex-row items-center gap-2 px-3 py-1.5 rounded-full border border-gray-200 bg-white shadow-sm flex-shrink-1">
+          <View className={`w-6 h-6 rounded-full items-center justify-center ${isPinAction ? 'bg-orange-50' : 'bg-blue-50'}`}>
+            <Ionicons name={getIconName() as any} size={12} color={isPinAction ? '#f97316' : '#3b82f6'} />
+          </View>
+          <Text className="text-sm text-gray-500 font-medium flex-shrink" numberOfLines={2}>
+             {typeof message.content === 'object' ? (message.content as any)?.text || '' : String(message.content || '')}
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View className={`mb-3 px-3 ${isSent ? "items-end" : "items-start"}`}>
       {showTime ? (
@@ -286,7 +326,7 @@ export function Message({
               className={`mb-2 rounded-2xl border px-3 py-2 ${isSent ? "border-blue-200 bg-blue-50" : "border-gray-200 bg-gray-100"}`}
             >
               <Text className="text-xs font-semibold text-gray-500">
-                Tra loi {message.replyTo.senderName}
+                Trả lời {message.replyTo.senderName}
               </Text>
               <Text className="mt-1 text-sm text-gray-600" numberOfLines={2}>
                 {message.replyTo.content}
@@ -301,7 +341,7 @@ export function Message({
             {parsedCallPayload ? (
               (() => {
                 const callData: any = parsedCallPayload;
-                const isVideo = callData.callType === "video";
+                const isVideo = callData.callType === 'video';
                 const status = callData.status;
                 const duration = callData.duration || 0;
 
@@ -311,7 +351,15 @@ export function Message({
                   return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
                 };
 
-                const isMissed = status === "missed" || status === "rejected";
+                const getStatusText = () => {
+                  if (status === 'finished') return isSent ? 'Cuộc gọi đi' : 'Cuộc gọi đến';
+                  if (status === 'missed') return isSent ? 'Thuê bao không nhấc máy' : 'Cuộc gọi nhỡ';
+                  if (status === 'rejected') return 'Cuộc gọi bị từ chối';
+                  if (status === 'cancelled') return 'Cuộc gọi đã hủy';
+                  return 'Cuộc gọi';
+                };
+
+                const isMissed = status === 'missed' || status === 'rejected';
 
                 return (
                   <View className="flex-row items-center gap-3 py-1">
@@ -367,121 +415,101 @@ export function Message({
                       "File dinh kem";
                     const previewKind = getPreviewKind(fileName, mediaUrl);
 
-                    return (
-                      <View style={{ gap: 8 }}>
-                        <Pressable
-                          onPress={() => {
-                            if (previewKind && mediaUrl) {
-                              openFilePreview(previewKind, mediaUrl, fileName);
-                              return;
-                            }
-
-                            handleOpenFileExternally(mediaUrl);
-                          }}
-                          style={({ pressed }) => ({
-                            flexDirection: "row",
-                            alignItems: "center",
-                            gap: 8,
-                            borderRadius: 14,
-                            paddingHorizontal: 12,
-                            paddingVertical: 10,
-                            backgroundColor: pressed
-                              ? "rgba(255,255,255,0.12)"
-                              : "rgba(255,255,255,0.16)",
-                          })}
-                        >
-                          <Ionicons
-                            name="document-outline"
-                            size={18}
-                            color={bubbleTextColor}
-                          />
-                          <View style={{ flex: 1, minWidth: 0 }}>
-                            <Text
-                              style={{
-                                color: bubbleTextColor,
-                                fontWeight: "600",
-                              }}
-                              numberOfLines={1}
-                            >
-                              {fileName}
-                            </Text>
-                            <Text
-                              style={{
-                                color: bubbleTextColor,
-                                opacity: 0.72,
-                                fontSize: 12,
-                              }}
-                              numberOfLines={1}
-                            >
-                              {previewKind
-                                ? "Chạm để xem trước"
-                                : "Chạm để mở file"}
-                            </Text>
-                          </View>
-                        </Pressable>
-
-                        {previewKind && mediaUrl ? (
-                          <Pressable
-                            onPress={() => handleOpenFileExternally(mediaUrl)}
-                          >
-                            <Text
-                              style={{
-                                color: bubbleTextColor,
-                                fontSize: 12,
-                                textDecorationLine: "underline",
-                              }}
-                            >
-                              Mở file ở tab mới
-                            </Text>
-                          </Pressable>
-                        ) : null}
-                      </View>
-                    );
-                  })()
-                ) : (
-                  <>
-                    {message.type !== "text" && !message.isDeleted ? (
-                      <Text className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">
-                        {message.type}
-                      </Text>
-                    ) : null}
-
-                    <Text
-                      className={`text-[15px] leading-5 ${message.isDeleted ? "italic text-gray-500" : ""}`}
-                      style={{ color: bubbleTextColor }}
-                    >
-                      {content || "Khong co noi dung"}
-                    </Text>
-                  </>
-                )}
+                <Text
+                  className={`text-[15px] leading-5 ${message.isDeleted ? "italic text-gray-500" : ""}`}
+                  style={{ color: bubbleTextColor }}
+                >
+                  {content || "Không có nội dung"}
+                </Text>
               </>
             )}
 
             {attachments.length ? (
               <View className="mt-3 gap-2">
-                {attachments.map((attachment, index) => (
-                  <View
-                    key={`${message.id}-attachment-${index}`}
-                    className="rounded-2xl border border-black/5 bg-white/60 px-3 py-2"
-                  >
-                    <Text className="text-sm font-medium text-gray-700">
-                      {formatAttachmentLabel(attachment)}
-                    </Text>
-                    {attachment.size ? (
-                      <Text className="mt-1 text-xs text-gray-500">
-                        {Math.round(attachment.size / 1024)} KB
+                {/* Render Image Grid if there are images */}
+                <ImageGrid attachments={attachments} />
+
+                {/* Render other attachments */}
+                {attachments.map((attachment, index) => {
+                  if (attachment.type === 'image') return null;
+                  
+                  const isVideo = attachment.type === 'video' || isVideoFile(attachment.name);
+                  
+                  if (isVideo) {
+                    return (
+                      <View 
+                        key={`${message.id}-attachment-${index}`}
+                        className="rounded-2xl overflow-hidden bg-black/5"
+                        style={{ width: 240, height: 160 }}
+                      >
+                        <Video
+                          source={{ uri: attachment.url }}
+                          rate={1.0}
+                          volume={1.0}
+                          isMuted={true}
+                          resizeMode={ResizeMode.COVER}
+                          shouldPlay={true}
+                          isLooping={true}
+                          style={{ width: '100%', height: '100%' }}
+                        />
+                        {/* Duration Badge */}
+                        <View className="absolute top-2 left-2 px-1.5 py-0.5 bg-black/60 rounded backdrop-blur-md">
+                          <Text className="text-white text-[10px] font-bold">
+                            {attachment.duration ? formatDuration(attachment.duration) : "Video"}
+                          </Text>
+                        </View>
+                        {/* Play Icon Overlay */}
+                        <View className="absolute inset-0 items-center justify-center pointer-events-none">
+                          <View className="w-10 h-10 rounded-full bg-black/30 items-center justify-center border border-white/20">
+                            <Ionicons name="play" size={20} color="white" style={{ marginLeft: 2 }} />
+                          </View>
+                        </View>
+                        {attachment.name && (
+                           <View className="absolute bottom-0 left-0 right-0 p-2 bg-black/40">
+                              <Text className="text-white text-xs truncate" numberOfLines={1}>
+                                {attachment.name}
+                              </Text>
+                           </View>
+                        )}
+                      </View>
+                    );
+                  }
+
+                  return (
+                    <View
+                      key={`${message.id}-attachment-${index}`}
+                      className="rounded-2xl border border-black/5 bg-white/60 px-3 py-2"
+                    >
+                      <Text className="text-sm font-medium text-gray-700">
+                        {formatAttachmentLabel(attachment)}
                       </Text>
-                    ) : null}
-                  </View>
-                ))}
+                      {attachment.size ? (
+                        <Text className="mt-1 text-xs text-gray-500">
+                          {Math.round(attachment.size / 1024)} KB
+                        </Text>
+                      ) : null}
+                    </View>
+                  );
+                })}
               </View>
-            ) : null}
+            ) : (
+              message.type === 'image' && !message.isDeleted && typeof content === 'string' && content.startsWith('http') && (
+                <View className="mt-2">
+                   <Image 
+                     source={{ uri: content }} 
+                     className="rounded-2xl" 
+                     style={{ width: 240, height: 240 }} 
+                     resizeMode="cover"
+                   />
+                </View>
+              )
+            )}
 
             <View
               className={`mt-2 flex-row items-center ${isSent ? "justify-end" : "justify-start"}`}
             >
               {message.isEdited && !message.isDeleted ? (
-                <Text className="text-[11px] text-gray-500">Da chinh sua</Text>
+                <Text className="text-[11px] text-gray-500">Đã chỉnh sửa</Text>
               ) : null}
             </View>
           </View>
@@ -490,16 +518,28 @@ export function Message({
             <View
               className={`mt-2 flex-row flex-wrap gap-2 ${isSent ? "justify-end" : "justify-start"}`}
             >
-              {reactions.map((reaction, index) => (
-                <View
-                  key={`${message.id}-reaction-${reaction.emoji}-${reaction.userId}-${index}`}
-                  className="rounded-full border border-gray-200 bg-white px-2 py-1"
-                >
-                  <Text className="text-xs text-gray-700">
-                    {reaction.emoji} {reaction.userName}
-                  </Text>
+              {isSent ? (
+                reactions.map((reaction, index) => (
+                  <View
+                    key={`${message.id}-reaction-${reaction.emoji}-${reaction.userId}-${index}`}
+                    className="rounded-full border border-gray-200 bg-white px-2 py-1 flex-row items-center gap-1 shadow-sm"
+                  >
+                    <Text className="text-xs text-gray-700">{reaction.emoji}</Text>
+                    <Text className="text-[10px] text-gray-500 font-medium">
+                      {reaction.userId === currentUser?.id ? "Bạn" : (reaction.userName || "...")}
+                    </Text>
+                  </View>
+                ))
+              ) : (
+                <View className="rounded-full border border-gray-200 bg-white px-2 py-1 flex-row items-center gap-1 shadow-sm">
+                  {[...new Set(reactions.map((r) => r.emoji))].slice(0, 3).map((emoji, i) => (
+                    <Text key={i} className="text-xs">{emoji}</Text>
+                  ))}
+                  {reactions.length > 1 && (
+                    <Text className="text-[10px] text-gray-500 ml-0.5">{reactions.length}</Text>
+                  )}
                 </View>
-              ))}
+              )}
             </View>
           ) : null}
         </View>

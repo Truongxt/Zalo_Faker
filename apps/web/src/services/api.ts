@@ -4,12 +4,12 @@ export const baseAPI = import.meta.env.VITE_API_URL || "http://localhost:3000/ap
 
 export const fetchWithAuth = async (endpoint: string, options: RequestInit = {}) => {
     const token = useAuthStore.getState().accessToken;
-    
+
     const headers = new Headers(options.headers || {});
     if (token) {
         headers.set("Authorization", `Bearer ${token}`);
     }
-    
+
     if (!headers.has('Content-Type') && options.method !== 'GET' && !(options.body instanceof FormData)) {
         headers.set("Content-Type", "application/json");
     }
@@ -49,7 +49,7 @@ export const fetchWithAuth = async (endpoint: string, options: RequestInit = {})
                 console.error('Token refresh failed:', err);
             }
         }
-        
+
         console.warn('Session expired. Logging out...');
         useAuthStore.getState().logout();
         window.location.href = '/login';
@@ -136,12 +136,57 @@ const parseCallPayload = (value: unknown): ParsedCallPayload | null => {
     return textCandidate ? parseCallPayload(textCandidate) : null
 }
 
+const looksLikeMediaUrl = (value: string): boolean => {
+    const normalized = value.trim()
+    if (!normalized) return false
+
+    if (/^https?:\/\//i.test(normalized)) return true
+    if (/^data:image\//i.test(normalized)) return true
+    if (/^blob:/i.test(normalized)) return true
+    if (/^\/(uploads|images|media|stickers)\//i.test(normalized)) return true
+
+    return /\.(png|jpe?g|gif|webp|svg|avif)(\?.*)?$/i.test(normalized)
+}
+
 const normalizeContent = (rawContent: any) => {
     const parsedCall = parseCallPayload(rawContent)
 
-    if (typeof rawContent === 'string') {
+    if (
+        rawContent
+        && typeof rawContent === 'object'
+        && !Array.isArray(rawContent)
+        && rawContent.poll
+        && typeof rawContent.poll === 'object'
+        && !Array.isArray(rawContent.poll)
+    ) {
         return {
-            text: rawContent,
+            poll: rawContent.poll,
+            text: typeof rawContent.text === 'string'
+                ? rawContent.text
+                : typeof rawContent.poll.question === 'string'
+                    ? rawContent.poll.question
+                    : undefined,
+        }
+    }
+
+    if (
+        rawContent
+        && typeof rawContent === 'object'
+        && !Array.isArray(rawContent)
+        && typeof rawContent.question === 'string'
+        && Array.isArray(rawContent.options)
+    ) {
+        return {
+            poll: rawContent,
+            text: rawContent.question,
+        }
+    }
+
+    if (typeof rawContent === 'string') {
+        const mediaUrl = looksLikeMediaUrl(rawContent) ? rawContent : undefined
+        return {
+            text: mediaUrl ? undefined : rawContent,
+            mediaUrl,
             callType: parsedCall?.callType,
             callStatus: parsedCall?.callStatus,
             duration: parsedCall?.duration,
@@ -209,6 +254,32 @@ const sendMessage = async (message: any) => {
     return normalizeMessage(data);
 }
 
+const votePoll = async (messageId: string, optionIds: string[]) => {
+    const response = await fetchWithAuth(`/messages/${messageId}/poll/vote`, {
+        method: "POST",
+        body: JSON.stringify({ optionIds }),
+    });
+    const data = await response.json();
+    return normalizeMessage(data);
+}
+
+const addPollOption = async (messageId: string, text: string) => {
+    const response = await fetchWithAuth(`/messages/${messageId}/poll/options`, {
+        method: "POST",
+        body: JSON.stringify({ text }),
+    });
+    const data = await response.json();
+    return normalizeMessage(data);
+}
+
+const removePollOption = async (messageId: string, optionId: string) => {
+    const response = await fetchWithAuth(`/messages/${messageId}/poll/options/${optionId}`, {
+        method: "DELETE",
+    });
+    const data = await response.json();
+    return normalizeMessage(data);
+}
+
 const getUsers = async (): Promise<User[]> => {
     const response = await fetchWithAuth(`/users`);
     const data = await response.json();
@@ -224,11 +295,47 @@ const removeGroupMember = async (groupId: string, data: { userId: string, remove
     return response.json();
 }
 
-const leaveGroup = async (groupId: string, data: { userId: string }) => {
+const leaveGroup = async (groupId: string, data: { userId: string; newAdminUserId?: string }) => {
     if (!groupId || groupId === 'undefined') throw new Error('Invalid Group ID');
     const response = await fetchWithAuth(`/groups/${groupId}/leave`, {
         method: 'PUT',
         body: JSON.stringify(data)
+    });
+    return response.json();
+}
+
+const transferAdmin = async (groupId: string, data: { userId: string; newAdminUserId: string }) => {
+    if (!groupId || groupId === 'undefined') throw new Error('Invalid Group ID');
+    const response = await fetchWithAuth(`/groups/${groupId}/transfer-admin`, {
+        method: 'PUT',
+        body: JSON.stringify(data)
+    });
+    return response.json();
+}
+
+const appointDeputy = async (groupId: string, data: { userId: string; deputyUserId: string }) => {
+    if (!groupId || groupId === 'undefined') throw new Error('Invalid Group ID');
+    const response = await fetchWithAuth(`/groups/${groupId}/appoint-deputy`, {
+        method: 'PUT',
+        body: JSON.stringify(data)
+    });
+    return response.json();
+}
+
+const revokeDeputy = async (groupId: string, data: { userId: string; deputyUserId: string }) => {
+    if (!groupId || groupId === 'undefined') throw new Error('Invalid Group ID');
+    const response = await fetchWithAuth(`/groups/${groupId}/revoke-deputy`, {
+        method: 'PUT',
+        body: JSON.stringify(data)
+    });
+    return response.json();
+}
+
+const dissolveGroup = async (groupId: string, data?: { userId?: string }) => {
+    if (!groupId || groupId === 'undefined') throw new Error('Invalid Group ID');
+    const response = await fetchWithAuth(`/groups/${groupId}`, {
+        method: 'DELETE',
+        body: JSON.stringify(data || {})
     });
     return response.json();
 }
@@ -248,9 +355,11 @@ const updateConversationBackground = async (conversationId: string, backgroundUr
     return { ...json, id: json._id };
 }
 
-const uploadMedia = async (file: File) => {
+const uploadMedia = async (file: File, folder?: string, subfolder?: string) => {
     const formData = new FormData();
     formData.append("file", file, file.name);
+    if (folder) formData.append("folder", folder);
+    if (subfolder) formData.append("subfolder", subfolder);
 
     const response = await fetchWithAuth(`/upload`, {
         method: "POST",
@@ -295,9 +404,10 @@ const deleteChatHistory = async (conversationId: string) => {
 }
 
 const createGroup = async (data: any) => {
+    const isFormData = data instanceof FormData;
     const response = await fetchWithAuth(`/groups`, {
         method: "POST",
-        body: JSON.stringify(data)
+        body: isFormData ? data : JSON.stringify(data)
     });
     return await response.json();
 }
@@ -405,6 +515,64 @@ const unpinConversationMessage = async (conversationId: string) => {
         method: "DELETE"
     });
     return response.json();
+}
+
+const renameGroup = async (groupId: string, name: string) => {
+    const response = await fetchWithAuth(`/groups/${groupId}/rename`, {
+        method: "PUT",
+        body: JSON.stringify({ name })
+    });
+    return response.json();
+}
+
+const updateGroupAvatar = async (groupId: string, avatarData: FormData | { avatar: string }) => {
+    const isFormData = avatarData instanceof FormData;
+    const response = await fetchWithAuth(`/groups/${groupId}/avatar`, {
+        method: "PUT",
+        body: isFormData ? avatarData : JSON.stringify(avatarData)
+    });
+    return response.json();
+}
+
+export interface DailyConversationSummary {
+    conversationId: string;
+    conversationName: string;
+    summary: string;
+    messageCount: number;
+    date: string;
+    tzOffsetMinutes: number;
+}
+
+const getDailyConversationSummary = async (
+    conversationId: string,
+    date?: string,
+    tzOffsetMinutes?: number,
+): Promise<DailyConversationSummary> => {
+    if (!conversationId || conversationId === 'undefined') {
+        throw new Error('Invalid Conversation ID');
+    }
+
+    const query = new URLSearchParams();
+    if (date) {
+        query.set('date', date);
+    }
+    if (Number.isFinite(tzOffsetMinutes)) {
+        query.set('tzOffsetMinutes', String(Math.trunc(Number(tzOffsetMinutes))));
+    }
+
+    const endpoint = `/conversations/${conversationId}/daily-summary${query.toString() ? `?${query.toString()}` : ''}`;
+    const response = await fetchWithAuth(endpoint);
+    const payload = await response.json();
+    const data = payload?.data || payload || {};
+
+    return {
+        conversationId: String(data?.conversationId || conversationId),
+        conversationName: String(data?.conversationName || ''),
+        summary: String(data?.summary || ''),
+        messageCount: Number(data?.messageCount || 0),
+        date: String(data?.date || ''),
+        tzOffsetMinutes: Number(data?.tzOffsetMinutes ?? (tzOffsetMinutes ?? 0)),
+    };
 }
 
 const getUserByPhone = async (phone: string): Promise<User> => {
@@ -515,6 +683,9 @@ export {
     getConversation,
     getMessages,
     sendMessage,
+    votePoll,
+    addPollOption,
+    removePollOption,
     getUsers,
     deleteChatHistory,
     createGroup,
@@ -522,6 +693,10 @@ export {
     addGroupMember,
     removeGroupMember,
     leaveGroup,
+    transferAdmin,
+    appointDeputy,
+    revokeDeputy,
+    dissolveGroup,
     getGroupSettings,
     rotateGroupInviteCode,
     updateGroupInviteSettings,
@@ -533,6 +708,7 @@ export {
     unpinGroupMessage,
     pinConversationMessage,
     unpinConversationMessage,
+    getDailyConversationSummary,
     getStickers,
     updateConversationBackground,
     uploadMedia,
@@ -545,6 +721,7 @@ export {
     askAssistant,
     getAssistantHistory,
     deleteAssistantConversationHistory,
-    summarizeConversation,
+    renameGroup,
+    updateGroupAvatar
 }
 

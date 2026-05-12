@@ -7,6 +7,7 @@ const {
 } = require("../utils/jwt");
 
 const userRepository = require("../repository/userRepository");
+const friendRepository = require("../repository/friendsRepository");
 const refreshTokenRepository = require("../repository/RefreshTokenRepository");
 const loginHistoryRepository = require("../repository/loginHistoryRepository");
 const { safeGet, safeSet, safeDel } = require("../utils/redisClient");
@@ -23,6 +24,42 @@ const PERMANENT_LOCK_RESEND_LIMIT_SECONDS = 60;
 
 const normalizeEmail = (email) => String(email || "").trim().toLowerCase();
 const normalizePhone = (phone) => String(phone || "").trim().replace(/[\s().-]/g, "");
+const normalizePhoneForSuggestion = (phone) => {
+  let digits = String(phone || "").trim().replace(/\D/g, "");
+
+  if (!digits) {
+    return null;
+  }
+
+  if (digits.startsWith("00")) {
+    digits = digits.slice(2);
+  }
+
+  if (digits.startsWith("84")) {
+    digits = digits.slice(2);
+  } else if (digits.startsWith("0")) {
+    digits = digits.slice(1);
+  }
+
+  if (digits.length !== 9) {
+    return null;
+  }
+
+  return `+84${digits}`;
+};
+
+const sanitizeSuggestedPhones = (phones) => {
+  if (!Array.isArray(phones)) {
+    return [];
+  }
+
+  return [...new Set(
+    phones
+      .map((phone) => normalizePhoneForSuggestion(phone))
+      .filter(Boolean),
+  )];
+};
+
 const normalizePlatform = (platform) => {
   const normalized = String(platform || "").trim().toLowerCase();
 
@@ -172,7 +209,8 @@ const UserService = {
       "status",
       "presenceStatus",
       "lastActiveAt",
-      "userName"
+      "userName",
+      "hiddenChatPin"
     ];
 
     for (const field of allowedFields) {
@@ -366,6 +404,80 @@ const UserService = {
   },
   getById: async userId => {
     return await userRepository.getById(userId);
+  },
+  suggestFriendsByPhones: async (requesterId, phones) => {
+    const normalizedRequesterId = String(requesterId || "").trim();
+    if (!normalizedRequesterId) {
+      throw new Error("userId is required");
+    }
+
+    const normalizedPhones = sanitizeSuggestedPhones(phones);
+    if (!normalizedPhones.length) {
+      return [];
+    }
+
+    const [users, requesterFriends] = await Promise.all([
+      userRepository.getAll(),
+      friendRepository.getFriends(normalizedRequesterId),
+    ]);
+
+    if (!Array.isArray(users) || !users.length) {
+      return [];
+    }
+
+    const requesterFriendIds = new Set(
+      (requesterFriends || [])
+        .map((relation) => {
+          if (!relation) return null;
+          const fromId = String(relation.fromUserId || "");
+          const toId = String(relation.toUserId || "");
+          return fromId === normalizedRequesterId ? toId : fromId;
+        })
+        .filter(Boolean),
+    );
+
+    const normalizedPhoneSet = new Set(normalizedPhones);
+    const result = [];
+
+    for (const user of users) {
+      if (!user) continue;
+
+      const currentUserId = String(user.userId || "");
+      if (!currentUserId || currentUserId === normalizedRequesterId) {
+        continue;
+      }
+
+      if (requesterFriendIds.has(currentUserId)) {
+        continue;
+      }
+
+      const accountStatus = String(user.accountStatus || user.status || "active").toLowerCase();
+      if (accountStatus !== "active") {
+        continue;
+      }
+
+      const normalizedUserPhone = normalizePhoneForSuggestion(user.phone);
+      if (!normalizedUserPhone || !normalizedPhoneSet.has(normalizedUserPhone)) {
+        continue;
+      }
+
+      const existingRelation = await friendRepository.getExitingFriend(
+        normalizedRequesterId,
+        currentUserId,
+      );
+      if (existingRelation) {
+        continue;
+      }
+
+      const { password: _, ...safeUser } = user;
+      result.push({
+        ...safeUser,
+        avatarUrl: safeUser.avartarUrl || safeUser.avatarUrl || null,
+        matchedPhone: normalizedUserPhone,
+      });
+    }
+
+    return result;
   },
 
   refreshToken: async (refreshToken) => {
@@ -803,6 +915,13 @@ const UserService = {
   getLoginHistory: async (userId, limit = 20) => {
     if (!userId) throw new Error("userId is required");
     return await loginHistoryRepository.getByUserId(userId, limit);
+  },
+
+  comparePassword: async (userId, password) => {
+    if (!userId || !password) return false;
+    const user = await userRepository.getById(userId);
+    if (!user) return false;
+    return await bcrypt.compare(password + "nhan123@@", user.password);
   },
 
   registerComplete: async (registerData) => {

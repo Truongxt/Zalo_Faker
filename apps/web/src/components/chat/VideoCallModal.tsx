@@ -5,9 +5,10 @@ import { PhoneOff, Mic, MicOff, Video, VideoOff } from 'lucide-react';
 import { socketService } from '@/lib/socket';
 
 const AUDIO_RECORDER_MIME_CANDIDATES = [
+  'audio/mp4;codecs=mp4a.40.2',
+  'audio/mp4',
   'audio/webm;codecs=opus',
   'audio/webm',
-  'audio/mp4',
   'audio/ogg;codecs=opus',
 ];
 
@@ -19,7 +20,63 @@ const pickSupportedRecorderMimeType = (): string | undefined => {
   return AUDIO_RECORDER_MIME_CANDIDATES.find((mimeType) => MediaRecorder.isTypeSupported(mimeType));
 };
 
-// Helper to convert base64 to Blob if needed for other purposes, but most logic now uses ArrayBuffer for streaming.
+const mergeFloat32Chunks = (chunks: Float32Array[]): Float32Array => {
+  const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+  const merged = new Float32Array(totalLength);
+  let offset = 0;
+  chunks.forEach((chunk) => {
+    merged.set(chunk, offset);
+    offset += chunk.length;
+  });
+  return merged;
+};
+
+const audioBufferToWavBlob = (pcmData: Float32Array, sampleRate: number): Blob => {
+  const bytesPerSample = 2;
+  const blockAlign = bytesPerSample;
+  const byteRate = sampleRate * blockAlign;
+  const dataSize = pcmData.length * bytesPerSample;
+  const buffer = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(buffer);
+
+  const writeString = (offset: number, value: string) => {
+    for (let i = 0; i < value.length; i += 1) {
+      view.setUint8(offset + i, value.charCodeAt(i));
+    }
+  };
+
+  writeString(0, 'RIFF');
+  view.setUint32(4, 36 + dataSize, true);
+  writeString(8, 'WAVE');
+  writeString(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, byteRate, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, 16, true);
+  writeString(36, 'data');
+  view.setUint32(40, dataSize, true);
+
+  let writeOffset = 44;
+  for (let i = 0; i < pcmData.length; i += 1) {
+    const sample = Math.max(-1, Math.min(1, pcmData[i]));
+    const intSample = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
+    view.setInt16(writeOffset, intSample, true);
+    writeOffset += 2;
+  }
+
+  return new Blob([buffer], { type: 'audio/wav' });
+};
+
+const blobToDataUrl = (blob: Blob): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
 
 export default function VideoCallModal() {
   const {
@@ -39,12 +96,14 @@ export default function VideoCallModal() {
   const [isRemoteAccepted, setIsRemoteAccepted] = useState(false);
   const isRemoteAcceptedRef = useRef(false);
   const acceptedAtRef = useRef<number | null>(null);
-  const [remoteFrame, setRemoteFrame] = useState<string | null>(null);
+  const [remoteFrames, setRemoteFrames] = useState<Record<string, string>>({});
   const streamIntervalRef = useRef<any>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioCaptureCleanupRef = useRef<(() => void) | null>(null);
   const activeAudioPlayersRef = useRef<Set<HTMLAudioElement>>(new Set());
   const audioObjectUrlsRef = useRef<Set<string>>(new Set());
   const audioContextRef = useRef<AudioContext | null>(null);
+  const outboundAudioChunkCountRef = useRef(0);
 
   const targetUserId = callData?.isCaller ? callData?.toUserId : callData?.fromUserId;
 
@@ -114,22 +173,30 @@ export default function VideoCallModal() {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop();
     }
+    if (audioCaptureCleanupRef.current) {
+      audioCaptureCleanupRef.current();
+      audioCaptureCleanupRef.current = null;
+    }
     cleanupRemoteAudioPlayers();
     
     setLocalStream(null);
 
-    if (notifyRemote && targetUserId) {
+    if (notifyRemote && (callData?.isGroupCall || targetUserId)) {
       const status =
         acceptedAtRef.current
           ? 'finished'
           : callData?.isCaller
             ? 'cancelled'
             : 'finished';
-      socketService.getSocket()?.emit('video:end-call', {
-        toUserId: targetUserId,
+
+      const eventName = callData?.isGroupCall && acceptedAtRef.current ? 'video:leave-call' : 'video:end-call';
+
+      socketService.getSocket()?.emit(eventName, {
+        toUserId: callData?.isGroupCall ? undefined : targetUserId,
         fromUserId: user?.id,
         conversationId: callData?.conversationId,
         callType: callData?.callType || 'audio',
+        isGroupCall: callData?.isGroupCall,
         status,
         duration: getCallDurationSeconds(),
       });
@@ -149,7 +216,7 @@ export default function VideoCallModal() {
 
     const handleCallAnswered = async (data: any) => {
       if (!mounted || !callData.isCaller) return;
-      if (String(data?.toUserId || '') !== String(user.id)) return;
+      if (!callData.isGroupCall && String(data?.toUserId || '') !== String(user.id)) return;
       setIsRemoteAccepted(true);
       isRemoteAcceptedRef.current = true;
       markAccepted();
@@ -167,7 +234,7 @@ export default function VideoCallModal() {
     const handleVideoFrame = (data: any) => {
       if (!mounted) return;
       if (String(data?.conversationId || '') !== String(callData.conversationId || '')) return;
-      if (String(data?.fromUserId || '') !== String(targetUserId || '')) return;
+      if (!callData.isGroupCall && String(data?.fromUserId || '') !== String(targetUserId || '')) return;
       
       if (!isRemoteAcceptedRef.current) {
         setIsRemoteAccepted(true);
@@ -175,14 +242,14 @@ export default function VideoCallModal() {
         markAccepted();
       }
       if (data.frame) {
-         setRemoteFrame(data.frame);
+         setRemoteFrames(prev => ({ ...prev, [data.fromUserId]: data.frame }));
       }
     };
 
     const handleAudioFrame = (data: any) => {
       if (!mounted) return;
       if (String(data?.conversationId || '') !== String(callData.conversationId || '')) return;
-      if (String(data?.fromUserId || '') !== String(targetUserId || '')) return;
+      if (!callData.isGroupCall && String(data?.fromUserId || '') !== String(targetUserId || '')) return;
 
       if (data.audio) {
         if (!isRemoteAcceptedRef.current) {
@@ -249,11 +316,20 @@ export default function VideoCallModal() {
       }
     };
 
+    const handleUserLeft = (data: any) => {
+      setRemoteFrames(prev => {
+        const next = { ...prev };
+        delete next[data.fromUserId];
+        return next;
+      });
+    };
+
     const socket = socketService.getSocket();
     // Bind listeners before any emit to avoid missing fast "answered" responses.
     socket?.on('video:call-answered', handleCallAnswered);
     socket?.on('video:call-rejected', handleCallRejected);
     socket?.on('video:call-ended', handleCallEnded);
+    socket?.on('video:user-left', handleUserLeft);
     socket?.on('video:frame', handleVideoFrame);
     socket?.on('video:audio-frame', handleAudioFrame);
 
@@ -296,17 +372,19 @@ export default function VideoCallModal() {
         if (callData.isCaller) {
           socket?.emit('video:call-user', {
             fromUserId: user.id,
-            toUserId: callData.toUserId,
+            toUserId: callData.isGroupCall ? undefined : callData.toUserId,
             conversationId: callData.conversationId,
             callerName: user.fullName,
             callerAvatar: user.avatarUrl,
             callType: callData.callType,
+            isGroupCall: callData.isGroupCall,
           });
         } else {
           socket?.emit('video:answer-call', {
-            toUserId: callData.fromUserId,
+            toUserId: callData.isGroupCall ? undefined : callData.fromUserId,
             fromUserId: user.id,
             conversationId: callData.conversationId,
+            isGroupCall: callData.isGroupCall,
           });
           setIsRemoteAccepted(true);
           isRemoteAcceptedRef.current = true;
@@ -316,7 +394,7 @@ export default function VideoCallModal() {
         // 2. Start fake video stream
         if (callData.callType === 'video') {
             streamIntervalRef.current = setInterval(() => {
-                if (!localVideoRef.current || !canvasRef.current || !socket || !targetUserId) return;
+                if (!localVideoRef.current || !canvasRef.current || !socket || (!callData.isGroupCall && !targetUserId)) return;
                 const canvas = canvasRef.current;
                 const video = localVideoRef.current;
                 const ctx = canvas.getContext('2d');
@@ -327,9 +405,10 @@ export default function VideoCallModal() {
                     
                     const frame = canvas.toDataURL('image/jpeg', 0.3); // low quality 
                     socket.emit('video:frame', {
-                       toUserId: targetUserId,
+                       toUserId: callData.isGroupCall ? undefined : targetUserId,
                        fromUserId: user.id,
                        conversationId: callData.conversationId,
+                       isGroupCall: callData.isGroupCall,
                        frame
                     });
                 }
@@ -338,6 +417,11 @@ export default function VideoCallModal() {
 
         // 3. Start real-time audio chunking (optional, do not fail whole call if codec unsupported)
         try {
+          if (audioCaptureCleanupRef.current) {
+            audioCaptureCleanupRef.current();
+            audioCaptureCleanupRef.current = null;
+          }
+
           const audioTracks = stream.getAudioTracks();
           if (!audioTracks.length) {
             console.warn('[WEB] No audio track available to record');
@@ -346,59 +430,148 @@ export default function VideoCallModal() {
 
           const audioOnlyStream = new MediaStream(audioTracks);
           const preferredMimeType = pickSupportedRecorderMimeType();
-          const recorder = preferredMimeType
-            ? new MediaRecorder(audioOnlyStream, { mimeType: preferredMimeType })
-            : new MediaRecorder(audioOnlyStream);
+          if (preferredMimeType) {
+            console.log('[WEB] Audio recorder mime type:', preferredMimeType);
+          } else {
+            console.warn('[WEB] Browser did not report a preferred audio recorder mime type');
+          }
+          const forceWavForMobileCompatibility = true;
+          const canUseMp4Recorder = !forceWavForMobileCompatibility
+            && Boolean(preferredMimeType && preferredMimeType.includes('mp4'));
 
-          mediaRecorderRef.current = recorder;
-          
-          recorder.ondataavailable = async (event) => {
-            if (event.data.size > 0 && socket && targetUserId && isRemoteAcceptedRef.current) {
-              const chunkMimeType = event.data.type || recorder.mimeType || preferredMimeType || '';
-              const reader = new FileReader();
-              reader.onloadend = () => {
-                const base64Audio = reader.result as string;
+          if (canUseMp4Recorder) {
+            audioCaptureCleanupRef.current = null;
+            const recorder = new MediaRecorder(audioOnlyStream, { mimeType: preferredMimeType });
+            mediaRecorderRef.current = recorder;
+
+            recorder.ondataavailable = async (event) => {
+              if (event.data.size > 0 && socket && (callData.isGroupCall || targetUserId) && isRemoteAcceptedRef.current) {
+                const chunkMimeType = event.data.type || recorder.mimeType || preferredMimeType || 'audio/mp4';
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                  const base64Audio = reader.result as string;
                 socket.emit('video:audio-frame', {
-                  toUserId: targetUserId,
+                  toUserId: callData.isGroupCall ? undefined : targetUserId,
                   fromUserId: user.id,
                   conversationId: callData.conversationId,
+                  isGroupCall: callData.isGroupCall,
                   audio: base64Audio,
                   audioMimeType: chunkMimeType,
                 });
+                outboundAudioChunkCountRef.current += 1;
+                if (outboundAudioChunkCountRef.current % 5 === 0) {
+                  console.log('[WEB] Sent audio chunks:', outboundAudioChunkCountRef.current, 'mime:', chunkMimeType);
+                }
               };
-              reader.readAsDataURL(event.data);
-            }
-          };
-
-          const runStandaloneCycle = () => {
-            if (!mounted || !isRemoteAcceptedRef.current) {
-               if (mounted) setTimeout(runStandaloneCycle, 1000);
-               return;
-            }
-            
-            try {
-              if (recorder.state === 'inactive') {
-                recorder.start();
-                // Record for 1.5 seconds per chunk
-                setTimeout(() => {
-                  if (recorder.state === 'recording') {
-                    recorder.stop();
-                  }
-                }, 1500);
+                reader.readAsDataURL(event.data);
               }
-            } catch (e) {
-              console.warn('[WEB] Recorder cycle error:', e);
-            }
-          };
+            };
 
-          recorder.onstop = () => {
-             if (mounted) {
-                // Small gap to prevent overlapping starts
+            const runStandaloneCycle = () => {
+              if (!mounted || !isRemoteAcceptedRef.current) {
+                if (mounted) setTimeout(runStandaloneCycle, 1000);
+                return;
+              }
+
+              try {
+                if (recorder.state === 'inactive') {
+                  recorder.start();
+                  setTimeout(() => {
+                    if (recorder.state === 'recording') {
+                      recorder.stop();
+                    }
+                  }, 1200);
+                }
+              } catch (e) {
+                console.warn('[WEB] Recorder cycle error:', e);
+              }
+            };
+
+            recorder.onstop = () => {
+              if (mounted) {
                 setTimeout(runStandaloneCycle, 100);
-             }
-          };
+              }
+            };
 
-          runStandaloneCycle();
+            runStandaloneCycle();
+          } else {
+            console.warn('[WEB] Using WAV fallback audio pipeline for mobile compatibility');
+            const captureContext = new AudioContext();
+            if (captureContext.state === 'suspended') {
+              try {
+                await captureContext.resume();
+              } catch (resumeErr) {
+                console.warn('[WEB] Failed to resume capture AudioContext:', resumeErr);
+              }
+            }
+            const sourceNode = captureContext.createMediaStreamSource(audioOnlyStream);
+            const processorNode = captureContext.createScriptProcessor(4096, 1, 1);
+            const silentGain = captureContext.createGain();
+            silentGain.gain.value = 0;
+
+            const pcmChunks: Float32Array[] = [];
+            sourceNode.connect(processorNode);
+            processorNode.connect(silentGain);
+            silentGain.connect(captureContext.destination);
+
+            processorNode.onaudioprocess = (event) => {
+              const channelData = event.inputBuffer.getChannelData(0);
+              pcmChunks.push(new Float32Array(channelData));
+            };
+
+            const intervalId = window.setInterval(async () => {
+              if (!mounted) return;
+              if (!socket || (!callData.isGroupCall && !targetUserId)) return;
+              if (!isRemoteAcceptedRef.current) {
+                pcmChunks.length = 0;
+                return;
+              }
+              if (!pcmChunks.length) return;
+
+              try {
+                const merged = mergeFloat32Chunks(pcmChunks.splice(0, pcmChunks.length));
+                const wavBlob = audioBufferToWavBlob(merged, captureContext.sampleRate);
+                const base64Audio = await blobToDataUrl(wavBlob);
+                socket.emit('video:audio-frame', {
+                  toUserId: callData.isGroupCall ? undefined : targetUserId,
+                  fromUserId: user.id,
+                  conversationId: callData.conversationId,
+                  isGroupCall: callData.isGroupCall,
+                  audio: base64Audio,
+                  audioMimeType: 'audio/wav',
+                });
+                outboundAudioChunkCountRef.current += 1;
+                if (outboundAudioChunkCountRef.current % 5 === 0) {
+                  console.log('[WEB] Sent audio chunks:', outboundAudioChunkCountRef.current, 'mime: audio/wav');
+                }
+              } catch (fallbackErr) {
+                console.warn('[WEB] WAV fallback emit failed:', fallbackErr);
+              }
+            }, 1200);
+
+            audioCaptureCleanupRef.current = () => {
+              window.clearInterval(intervalId);
+              processorNode.onaudioprocess = null;
+              try {
+                sourceNode.disconnect();
+              } catch {
+                // noop
+              }
+              try {
+                processorNode.disconnect();
+              } catch {
+                // noop
+              }
+              try {
+                silentGain.disconnect();
+              } catch {
+                // noop
+              }
+              captureContext.close().catch(() => {
+                // noop
+              });
+            };
+          }
         } catch (audioErr) {
           console.warn('[WEB] MediaRecorder unavailable, continue call without audio chunk relay:', audioErr);
         }
@@ -417,10 +590,15 @@ export default function VideoCallModal() {
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
         mediaRecorderRef.current.stop();
       }
+      if (audioCaptureCleanupRef.current) {
+        audioCaptureCleanupRef.current();
+        audioCaptureCleanupRef.current = null;
+      }
       cleanupRemoteAudioPlayers();
       socket?.off('video:call-answered', handleCallAnswered);
       socket?.off('video:call-rejected', handleCallRejected);
       socket?.off('video:call-ended', handleCallEnded);
+      socket?.off('video:user-left', handleUserLeft);
       socket?.off('video:frame', handleVideoFrame);
       socket?.off('video:audio-frame', handleAudioFrame);
     };
@@ -466,8 +644,30 @@ export default function VideoCallModal() {
               )}
             </div>
           </div>
-        ) : remoteFrame ? (
-          <img src={remoteFrame} className="w-full h-full object-cover" alt="Remote Video Frame" />
+        ) : callData.isGroupCall ? (
+          <div className={`w-full h-full grid gap-1 bg-gray-900 ${Object.keys(remoteFrames).length > 0 ? 'grid-cols-2 sm:grid-cols-2' : 'grid-cols-1'} auto-rows-fr`}>
+             <div className="relative w-full h-full bg-gray-800">
+               <video ref={localVideoRef} autoPlay playsInline muted className={`w-full h-full object-cover ${isVideoOff ? 'hidden' : ''}`} />
+               {(isMuted || isVideoOff) && (
+                 <div className="absolute inset-0 bg-black/50 flex flex-col items-center justify-center gap-2">
+                   {isVideoOff && <VideoOff className="w-8 h-8 text-white" />}
+                   {isMuted && <MicOff className="w-8 h-8 text-white" />}
+                 </div>
+               )}
+               <div className="absolute bottom-4 left-4 bg-black/60 px-3 py-1.5 rounded-lg text-white text-sm font-medium backdrop-blur-sm">Bạn</div>
+             </div>
+             {Object.entries(remoteFrames).map(([userId, frame]) => (
+               <div key={userId} className="relative w-full h-full bg-gray-800">
+                 <img src={frame} className="w-full h-full object-cover" alt={`Remote Video ${userId}`} />
+               </div>
+             ))}
+          </div>
+        ) : Object.keys(remoteFrames).length > 0 ? (
+          <div className="w-full h-full bg-gray-900">
+             {Object.entries(remoteFrames).map(([userId, frame]) => (
+               <img key={userId} src={frame} className="w-full h-full object-cover" alt={`Remote Video ${userId}`} />
+             ))}
+          </div>
         ) : (
           <div className="w-full h-full flex flex-col items-center justify-center bg-gray-900">
             <div className={`w-24 h-24 rounded-full border-4 border-primary-500 mb-6 ${isRemoteAccepted ? 'border-t-primary-500' : 'border-t-transparent animate-spin'}`}></div>
@@ -478,9 +678,9 @@ export default function VideoCallModal() {
         )}
       </div>
 
-      {!isAudioCall && (
+      {!isAudioCall && !callData.isGroupCall && (
         <div className="absolute top-6 right-6 w-32 h-48 sm:w-48 sm:h-72 bg-gray-800 rounded-2xl overflow-hidden shadow-2xl border-2 border-white/10 z-10 transition-transform hover:scale-105">
-          <video ref={localVideoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
+          <video ref={localVideoRef} autoPlay playsInline muted className={`w-full h-full object-cover ${isVideoOff ? 'hidden' : ''}`} />
           {(isMuted || isVideoOff) && (
             <div className="absolute inset-0 bg-black/50 flex flex-col items-center justify-center gap-2">
               {isVideoOff && <VideoOff className="w-6 h-6 text-white" />}
@@ -495,7 +695,9 @@ export default function VideoCallModal() {
           {callData?.callerName || (isAudioCall ? 'Cuoc goi thoai' : 'Cuoc goi video')}
         </h2>
         <p className="text-white/80 mt-1 shadow-black drop-shadow-md">
-           {isRemoteAccepted ? 'Dau ben kia da nhan cuoc goi (Fake Video Call)' : 'Dang cho may...'}
+           {callData.isGroupCall 
+             ? (Object.keys(remoteFrames).length > 0 ? `${Object.keys(remoteFrames).length + 1} nguoi tham gia` : 'Dang cho moi nguoi tham gia...')
+             : (isRemoteAccepted ? 'Dau ben kia da nhan cuoc goi (Fake Video Call)' : 'Dang cho may...')}
         </p>
       </div>
 

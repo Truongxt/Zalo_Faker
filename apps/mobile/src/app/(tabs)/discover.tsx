@@ -32,7 +32,7 @@ const toThreadTitle = (question?: string) => {
   const normalized = String(question || "")
     .trim()
     .replace(/\s+/g, " ");
-  if (!normalized) return "Hoi thoai moi";
+  if (!normalized) return "Hội thoại mới";
   return normalized.length > 28 ? `${normalized.slice(0, 28)}...` : normalized;
 };
 
@@ -42,7 +42,7 @@ const buildConversationId = () =>
 const buildWelcomeMessage = (): LocalAIMessage => ({
   id: `welcome-ai-${Date.now()}`,
   role: "assistant",
-  text: "Xin chao, minh la AI Assistant. Ban co the hoi bat ky dieu gi lien quan den du lieu cua ban.",
+  text: "Xin chào, mình là AI Assistant. Bạn có thể hỏi bất kỳ điều gì liên quan đến dữ liệu của bạn.",
   createdAt: new Date().toISOString(),
 });
 
@@ -121,7 +121,7 @@ export default function DiscoverScreen() {
     setConversationTabs((prev) => [
       {
         id: newId,
-        title: "Hoi thoai moi",
+        title: "Hội thoại mới",
         lastAskedAt: now,
       },
       ...prev,
@@ -133,13 +133,13 @@ export default function DiscoverScreen() {
   };
 
   const handleDeleteThread = (conversationId: string, title: string) => {
-    Alert.alert("Xoa hoi thoai", `Ban co chac muon xoa thread \"${title}\"?`, [
+    Alert.alert("Xóa hội thoại", `Bạn có chắc muốn xóa thread \"${title}\"?`, [
       {
-        text: "Huy",
+        text: "Hủy",
         style: "cancel",
       },
       {
-        text: "Xoa",
+        text: "Xóa",
         style: "destructive",
         onPress: async () => {
           try {
@@ -156,7 +156,7 @@ export default function DiscoverScreen() {
                 return [
                   {
                     id: fallbackId,
-                    title: "Hoi thoai moi",
+                    title: "Hội thoại mới",
                     lastAskedAt: new Date().toISOString(),
                   },
                 ];
@@ -213,7 +213,7 @@ export default function DiscoverScreen() {
           setConversationTabs([
             {
               id: fallbackId,
-              title: "Hoi thoai moi",
+              title: "Hội thoại mới",
               lastAskedAt: new Date().toISOString(),
             },
           ]);
@@ -270,7 +270,7 @@ export default function DiscoverScreen() {
           setConversationTabs([
             {
               id: fallbackId,
-              title: "Hoi thoai moi",
+              title: "Hội thoại mới",
               lastAskedAt: new Date().toISOString(),
             },
           ]);
@@ -291,7 +291,7 @@ export default function DiscoverScreen() {
         setConversationTabs([
           {
             id: fallbackId,
-            title: "Hoi thoai moi",
+            title: "Hội thoại mới",
             lastAskedAt: new Date().toISOString(),
           },
         ]);
@@ -357,19 +357,19 @@ export default function DiscoverScreen() {
       appendMessage({
         id: `ai-${Date.now()}`,
         role: "assistant",
-        text: result.answer || "Xin loi, minh chua the tra loi luc nay.",
+        text: result.answer || "Xin lỗi, mình chưa thể trả lời lúc này.",
         createdAt: new Date().toISOString(),
       });
     } catch (error: any) {
       const errorMessage =
         error?.response?.data?.message ||
         error?.message ||
-        "Khong the ket noi AI. Vui long thu lai.";
+        "Không thể kết nối AI. Vui lòng thử lại.";
 
       appendMessage({
         id: `ai-error-${Date.now()}`,
         role: "assistant",
-        text: `Loi: ${errorMessage}`,
+        text: `Lỗi: ${errorMessage}`,
         createdAt: new Date().toISOString(),
       });
     } finally {
@@ -393,11 +393,10 @@ export default function DiscoverScreen() {
             <TouchableOpacity
               onPress={() => setShowHistoryThreads((prev) => !prev)}
               disabled={isSending}
-              className={`mr-2 h-9 w-9 items-center justify-center rounded-full border ${
-                showHistoryThreads
-                  ? "border-amber-300 bg-amber-50"
-                  : "border-slate-200 bg-white"
-              }`}
+              className={`mr-2 h-9 w-9 items-center justify-center rounded-full border ${showHistoryThreads
+                ? "border-amber-300 bg-amber-50"
+                : "border-slate-200 bg-white"
+                }`}
             >
               <Ionicons
                 name="time-outline"
@@ -408,11 +407,10 @@ export default function DiscoverScreen() {
             <TouchableOpacity
               onPress={handleCreateNewConversation}
               disabled={isSending}
-              className={`h-9 w-9 items-center justify-center rounded-full border ${
-                isSending
-                  ? "border-slate-200 bg-slate-100"
-                  : "border-blue-200 bg-blue-50"
-              }`}
+              className={`h-9 w-9 items-center justify-center rounded-full border ${isSending
+                ? "border-slate-200 bg-slate-100"
+                : "border-blue-200 bg-blue-50"
+                }`}
             >
               <Text
                 className={`${isSending ? "text-slate-300" : "text-blue-600"}`}
@@ -441,19 +439,17 @@ export default function DiscoverScreen() {
                   onPress={() => loadConversationMessages(tab.id)}
                   onLongPress={() => handleDeleteThread(tab.id, tab.title)}
                   delayLongPress={250}
-                  className={`mr-2 rounded-full border px-3 py-1.5 ${
-                    isActive
-                      ? "border-blue-500 bg-blue-50"
-                      : "border-slate-200 bg-white"
-                  }`}
+                  className={`mr-2 rounded-full border px-3 py-1.5 ${isActive
+                    ? "border-blue-500 bg-blue-50"
+                    : "border-slate-200 bg-white"
+                    }`}
                   disabled={isSending || isLoadingHistory}
                 >
                   <Text
-                    className={`text-xs ${
-                      isActive
-                        ? "font-semibold text-blue-700"
-                        : "text-slate-600"
-                    }`}
+                    className={`text-xs ${isActive
+                      ? "font-semibold text-blue-700"
+                      : "text-slate-600"
+                      }`}
                   >
                     {tab.title}
                   </Text>
@@ -474,9 +470,8 @@ export default function DiscoverScreen() {
           return (
             <View className={`mb-3 ${isUser ? "items-end" : "items-start"}`}>
               <View
-                className={`max-w-[85%] rounded-2xl px-4 py-3 ${
-                  isUser ? "bg-blue-500" : "border border-slate-200 bg-white"
-                }`}
+                className={`max-w-[85%] rounded-2xl px-4 py-3 ${isUser ? "bg-blue-500" : "border border-slate-200 bg-white"
+                  }`}
               >
                 <Text className={`${isUser ? "text-white" : "text-slate-800"}`}>
                   {item.text}
@@ -494,17 +489,16 @@ export default function DiscoverScreen() {
             value={input}
             onChangeText={setInput}
             multiline
-            placeholder="Hoi AI ve thong tin cua ban..."
-            className="max-h-28 flex-1 py-2 text-base text-slate-900"
+            placeholder="Hỏi AI về thông tin của bạn..."
+            className="max-h-28 flex-1 py-1 text-base text-slate-900"
             editable={!isSending}
           />
 
           <TouchableOpacity
             onPress={handleSend}
             disabled={!canSend}
-            className={`ml-2 h-10 w-10 items-center justify-center rounded-full ${
-              canSend ? "bg-blue-500" : "bg-slate-300"
-            }`}
+            className={`ml-2 h-10 w-10 items-center justify-center rounded-full ${canSend ? "bg-blue-500" : "bg-slate-300"
+              }`}
           >
             {isSending ? (
               <ActivityIndicator size="small" color="#fff" />

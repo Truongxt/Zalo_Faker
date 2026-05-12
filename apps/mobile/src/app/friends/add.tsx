@@ -131,9 +131,7 @@ export default function AddFriend() {
 
           <TouchableOpacity
             className="flex-row items-center py-4 border-b border-gray-200"
-            onPress={() => {
-              /* Handle suggestions */
-            }}
+            onPress={() => router.push("/friends/suggestions" as Href)}
           >
             <View className="w-10 h-10 bg-purple-100 rounded-lg items-center justify-center mr-3">
               <Ionicons name="people-outline" size={24} color="#9333EA" />

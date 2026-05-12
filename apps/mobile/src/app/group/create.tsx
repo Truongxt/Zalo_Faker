@@ -102,7 +102,7 @@ export default function CreateGroupScreen() {
         setFriends(options);
       } catch (error) {
         console.error("Load friends for group error:", error);
-        GrayToast("Khong the tai danh sach ban be");
+        GrayToast("Không thể tải danh sách bạn bè");
       } finally {
         setIsLoadingFriends(false);
       }
@@ -134,13 +134,13 @@ export default function CreateGroupScreen() {
 
   const handleCreateGroup = async () => {
     if (!groupName.trim()) {
-      setNameError("Vui long nhap ten nhom");
+      setNameError("Vui lòng nhập tên nhóm");
       nameInputRef.current?.focus();
       return;
     }
 
-    if (selectedMembers.length === 0) {
-      setMemberError("Hay chon it nhat 1 thanh vien");
+    if (selectedMembers.length < 2) {
+      setMemberError("Hãy chọn ít nhất 2 thành viên");
       return;
     }
 
@@ -154,12 +154,12 @@ export default function CreateGroupScreen() {
         avatarFile: groupAvatar,
       });
 
-      GrayToast("Tao nhom thanh cong");
+      GrayToast("Tạo nhóm thành công");
       router.replace("/contacts/groups");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Tao nhom that bai";
+      const message = error instanceof Error ? error.message : "Tạo nhóm thất bại";
       console.error("Create group error:", error);
-      GrayToast(message || "Tao nhom that bai");
+      GrayToast(message || "Tạo nhóm thất bại");
     } finally {
       setIsSubmitting(false);
     }
@@ -170,7 +170,7 @@ export default function CreateGroupScreen() {
       const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
 
       if (!permission.granted) {
-        Alert.alert("Can quyen truy cap", "Hay cap quyen thu vien anh de chon avatar nhom.");
+        Alert.alert("Cần quyền truy cập", "Hãy cấp quyền truy cập thư viện để tải ảnh avatar nhóm.");
         return;
       }
 
@@ -194,7 +194,7 @@ export default function CreateGroupScreen() {
       });
     } catch (error) {
       console.error("Pick group avatar error:", error);
-      GrayToast("Khong the chon anh dai dien");
+      GrayToast("Không thể đổi ảnh đại diện");
     }
   };
 
@@ -226,9 +226,8 @@ export default function CreateGroupScreen() {
         className="mx-4 mb-3 flex-row items-center rounded-2xl border border-gray-100 bg-white px-4 py-3"
       >
         <View
-          className={`mr-3 h-6 w-6 items-center justify-center rounded-full border ${
-            selected ? "border-[#0068FF] bg-[#0068FF]" : "border-gray-300 bg-white"
-          }`}
+          className={`mr-3 h-6 w-6 items-center justify-center rounded-full border ${selected ? "border-[#0068FF] bg-[#0068FF]" : "border-gray-300 bg-white"
+            }`}
         >
           {selected ? <Ionicons name="checkmark" size={14} color="white" /> : null}
         </View>
@@ -238,7 +237,7 @@ export default function CreateGroupScreen() {
         <View className="ml-3 flex-1">
           <Text className="text-base font-semibold text-gray-900">{item.name}</Text>
           <Text className="mt-1 text-sm text-gray-500">
-            {selected ? "Da duoc them vao nhom" : "Nhan de chon thanh vien"}
+            {selected ? "Đã được thêm vào nhóm" : "Nhấn để chọn thành viên"}
           </Text>
         </View>
       </TouchableOpacity>
@@ -262,9 +261,9 @@ export default function CreateGroupScreen() {
           </TouchableOpacity>
 
           <View className="items-center">
-            <Text className="text-lg font-bold text-white">Tao nhom</Text>
+            <Text className="text-[20px] font-bold text-white">Tạo nhóm</Text>
             <Text className="mt-1 text-sm text-white/80">
-              {selectedMembers.length} thanh vien duoc chon
+              {selectedMembers.length} thành viên được chọn
             </Text>
           </View>
 
@@ -273,7 +272,7 @@ export default function CreateGroupScreen() {
             disabled={isSubmitting}
             className="h-11 min-w-[84px] items-center justify-center rounded-full bg-white"
           >
-            <Text className="text-sm font-bold text-[#0068FF]">Tao</Text>
+            <Text className="text-[15px] font-bold text-[#0068FF]">Tạo</Text>
           </TouchableOpacity>
         </View>
 
@@ -302,12 +301,12 @@ export default function CreateGroupScreen() {
             </TouchableOpacity>
 
             <View className="flex-1">
-              <Text className="mb-2 text-xs font-semibold uppercase tracking-[1px] text-[#0068FF]">
-                Ten nhom
+              <Text className="mb-2 text-sm font-semibold uppercase tracking-[1px] text-[#0068FF]">
+                Tên nhóm
               </Text>
               <TextInput
                 ref={nameInputRef}
-                placeholder="VD: Team mobile, Ban than..."
+                placeholder="VD: Team mobile, Bạn thân..."
                 placeholderTextColor="#9CA3AF"
                 value={groupName}
                 onChangeText={(text) => {
@@ -326,11 +325,11 @@ export default function CreateGroupScreen() {
           ) : (
             <View className="mt-3 flex-row items-center justify-between">
               <Text className="text-sm text-gray-500">
-                Ten nhom se hien thi voi tat ca thanh vien.
+                Tên nhóm sẽ hiển thị với tất cả thành viên
               </Text>
               <TouchableOpacity onPress={handlePickAvatar}>
                 <Text className="text-sm font-semibold text-[#0068FF]">
-                  {groupAvatar?.uri ? "Doi anh" : "Chon anh"}
+                  {groupAvatar?.uri ? "Đổi ảnh" : "Chọn ảnh"}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -343,7 +342,7 @@ export default function CreateGroupScreen() {
           <View className="flex-row items-center rounded-2xl bg-[#F6F9FF] px-4 py-3">
             <Ionicons name="search" size={18} color="#6B7280" />
             <TextInput
-              placeholder="Tim ban be de them vao nhom"
+              placeholder="Tìm bạn bè để thêm vào nhóm"
               placeholderTextColor="#9CA3AF"
               value={search}
               onChangeText={setSearch}
@@ -354,8 +353,8 @@ export default function CreateGroupScreen() {
           {selectedUsers.length > 0 ? (
             <View className="mt-4">
               <View className="mb-3 flex-row items-center justify-between">
-                <Text className="text-sm font-semibold text-gray-900">Da chon</Text>
-                <Text className="text-sm text-[#0068FF]">{selectedUsers.length} nguoi</Text>
+                <Text className="text-sm font-semibold text-gray-900">Đã chọn</Text>
+                <Text className="text-sm text-[#0068FF]">{selectedUsers.length} người</Text>
               </View>
               <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                 {selectedUsers.map(renderSelectedMember)}
@@ -370,7 +369,7 @@ export default function CreateGroupScreen() {
 
         <View className="mb-3 flex-row items-center justify-between px-1">
           <Text className="text-sm font-semibold text-gray-700">Bạn bè</Text>
-          <Text className="text-sm text-gray-500">{filteredFriends.length} ket qua</Text>
+          <Text className="text-sm text-gray-500">{filteredFriends.length} kết quả</Text>
         </View>
 
         {isLoadingFriends ? null : filteredFriends.length === 0 ? (
@@ -379,12 +378,12 @@ export default function CreateGroupScreen() {
               <Ionicons name="people-outline" size={28} color={Colors.primary} />
             </View>
             <Text className="text-base font-semibold text-gray-900">
-              {friends.length === 0 ? "Chua co ban be de tao nhom" : "Khong tim thay ban phu hop"}
+              {friends.length === 0 ? "Chưa có bạn bè để tạo nhóm" : "Không tìm thấy bạn bè phù hợp"}
             </Text>
             <Text className="mt-2 text-center text-sm leading-5 text-gray-500">
               {friends.length === 0
-                ? "Hay ket ban truoc, sau do quay lai day de tao nhom."
-                : "Thu doi tu khoa tim kiem hoac xoa bot ky tu."}
+                ? "Hãy kết bạn ít nhất 2 người bạn, sau đó quay lại tạo nhóm."
+                : "Thử đổi từ khoá tìm kiếm hoặc xóa bớt ký tự."}
             </Text>
           </View>
         ) : (
@@ -401,17 +400,17 @@ export default function CreateGroupScreen() {
       <View className="border-t border-gray-200 bg-white px-4 pb-6 pt-4">
         <View className="flex-row items-center">
           <Button
-            title="Huy"
+            title="Hủy"
             variant="secondary"
             size="lg"
             onPress={() => router.back()}
             className="mr-3 flex-1"
           />
           <Button
-            title={selectedMembers.length > 0 ? `Tao nhom (${selectedMembers.length})` : "Tao nhom"}
+            title={selectedMembers.length >= 2 ? `Tạo nhóm (${selectedMembers.length})` : "Tạo nhóm"}
             size="lg"
             isLoading={isSubmitting}
-            disabled={!groupName.trim() || selectedMembers.length === 0}
+            disabled={!groupName.trim() || selectedMembers.length < 2}
             onPress={handleCreateGroup}
             className="flex-[1.4]"
           />

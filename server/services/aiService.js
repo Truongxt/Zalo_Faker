@@ -13,6 +13,7 @@ const {
 const messageService = require("./messageService");
 const userService = require("./userService");
 const friendService = require("./friendService");
+const conversationService = require("./conversationService");
 const aiChatHistoryRepository = require("../repository/aiChatHistoryRepository");
 const aiChatMessageRepository = require("../repository/aiChatMessageRepository");
 require("dotenv").config();
@@ -58,6 +59,122 @@ const tools = [
     },
     func: async ({ userId }) => {
       return await friendService.getFriends(userId);
+    },
+  },
+  {
+    name: "summarize_today_chats",
+    description:
+      "Tóm tắt tất cả trò chuyện trong ngày của user. Trả về danh sách những người đã nhắn tin hôm nay và tóm tắt nội dung từng cuộc hội thoại. Dùng khi user hỏi 'tóm tắt trò chuyện', 'hôm nay tôi nhắn gì', 'ai nhắn tin cho tôi', 'lịch sử trò chuyện hôm nay'.",
+    parameters: {
+      type: "object",
+      properties: {
+        userId: { type: "string", description: "ID của user hiện tại" },
+        date: {
+          type: "string",
+          description:
+            "Ngày cần tóm tắt (yyyy-mm-dd). Mặc định là hôm nay.",
+        },
+      },
+      required: ["userId"],
+    },
+    func: async ({ userId, date }) => {
+      const targetDateStr =
+        date && /^\d{4}-\d{2}-\d{2}$/.test(date)
+          ? date
+          : new Date().toISOString().slice(0, 10);
+      const startOfDay = new Date(`${targetDateStr}T00:00:00.000Z`);
+      const endOfDay = new Date(`${targetDateStr}T23:59:59.999Z`);
+
+      // Lấy tất cả cuộc hội thoại mà user tham gia
+      const conversations = await conversationService.getConversations(
+        String(userId)
+      );
+
+      if (!conversations || !conversations.length) {
+        return { date: targetDateStr, totalConversations: 0, conversations: [], message: "Không có cuộc hội thoại nào." };
+      }
+
+      // Cache tên user để tránh gọi lặp
+      const userNameCache = new Map();
+      const resolveUserName = async (uid) => {
+        if (!uid) return "Không rõ";
+        if (userNameCache.has(uid)) return userNameCache.get(uid);
+        try {
+          const user = await userService.getById(String(uid));
+          const name = user?.userName || user?.phone || uid;
+          userNameCache.set(uid, name);
+          return name;
+        } catch {
+          userNameCache.set(uid, uid);
+          return uid;
+        }
+      };
+
+      const results = [];
+
+      for (const conv of conversations) {
+        const convId = conv._id;
+        const allMessages =
+          await messageService.getMessagesByConversationId(String(convId));
+
+        // Lọc tin nhắn trong ngày, bỏ tin đã xóa
+        const todayMsgs = (allMessages || []).filter((m) => {
+          if (m?.isDeleted) return false;
+          const t = new Date(m?.createdAt);
+          return t >= startOfDay && t <= endOfDay;
+        });
+
+        if (!todayMsgs.length) continue;
+
+        // Tìm tên người đối diện (hoặc tên nhóm)
+        let chatPartnerName = conv.name || null;
+        if (!chatPartnerName && conv.type === "private" && conv.participants) {
+          const other = conv.participants.find(
+            (p) => String(p.userId) !== String(userId)
+          );
+          if (other) {
+            chatPartnerName = await resolveUserName(other.userId);
+          }
+        }
+        if (!chatPartnerName) {
+          chatPartnerName = conv.type === "group" ? "Nhóm chat" : "Cuộc trò chuyện";
+        }
+
+        // Format tin nhắn ngắn gọn
+        const preview = [];
+        for (const m of todayMsgs.slice(-20)) {
+          const senderName = await resolveUserName(m.senderId);
+          const text =
+            typeof m.content === "string"
+              ? m.content
+              : m.content?.text || `[${m.type || "media"}]`;
+          preview.push(`${senderName}: ${text}`);
+        }
+
+        results.push({
+          conversationId: convId,
+          name: chatPartnerName,
+          type: conv.type,
+          messageCount: todayMsgs.length,
+          preview: preview.join("\n"),
+        });
+      }
+
+      if (!results.length) {
+        return {
+          date: targetDateStr,
+          totalConversations: 0,
+          conversations: [],
+          message: `Không có tin nhắn nào vào ngày ${targetDateStr}.`,
+        };
+      }
+
+      return {
+        date: targetDateStr,
+        totalConversations: results.length,
+        totalMessages: results.reduce((s, r) => s + r.messageCount, 0),
+        conversations: results,
+      };
     },
   },
 ];
@@ -727,7 +844,7 @@ const summarizeConversationToday = async ({ conversationId, userId }) => {
         currentUser = sanitizeCurrentUser(
           await withTimeout(() => userService.getById(String(userId)), USER_LOOKUP_TIMEOUT_MS, "User lookup")
         );
-      } catch (_) {}
+      } catch (_) { }
     }
 
     const systemPrompt = [
@@ -792,7 +909,7 @@ const summarizeConversationToday = async ({ conversationId, userId }) => {
         SUMMARY_FETCH_TIMEOUT_MS,
         "Fetch messages for summary fallback"
       );
-    } catch (_) {}
+    } catch (_) { }
 
     const todayMessages = filterMessagesByDateVN(allMessages, todayDateStr);
 
