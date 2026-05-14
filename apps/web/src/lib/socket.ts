@@ -1,7 +1,8 @@
 import { io, Socket } from 'socket.io-client'
 import { useAuthStore } from '@/stores/authStore'
 
-const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3000'
+const fallbackOrigin = typeof window !== 'undefined' ? window.location.origin : ''
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || fallbackOrigin
 
 class SocketService {
     private socket: Socket | null = null

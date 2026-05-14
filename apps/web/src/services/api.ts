@@ -1,6 +1,8 @@
 import { User, useAuthStore } from '../stores/authStore';
 
-export const baseAPI = import.meta.env.VITE_API_URL || "http://localhost:3000/api";
+const fallbackApiBase =
+    typeof window !== 'undefined' ? `${window.location.origin}/api` : '/api';
+export const baseAPI = import.meta.env.VITE_API_URL || fallbackApiBase;
 
 export const fetchWithAuth = async (endpoint: string, options: RequestInit = {}) => {
     const token = useAuthStore.getState().accessToken;
