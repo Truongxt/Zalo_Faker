@@ -2,7 +2,16 @@ import { User, useAuthStore } from '../stores/authStore';
 
 const fallbackApiBase =
     typeof window !== 'undefined' ? `${window.location.origin}/api` : '/api';
-export const baseAPI = import.meta.env.VITE_API_URL || fallbackApiBase;
+const configuredApiBase = String(import.meta.env.VITE_API_URL || '').trim();
+const isConfiguredLocalApi = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?\/api\/?$/i.test(configuredApiBase);
+const isRunningOnLocalhost =
+    typeof window !== 'undefined'
+    && /^(localhost|127\.0\.0\.1)$/i.test(window.location.hostname);
+
+export const baseAPI =
+    configuredApiBase && !(isConfiguredLocalApi && !isRunningOnLocalhost)
+        ? configuredApiBase
+        : fallbackApiBase;
 
 export const fetchWithAuth = async (endpoint: string, options: RequestInit = {}) => {
     const token = useAuthStore.getState().accessToken;
