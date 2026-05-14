@@ -136,6 +136,7 @@ const populateParticipants = async (conversations) => {
                     fullName: user.fullName || user.userName || "Người dùng",
                     avatarUrl: user.avatarUrl || user.avartarUrl || null,
                     status: user.presenceStatus || "offline",
+                    lastActiveAt: user.lastActiveAt || null,
                     userId: String(uid)
                 };
             }

@@ -68,6 +68,7 @@ import {
   updateGroupAvatar,
 } from "@/services/api";
 import { socketService } from "@/lib/socket";
+import { getPresenceLabel } from "@/lib/presence";
 import EmojiPicker, { EmojiClickData, Theme } from "emoji-picker-react";
 import {
   deleteChatHistory,
@@ -1928,6 +1929,10 @@ export default function ChatRoom() {
   };
 
   const otherUser = getOtherParticipant();
+  const otherUserPresenceLabel = getPresenceLabel(
+    otherUser?.status,
+    otherUser?.lastSeen,
+  );
   const currentP = activeConversation?.participants.find(
     (p) => String(p.userId) === String(user?.id),
   );
@@ -2558,7 +2563,7 @@ export default function ChatRoom() {
                     ? "Đang hoạt động"
                     : activeConversation.type === "group"
                       ? `${activeConversation.participants.length} thành viên`
-                      : "Offline"}
+                      : otherUserPresenceLabel}
                 </>
               )}
             </p>
@@ -3485,7 +3490,7 @@ export default function ChatRoom() {
                     ? `${activeConversation.participants.length} thành viên`
                     : otherUser?.status === "online"
                       ? "Đang hoạt động"
-                      : "Trò chuyện riêng tư"}
+                      : otherUserPresenceLabel}
                 </p>
               </div>
 

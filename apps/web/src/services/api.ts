@@ -63,6 +63,22 @@ export const fetchWithAuth = async (endpoint: string, options: RequestInit = {})
 };
 
 
+const resolvePresenceStatus = (presenceStatus?: string | null, fallbackStatus?: string | null) => {
+    const presence = String(presenceStatus || '').trim().toLowerCase();
+    if (presence === 'online' || presence === 'offline') return presence;
+
+    const fallback = String(fallbackStatus || '').trim().toLowerCase();
+    if (fallback === 'online' || fallback === 'offline') return fallback;
+
+    return 'offline';
+};
+
+const normalizeParticipantPresence = (participant: any) => ({
+    ...participant,
+    status: resolvePresenceStatus(participant?.presenceStatus, participant?.status),
+    lastSeen: participant?.lastActiveAt || participant?.lastSeen || null,
+});
+
 export const mapUser = (u: any): User => ({
     ...u,
     id: u.userId || u.id || u._id,
@@ -71,6 +87,8 @@ export const mapUser = (u: any): User => ({
     phoneNumber: u.phone || u.phoneNumber || '',
     birthday: u.birthday || null,
     gender: (u.gender === 'male' || u.gender === 'female' || u.gender === 'other') ? u.gender : 'other',
+    status: resolvePresenceStatus(u.presenceStatus, u.status),
+    lastSeen: u.lastActiveAt || u.lastSeen || null,
 });
 
 type ParsedCallPayload = {
@@ -235,7 +253,13 @@ const normalizeMessage = (msg: any) => ({
 const getConversation = async () => {
     const response = await fetchWithAuth(`/conversations`);
     const data = await response.json();
-    return (data || []).map((conv: any) => ({ ...conv, id: conv._id }));
+    return (data || []).map((conv: any) => ({
+        ...conv,
+        id: conv._id,
+        participants: Array.isArray(conv.participants)
+            ? conv.participants.map(normalizeParticipantPresence)
+            : [],
+    }));
 }
 
 const getMessages = async (conversationId: string) => {

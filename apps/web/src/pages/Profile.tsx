@@ -26,7 +26,7 @@ export default function Profile() {
     const [isEditing, setIsEditing] = useState(false)
     const [showQrCode, setShowQrCode] = useState(false)
     const [fullName, setFullName] = useState(user?.fullName || '')
-    const [phone, setPhone] = useState(user?.phone || '')
+    const [phone] = useState(user?.phone || '')
     const [birthday, setBirthday] = useState(user?.birthday || '')
     const [gender, setGender] = useState(user?.gender || 'other')
     const [bio, setBio] = useState(user?.bio || '')
@@ -42,7 +42,6 @@ export default function Profile() {
         try {
             const updates = { 
                 fullName, 
-                phone, 
                 birthday, 
                 gender, 
                 bio,
@@ -296,8 +295,8 @@ export default function Profile() {
                                     <input
                                         type="text"
                                         value={phone}
-                                        onChange={(e) => setPhone(e.target.value)}
-                                        className="w-full px-4 py-3 bg-gray-50 dark:bg-dark-300 border-none rounded-2xl focus:ring-2 focus:ring-primary-500 text-gray-900 dark:text-white font-medium"
+                                        readOnly
+                                        className="w-full px-4 py-3 bg-gray-100 dark:bg-dark-300 border-none rounded-2xl text-gray-500 dark:text-gray-400 font-medium cursor-not-allowed"
                                         placeholder="09xxx..."
                                     />
                                 </div>
