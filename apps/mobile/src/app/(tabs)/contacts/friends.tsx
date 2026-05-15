@@ -134,6 +134,59 @@ export default function ContactsScreen() {
       socketService.connect();
     }
 
+    const handleFriendRequestReceived = ({
+      toUserId,
+    }: {
+      toUserId?: string | number;
+    }) => {
+      if (String(toUserId || "") !== String(user.id)) return;
+      void getFriendsRequests();
+      GrayToast("Ban vua nhan duoc loi moi ket ban");
+    };
+
+    const handleFriendRequestAccepted = ({
+      fromUserId,
+      toUserId,
+    }: {
+      fromUserId?: string | number;
+      toUserId?: string | number;
+    }) => {
+      const myId = String(user.id);
+      if (String(fromUserId || "") !== myId && String(toUserId || "") !== myId) return;
+      void Promise.all([getFriendsRequests(), getListFriends()]);
+      GrayToast("Danh sach ban be da duoc cap nhat");
+    };
+
+    const handleFriendRequestRejected = ({
+      fromUserId,
+      toUserId,
+    }: {
+      fromUserId?: string | number;
+      toUserId?: string | number;
+    }) => {
+      const myId = String(user.id);
+      if (String(fromUserId || "") !== myId && String(toUserId || "") !== myId) return;
+      void getFriendsRequests();
+    };
+
+    socketService.on("friend:request_received", handleFriendRequestReceived);
+    socketService.on("friend:request_accepted", handleFriendRequestAccepted);
+    socketService.on("friend:request_rejected", handleFriendRequestRejected);
+
+    return () => {
+      socketService.off("friend:request_received", handleFriendRequestReceived);
+      socketService.off("friend:request_accepted", handleFriendRequestAccepted);
+      socketService.off("friend:request_rejected", handleFriendRequestRejected);
+    };
+  }, [user?.id, getFriendsRequests, getListFriends]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+
+    if (!socketService.getSocket()?.connected) {
+      socketService.connect();
+    }
+
     const applyPresenceForUser = (targetUserId: string, isOnline: boolean) => {
       setListFriends((prev) => {
         let changed = false;

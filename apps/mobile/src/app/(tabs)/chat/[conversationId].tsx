@@ -1354,6 +1354,13 @@ export default function ChatRoomScreen() {
   const [blockStatus, setBlockStatus] = useState<
     "none" | "blocked_by_me" | "blocked_by_other"
   >("none");
+  const [activeGroupCall, setActiveGroupCall] = useState<{
+    roomId: string;
+    conversationId: string;
+    callType: "audio" | "video";
+    hostUserId: string;
+    participantCount: number;
+  } | null>(null);
   const flatListRef = useRef<FlatList>(null);
   const typingTimeout = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
@@ -1459,6 +1466,26 @@ export default function ChatRoomScreen() {
   const usesImageBackground = isImageBackground(conversationBackground);
   const chatAreaBackgroundColor = getSolidBackgroundColor(
     conversationBackground,
+  );
+
+  const resolveGroupCallerName = useCallback(
+    (hostUserId: string) => {
+      const normalizedHostId = String(hostUserId || "").trim();
+      if (!normalizedHostId) return "Nguoi dung";
+      if (normalizedHostId === String(user?.id || "")) {
+        return String(user?.fullName || "Nguoi dung");
+      }
+
+      const participantName = conversation?.participants?.find(
+        (participant) => String(participant.userId) === normalizedHostId,
+      )?.fullName;
+      if (participantName && String(participantName).trim()) {
+        return String(participantName).trim();
+      }
+
+      return "Nguoi dung";
+    },
+    [conversation?.participants, user?.fullName, user?.id],
   );
 
   const getPinnedMessagePreview = useCallback((message: any) => {
@@ -1765,6 +1792,38 @@ export default function ChatRoomScreen() {
     ],
   );
 
+  const handleJoinActiveGroupCall = useCallback(() => {
+    if (!activeGroupCall || !user?.id || !convId) return;
+
+    const callId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    router.push({
+      pathname: "/call/[callId]",
+      params: {
+        callId,
+        callType: activeGroupCall.callType || "audio",
+        conversationId: convId,
+        fromUserId: String(activeGroupCall.hostUserId || ""),
+        toUserId: String(user.id),
+        toUserName: conversation?.name || "Nhom",
+        toUserAvatar: conversation?.avatarUrl || "",
+        callerName: resolveGroupCallerName(activeGroupCall.hostUserId),
+        callerAvatar: "",
+        isCaller: "false",
+        autoAccept: "true",
+        isGroupCall: "true",
+        roomId: activeGroupCall.roomId,
+      },
+    });
+  }, [
+    activeGroupCall,
+    convId,
+    conversation?.avatarUrl,
+    conversation?.name,
+    resolveGroupCallerName,
+    router,
+    user?.id,
+  ]);
+
   const handleOpenFilePreview = useCallback((target: FilePreviewTarget) => {
     setPreviewError(false);
     setPreviewTarget(target);
@@ -1822,6 +1881,82 @@ export default function ChatRoomScreen() {
     setIsSummarizingConversation(false);
     setAnnouncementMode(false);
   }, [convId]);
+
+  useEffect(() => {
+    if (!convId || conversation?.type !== "group") {
+      setActiveGroupCall(null);
+      return;
+    }
+
+    const socket = socketService.getSocket() || socketService.connect();
+    if (!socket) return;
+
+    socket.emit("group:check-active", { conversationId: convId }, (res: any) => {
+      if (res?.success && res.room) {
+        setActiveGroupCall({
+          roomId: String(res.room.roomId),
+          conversationId: String(res.room.conversationId || convId),
+          callType: res.room.callType === "video" ? "video" : "audio",
+          hostUserId: String(res.room.hostUserId || ""),
+          participantCount: Number(res.room.participants?.length || 0),
+        });
+      } else {
+        setActiveGroupCall(null);
+      }
+    });
+
+    const handleGroupIncomingForBanner = (data: any) => {
+      if (String(data?.conversationId || "") !== String(convId)) return;
+      setActiveGroupCall({
+        roomId: String(data?.roomId || ""),
+        conversationId: String(data?.conversationId || convId),
+        callType: data?.callType === "video" ? "video" : "audio",
+        hostUserId: String(data?.hostUserId || ""),
+        participantCount: Number(data?.participantCount || 0),
+      });
+    };
+
+    const handleGroupRoomEnded = (data: any) => {
+      if (String(data?.conversationId || "") !== String(convId)) return;
+      setActiveGroupCall(null);
+    };
+
+    const handleUserJoinedBanner = (data: any) => {
+      setActiveGroupCall((prev) => {
+        if (!prev || String(prev.roomId) !== String(data?.roomId || "")) return prev;
+        return {
+          ...prev,
+          participantCount: Number(data?.participantCount ?? prev.participantCount + 1),
+        };
+      });
+    };
+
+    const handleUserLeftBanner = (data: any) => {
+      setActiveGroupCall((prev) => {
+        if (!prev || String(prev.roomId) !== String(data?.roomId || "")) return prev;
+        const nextCount = Number(
+          data?.participantCount ?? Math.max(0, prev.participantCount - 1),
+        );
+        if (nextCount <= 0) return null;
+        return {
+          ...prev,
+          participantCount: nextCount,
+        };
+      });
+    };
+
+    socket.on("group:incoming", handleGroupIncomingForBanner);
+    socket.on("group:room-ended", handleGroupRoomEnded);
+    socket.on("group:user-joined", handleUserJoinedBanner);
+    socket.on("group:user-left", handleUserLeftBanner);
+
+    return () => {
+      socket.off("group:incoming", handleGroupIncomingForBanner);
+      socket.off("group:room-ended", handleGroupRoomEnded);
+      socket.off("group:user-joined", handleUserJoinedBanner);
+      socket.off("group:user-left", handleUserLeftBanner);
+    };
+  }, [convId, conversation?.type]);
 
   useEffect(() => {
     pinnedMessageRef.current = pinnedMessage;
@@ -2163,44 +2298,89 @@ export default function ChatRoomScreen() {
     if (result.canceled || !result.assets?.length) return;
 
     setIsSending(true);
-    let failedCount = 0;
-    let sentCount = 0;
-
+    
     try {
-      for (const [index, asset] of result.assets.entries()) {
+      const assets = result.assets;
+      const isGroup = conversation?.type === 'group';
+      const folderId = isGroup ? `msg-${Date.now()}` : undefined;
+      const folder = isGroup ? "groups" : "uploads";
+      const subfolder = isGroup ? `${convId}/${folderId}` : "chat";
+      
+      const attachments: any[] = [];
+      let failedCount = 0;
+
+      // Group images if more than 1
+      const useGrouped = assets.length > 1;
+
+      if (useGrouped) {
+        GrayToast(`Đang gửi ${assets.length} hình ảnh...`);
+        
+        const uploadPromises = assets.map(async (asset, index) => {
+          const isVideo = asset.type === "video";
+          const name = asset.fileName || `media-${Date.now()}-${index}.${isVideo ? "mp4" : "jpg"}`;
+          const mimeType = asset.mimeType || (isVideo ? "video/mp4" : "image/jpeg");
+          
+          try {
+            const url = await uploadFile(asset.uri, name, mimeType, accessToken, folder, subfolder);
+            return {
+              url,
+              type: isVideo ? "video" : "image",
+              name,
+              size: asset.fileSize,
+              duration: asset.duration
+            };
+          } catch (err) {
+            failedCount++;
+            return null;
+          }
+        });
+
+        const results = await Promise.all(uploadPromises);
+        const validAttachments = results.filter(Boolean);
+
+        if (validAttachments.length > 0) {
+          await chatService.sendMessage(convId, {
+            type: "image", // Grouped media uses type "image" as base
+            content: validAttachments[0].url, // Fallback mediaUrl
+            attachments: validAttachments,
+            replyTo: replyToMessageId || undefined,
+            metadata: isGroup ? { folderId, folder, subfolder } : null
+          });
+          setReplyToMessageId(null);
+        }
+      } else {
+        const asset = assets[0];
         const isVideo = asset.type === "video";
-        const name =
-          asset.fileName ||
-          `media-${Date.now()}-${index}.${isVideo ? "mp4" : "jpg"}`;
-        const mimeType =
-          asset.mimeType || (isVideo ? "video/mp4" : "image/jpeg");
+        const name = asset.fileName || `media-${Date.now()}.${isVideo ? "mp4" : "jpg"}`;
+        const mimeType = asset.mimeType || (isVideo ? "video/mp4" : "image/jpeg");
 
         try {
-          const url = await uploadFile(asset.uri, name, mimeType, accessToken);
+          const url = await uploadFile(asset.uri, name, mimeType, accessToken, folder, subfolder);
           await chatService.sendMessage(convId, {
             type: isVideo ? "video" : "image",
             content: url,
+            attachments: [{
+              url,
+              type: isVideo ? "video" : "image",
+              name,
+              size: asset.fileSize,
+              duration: asset.duration
+            }],
             replyTo: replyToMessageId || undefined,
+            metadata: isGroup ? { folderId, folder, subfolder } : null
           });
-          sentCount += 1;
+          setReplyToMessageId(null);
         } catch {
-          failedCount += 1;
+          failedCount++;
         }
-      }
-
-      if (sentCount > 0) {
-        setReplyToMessageId(null);
       }
 
       if (failedCount > 0) {
-        if (failedCount === result.assets.length) {
-          GrayToast("Không thể gửi ảnh/video");
-        } else {
-          GrayToast(
-            `Đã gửi ${result.assets.length - failedCount}/${result.assets.length} ảnh/video`,
-          );
-        }
+        GrayToast(`Gặp lỗi khi gửi ${failedCount} file`);
       }
+    } catch (error) {
+      console.error("Lỗi khi gửi media:", error);
+      GrayToast("Không thể gửi ảnh/video");
     } finally {
       setIsSending(false);
     }
@@ -2415,11 +2595,34 @@ export default function ChatRoomScreen() {
 
     socket.on("chat:update_conversation", onUpdateConversation);
 
+    const onConversationRemoved = ({
+      conversationId: removedConversationId,
+      reason,
+    }: {
+      conversationId?: string;
+      reason?: string;
+    }) => {
+      if (String(removedConversationId || "") !== String(convId)) return;
+
+      useChatStore.getState().removeConversation(convId);
+      GrayToast(
+        reason === "group_dissolved"
+          ? "Nhom nay da duoc giai tan"
+          : "Cuoc tro chuyen da bi xoa",
+      );
+      router.replace("/(tabs)/chat/chats");
+    };
+
+    socket.on("chat:conversation_removed", onConversationRemoved);
+    socket.on("group:dissolved", onConversationRemoved);
+
     return () => {
       socket.off("chat:pinned_message", onPinnedMessage);
       socket.off("chat:update_conversation", onUpdateConversation);
+      socket.off("chat:conversation_removed", onConversationRemoved);
+      socket.off("group:dissolved", onConversationRemoved);
     };
-  }, [convId, handleUpdatePinnedMessage, user]);
+  }, [convId, handleUpdatePinnedMessage, router, user]);
 
   const handlePinMessage = useCallback(
     async (message: Message) => {
@@ -2884,6 +3087,51 @@ export default function ChatRoomScreen() {
           <Ionicons name="ellipsis-vertical" size={20} color="#6B7280" />
         </TouchableOpacity>
       </View>
+
+      {activeGroupCall && conversation?.type === "group" && (
+        <View
+          style={{
+            backgroundColor: "#EAF7EE",
+            borderBottomWidth: 1,
+            borderBottomColor: "#D1E7D9",
+            paddingHorizontal: 12,
+            paddingVertical: 10,
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "space-between",
+          }}
+        >
+          <View style={{ flexDirection: "row", alignItems: "center", flex: 1 }}>
+            <Ionicons name="call-outline" size={20} color="#16A34A" />
+            <View style={{ marginLeft: 8, flex: 1 }}>
+              <Text style={{ color: "#15803D", fontSize: 15, fontWeight: "700" }}>
+                Cuoc goi {activeGroupCall.callType === "video" ? "video" : "thoai"} nhom dang dien ra
+              </Text>
+              <Text style={{ color: "#166534", fontSize: 12 }}>
+                {activeGroupCall.participantCount > 0
+                  ? `${activeGroupCall.participantCount} nguoi dang tham gia`
+                  : "Dang cho nguoi tham gia"}
+              </Text>
+            </View>
+          </View>
+          <TouchableOpacity
+            onPress={handleJoinActiveGroupCall}
+            style={{
+              marginLeft: 10,
+              backgroundColor: "#22C55E",
+              paddingHorizontal: 16,
+              paddingVertical: 8,
+              borderRadius: 20,
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 6,
+            }}
+          >
+            <Ionicons name="call-outline" size={16} color="#fff" />
+            <Text style={{ color: "#fff", fontWeight: "700" }}>Tham gia</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* Search Bar */}
       {isSearching && (

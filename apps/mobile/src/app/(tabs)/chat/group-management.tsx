@@ -48,6 +48,14 @@ const permissionOptions: Array<{ value: GroupPermissionScope; label: string }> =
   { value: "admin", label: "Chỉ Admin" },
 ];
 
+const pickDisplayName = (...values: Array<unknown>) => {
+  for (const value of values) {
+    const text = String(value ?? "").trim();
+    if (text) return text;
+  }
+  return "";
+};
+
 export default function GroupManagementScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -233,6 +241,15 @@ export default function GroupManagementScreen() {
     return map;
   }, [allUsers]);
 
+
+
+
+
+  const handleRename = useCallback(() => {
+    if (!group) return;
+    setShowRenameModal(true);
+  }, [group]);
+
   if (!group || !user) return null;
 
   const currentUserParticipant = group.participants.find((p) => String(p.userId) === String(user.id));
@@ -257,10 +274,10 @@ export default function GroupManagementScreen() {
     }
   };
 
-  const handleRename = useCallback(() => {
-    if (!group) return;
-    setShowRenameModal(true);
-  }, [group]);
+
+
+
+
 
   const handleAvatarChange = async () => {
     if (!group) return;
@@ -447,7 +464,7 @@ export default function GroupManagementScreen() {
     const isMe = String(participant.userId) === String(user.id);
     if (isMe) return;
 
-    const participantName = getParticipantName(participant.userId, participant.nickname);
+    const participantName = getParticipantName(participant);
     const options: MessageActionItem[] = [];
 
     if (isAdmin) {
@@ -519,7 +536,7 @@ export default function GroupManagementScreen() {
       setGroupMenuOptions([
         ...transferCandidates.map((participant) => ({
           key: `transfer-${participant.userId}`,
-          text: getParticipantName(participant.userId, participant.nickname),
+          text: getParticipantName(participant),
           onPress: async () => {
             try {
               setIsLoading(true);
@@ -611,9 +628,20 @@ export default function GroupManagementScreen() {
     setShowGroupMenu(true);
   };
 
-  const getParticipantName = (pId: string, fallback?: string) => {
-    const userInfo = participantsMap.get(String(pId));
-    return userInfo?.fullName || userInfo?.userName || fallback || `User ${pId}`;
+  const getParticipantName = (participant: any) => {
+    const pId = String(participant?.userId || "");
+    const userInfo = participantsMap.get(pId);
+    return (
+      pickDisplayName(
+        participant?.nickname,
+        participant?.fullName,
+        participant?.userName,
+        participant?.name,
+        userInfo?.fullName,
+        userInfo?.userName,
+        userInfo?.name,
+      ) || `User ${pId}`
+    );
   };
 
   const inviteQrValue = String(
@@ -795,7 +823,7 @@ export default function GroupManagementScreen() {
               settings.pendingJoinRequests.map((req: any) => (
                 <View key={req.requestId} style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: "#F3F4F6" }}>
                   <View style={{ flex: 1 }}>
-                    <Text style={{ fontWeight: "600", color: "#1F2937" }}>{getParticipantName(req.userId)}</Text>
+                    <Text style={{ fontWeight: "600", color: "#1F2937" }}>{getParticipantName(req)}</Text>
                     <Text style={{ fontSize: 11, color: "#6B7280" }}>{new Date(req.requestedAt).toLocaleString("vi-VN")}</Text>
                   </View>
                   <View style={{ flexDirection: "row", gap: 8 }}>
@@ -877,7 +905,7 @@ export default function GroupManagementScreen() {
               <View key={p.userId} style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "#F3F4F6" }}>
                 <View>
                   <Text style={{ fontWeight: "600", color: "#1F2937", fontSize: 15 }}>
-                    {getParticipantName(p.userId, p.nickname)} {isMe && "(Bạn)"}
+                    {getParticipantName(p)} {isMe && "(Bạn)"}
                   </Text>
                   <Text style={{ fontSize: 12, color: p.role === "admin" ? "#F59E0B" : p.role === "deputy" ? "#3B82F6" : "#9CA3AF" }}>
                     {p.role === "admin" ? "Trưởng nhóm" : p.role === "deputy" ? "Phó nhóm" : "Thành viên"}

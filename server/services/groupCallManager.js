@@ -95,8 +95,13 @@ function joinRoom(roomId, userId, socketId) {
   // Already in this room? Just update socketId
   if (room.participants.has(uid)) {
     const participant = room.participants.get(uid);
+    const previousSocketId = participant.socketId;
     participant.socketId = String(socketId);
-    return { room, isNew: false };
+    return {
+      room,
+      isNew: false,
+      socketChanged: String(previousSocketId || "") !== String(socketId || ""),
+    };
   }
 
   // Room full?
@@ -115,7 +120,7 @@ function joinRoom(roomId, userId, socketId) {
   room.participants.set(uid, makeParticipant(uid, socketId));
   userToRoom.set(uid, roomId);
 
-  return { room, isNew: true };
+  return { room, isNew: true, socketChanged: false };
 }
 
 /**

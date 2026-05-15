@@ -130,7 +130,7 @@ export default function MomentComposer({
             placeholder={`${
               user?.fullName?.split(" ").pop() || "Bạn"
             } ơi, hôm nay bạn thấy thế nào?`}
-            className="w-full resize-none rounded-xl bg-gray-50 p-3 text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:bg-dark-300 dark:text-white"
+            className="w-full resize-none rounded-[1.25rem] border-none bg-gray-50 p-4 text-[15px] text-gray-900 placeholder-gray-500 transition-all focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/10 dark:bg-dark-300 dark:text-white dark:focus:bg-dark-200"
             rows={content ? 3 : 2}
           />
 
@@ -200,10 +200,10 @@ export default function MomentComposer({
             <button
               onClick={handleSubmit}
               disabled={!canPost}
-              className={`flex items-center gap-2 rounded-lg px-4 py-1.5 text-sm font-medium transition-colors ${
+              className={`flex items-center gap-2 rounded-full px-6 py-2 text-sm font-bold transition-all duration-300 ${
                 canPost
-                  ? "bg-primary-500 text-white hover:bg-primary-600"
-                  : "cursor-not-allowed bg-primary-500/50 text-white/80"
+                  ? "bg-primary-500 text-white shadow-lg shadow-primary-500/20 hover:bg-primary-600 hover:shadow-primary-500/40 active:scale-95"
+                  : "cursor-not-allowed bg-gray-200 text-gray-400 dark:bg-gray-800 dark:text-gray-600"
               }`}
             >
               {isPosting ? (

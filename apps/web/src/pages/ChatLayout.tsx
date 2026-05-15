@@ -44,6 +44,7 @@ export default function ChatLayout() {
     addMessage,
     updateMessage,
     updateConversation,
+    removeConversation,
     setLastSyncedAt,
   } = useChatStore();
   const { user } = useAuthStore();
@@ -214,6 +215,16 @@ export default function ChatLayout() {
         updateMessage(data.conversationId, String(normalized.id), normalized);
       };
 
+      const handleConversationRemovedGlobal = ({
+        conversationId,
+      }: {
+        conversationId?: string;
+      }) => {
+        const targetId = String(conversationId || "").trim();
+        if (!targetId) return;
+        removeConversation(targetId);
+      };
+
       const handleIncomingGroupCall = (data: any) => {
         // Don't show if we're already in a group call
         const currentGroupCall = useCallStore.getState().groupCall;
@@ -242,6 +253,8 @@ export default function ChatLayout() {
         socket.on("chat:reaction", handleReactionGlobal);
         socket.on("chat:pinned_message", handlePinnedMessageGlobal);
         socket.on("chat:message_updated", handleMessageUpdatedGlobal);
+        socket.on("chat:conversation_removed", handleConversationRemovedGlobal);
+        socket.on("group:dissolved", handleConversationRemovedGlobal);
       }
     }
 
@@ -257,6 +270,8 @@ export default function ChatLayout() {
         socket.off("chat:reaction");
         socket.off("chat:pinned_message");
         socket.off("chat:message_updated");
+        socket.off("chat:conversation_removed");
+        socket.off("group:dissolved");
       }
     };
   }, [
@@ -265,6 +280,7 @@ export default function ChatLayout() {
     addMessage,
     updateMessage,
     updateConversation,
+    removeConversation,
     setLastSyncedAt,
   ]);
 

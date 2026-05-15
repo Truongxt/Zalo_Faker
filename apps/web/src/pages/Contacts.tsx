@@ -97,16 +97,55 @@ export default function Contacts() {
       setFriends((prev) => prev.filter((f) => String(f.userId) !== String(blockedByUserId)));
     };
 
+    const handleFriendRequestReceived = ({
+      toUserId,
+    }: {
+      toUserId?: string | number;
+    }) => {
+      if (String(toUserId || '') !== String(user.id)) return;
+      loadData();
+    };
+
+    const handleFriendRequestAccepted = ({
+      fromUserId,
+      toUserId,
+    }: {
+      fromUserId?: string | number;
+      toUserId?: string | number;
+    }) => {
+      const myId = String(user.id);
+      if (String(fromUserId || '') !== myId && String(toUserId || '') !== myId) return;
+      loadData();
+    };
+
+    const handleFriendRequestRejected = ({
+      fromUserId,
+      toUserId,
+    }: {
+      fromUserId?: string | number;
+      toUserId?: string | number;
+    }) => {
+      const myId = String(user.id);
+      if (String(fromUserId || '') !== myId && String(toUserId || '') !== myId) return;
+      loadData();
+    };
+
     socketService.on('friend:removed', handleFriendRemoved);
     socketService.on('friend:blocked', handleFriendBlocked);
     socketService.on('friend:unblocked', handleFriendUnblocked);
     socketService.on('friend:blocked_by', handleBlockedBy);
+    socketService.on('friend:request_received', handleFriendRequestReceived);
+    socketService.on('friend:request_accepted', handleFriendRequestAccepted);
+    socketService.on('friend:request_rejected', handleFriendRequestRejected);
 
     return () => {
       socketService.off('friend:removed', handleFriendRemoved);
       socketService.off('friend:blocked', handleFriendBlocked);
       socketService.off('friend:unblocked', handleFriendUnblocked);
       socketService.off('friend:blocked_by', handleBlockedBy);
+      socketService.off('friend:request_received', handleFriendRequestReceived);
+      socketService.off('friend:request_accepted', handleFriendRequestAccepted);
+      socketService.off('friend:request_rejected', handleFriendRequestRejected);
     };
   }, [user?.id]);
 

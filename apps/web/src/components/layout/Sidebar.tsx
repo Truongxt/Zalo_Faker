@@ -34,6 +34,7 @@ import {
 import authService from "@/services/auth";
 import { getMessagePreviewText } from "@/lib/messagePreview";
 import AddFriendModal from "@/components/friends/AddFriendModal";
+import PromptModal from "@/components/common/PromptModal";
 
 export default function Sidebar() {
   const navigate = useNavigate();
@@ -58,6 +59,7 @@ export default function Sidebar() {
   const [showAddFriend, setShowAddFriend] = useState(false);
   const [showLabelManager, setShowLabelManager] = useState(false);
   const [showHiddenPin, setShowHiddenPin] = useState(false);
+  const [showJoinGroup, setShowJoinGroup] = useState(false);
   const [labelPickerConv, setLabelPickerConv] = useState<Conversation | null>(
     null,
   );
@@ -180,8 +182,7 @@ export default function Sidebar() {
     navigate(`/chat/${conv.id}`);
   };
 
-  const handleJoinByInvite = async () => {
-    const code = prompt("Nhập mã mời nhóm:");
+  const handleJoinByInvite = async (code: string) => {
     if (!code?.trim() || !user) return;
 
     try {
@@ -192,7 +193,6 @@ export default function Sidebar() {
         addConversation(joinedGroup);
         setActiveConversation(joinedGroup);
         navigate(`/chat/${joinedGroup.id}`);
-        alert("Đã tham gia nhóm thành công.");
         return;
       }
 
@@ -331,7 +331,7 @@ export default function Sidebar() {
                 <UserPlus className="w-5 h-5" />
               </button>
               <button
-                onClick={handleJoinByInvite}
+                onClick={() => setShowJoinGroup(true)}
                 className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-600 dark:text-gray-400"
                 title="Tham gia nhóm bằng mã mời"
               >
@@ -731,6 +731,15 @@ export default function Sidebar() {
       <HiddenPinModal
         isOpen={showHiddenPin}
         onClose={() => setShowHiddenPin(false)}
+      />
+      <PromptModal
+        isOpen={showJoinGroup}
+        onClose={() => setShowJoinGroup(false)}
+        title="Tham gia nhóm"
+        message="Nhập mã mời hoặc liên kết để tham gia nhóm chat."
+        placeholder="Nhập mã mời nhóm..."
+        confirmText="Tham gia"
+        onConfirm={handleJoinByInvite}
       />
     </div>
   );
