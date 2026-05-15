@@ -1,7 +1,21 @@
-import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
 import * as Device from "expo-device";
 import Constants from "expo-constants";
+
+declare const require: any;
+
+const isExpoGo = Constants.appOwnership === "expo";
+
+const loadNotifications = () => {
+  if (isExpoGo) return null;
+
+  try {
+    return require("expo-notifications");
+  } catch (error) {
+    console.warn("expo-notifications is unavailable in this runtime:", error);
+    return null;
+  }
+};
 
 const resolveExpoProjectId = (): string | null => {
   const fromEasConfig = String(Constants?.easConfig?.projectId || "").trim();
@@ -25,9 +39,13 @@ const resolveExpoProjectId = (): string | null => {
 };
 
 // Configure how notifications are handled when the app is in the foreground
-Notifications.setNotificationHandler({
+const Notifications = loadNotifications();
+
+Notifications?.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
     shouldPlaySound: true,
     shouldSetBadge: true,
   }),
@@ -35,6 +53,12 @@ Notifications.setNotificationHandler({
 
 export const notificationService = {
   async registerForPushNotificationsAsync() {
+    const Notifications = loadNotifications();
+    if (!Notifications) {
+      console.warn("Skip push notifications: use a development build or release APK instead of Expo Go.");
+      return;
+    }
+
     let token: string | undefined;
 
     if (Platform.OS === "android") {
@@ -78,6 +102,12 @@ export const notificationService = {
   },
 
   async showLocalNotification(title: string, body: string, data: any = {}, icon?: string) {
+    const Notifications = loadNotifications();
+    if (!Notifications) {
+      console.warn("Skip local notification: notifications are unavailable in this runtime.");
+      return;
+    }
+
     await Notifications.scheduleNotificationAsync({
       content: {
         title,

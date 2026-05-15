@@ -7,6 +7,7 @@ import { Avatar, CenterLoading, GrayToast } from "@/components/ui";
 import type { Friends } from "@/types";
 import { friendsService, userService } from "@/services";
 import { useAuthStore } from "@/stores";
+import { socketService } from "@/lib/socket";
 
 export default function PendingFriendRequestsScreen() {
   const router = useRouter();
@@ -49,6 +50,41 @@ export default function PendingFriendRequestsScreen() {
   useEffect(() => {
     loadRequests();
   }, [loadRequests]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+
+    if (!socketService.getSocket()?.connected) {
+      socketService.connect();
+    }
+
+    const refreshOnFriendEvent = ({
+      fromUserId,
+      toUserId,
+    }: {
+      fromUserId?: string | number;
+      toUserId?: string | number;
+    }) => {
+      const myId = String(user.id);
+      if (
+        String(fromUserId || "") !== myId &&
+        String(toUserId || "") !== myId
+      ) {
+        return;
+      }
+      void loadRequests();
+    };
+
+    socketService.on("friend:request_received", refreshOnFriendEvent);
+    socketService.on("friend:request_accepted", refreshOnFriendEvent);
+    socketService.on("friend:request_rejected", refreshOnFriendEvent);
+
+    return () => {
+      socketService.off("friend:request_received", refreshOnFriendEvent);
+      socketService.off("friend:request_accepted", refreshOnFriendEvent);
+      socketService.off("friend:request_rejected", refreshOnFriendEvent);
+    };
+  }, [loadRequests, user?.id]);
 
   const pendingCount = useMemo(() => requests.length, [requests]);
 

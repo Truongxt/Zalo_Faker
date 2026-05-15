@@ -16,6 +16,7 @@ import {
     revokeDeputy,
     dissolveGroup,
     getFriends,
+    getUserById,
     getGroupSettings,
     rotateGroupInviteCode,
     updateGroupInviteSettings,
@@ -79,6 +80,13 @@ const fallbackSettings: LocalGroupSettings = {
 }
 
 const getUserId = (user: any): string => String(user?.id || user?._id || user?.userId || '')
+const pickDisplayName = (...values: Array<unknown>) => {
+    for (const value of values) {
+        const text = String(value ?? '').trim()
+        if (text) return text
+    }
+    return ''
+}
 
 const AVATAR_COLORS = [
     'from-violet-500 to-purple-600',
@@ -151,7 +159,23 @@ export default function GroupManagementModal({ isOpen, onClose, group }: GroupMa
                 const uniqueFriends = Array.from(
                     new Map((friendsData || []).map((f: any) => [String(f.id || f.userId || f._id), f])).values()
                 )
-                setAllUsers(uniqueFriends as any[])
+
+                const participantIds = (group.participants || []).map((participant) => String(participant.userId))
+                const requesterIds = (joinRequests?.requests || []).map((request: any) => String(request.userId))
+                const existingIds = new Set((uniqueFriends as any[]).map((friend) => getUserId(friend)))
+                const neededIds = Array.from(new Set([...participantIds, ...requesterIds]))
+                    .filter((uid) => uid && !existingIds.has(uid))
+
+                const fetchedUsers = await Promise.all(
+                    neededIds.map((uid) => getUserById(uid).catch(() => null))
+                )
+
+                const mergedUsers = Array.from(
+                    new Map(
+                        [...uniqueFriends, ...fetchedUsers.filter(Boolean)].map((u: any) => [getUserId(u), u])
+                    ).values()
+                )
+                setAllUsers(mergedUsers as any[])
                 
                 if (latestSettings) {
                     setSettings({
@@ -545,14 +569,35 @@ export default function GroupManagementModal({ isOpen, onClose, group }: GroupMa
     }
 
     const getParticipantName = (participant: { userId: string; fullName?: string }) => {
-        if (participant.fullName) return participant.fullName
-        const userInfo = participantsMap.get(participant.userId)
-        return userInfo?.fullName || userInfo?.userName || `User ${participant.userId}`
+        const userInfo = participantsMap.get(String(participant.userId))
+        return (
+            pickDisplayName(
+                (participant as any).nickname,
+                participant.fullName,
+                (participant as any).userName,
+                (participant as any).name,
+                userInfo?.fullName,
+                userInfo?.userName,
+                userInfo?.name
+            ) || `User ${participant.userId}`
+        )
     }
 
     const getRequestName = (requestUserId: string) => {
-        const userInfo = participantsMap.get(requestUserId)
-        return userInfo?.fullName || userInfo?.userName || `User ${requestUserId}`
+        const userInfo = participantsMap.get(String(requestUserId))
+        const participant = (group?.participants || []).find(
+            (item) => String(item.userId) === String(requestUserId)
+        )
+        return (
+            pickDisplayName(
+                (participant as any)?.nickname,
+                participant?.fullName,
+                (participant as any)?.userName,
+                userInfo?.fullName,
+                userInfo?.userName,
+                userInfo?.name
+            ) || `User ${requestUserId}`
+        )
     }
 
     const handleStartEditingName = () => {

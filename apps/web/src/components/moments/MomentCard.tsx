@@ -319,71 +319,90 @@ export default function MomentCard({
           </div>
         ) : null}
 
-        <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3 text-xs text-gray-500 dark:border-gray-800 dark:text-gray-400">
-          <div className="flex items-center gap-1">
+        {/* Statistics Bar */}
+        <div className="flex items-center justify-between px-4 py-2 text-[13px] text-gray-500 dark:text-gray-400">
+          <div className="flex items-center gap-1.5">
             {moment.reactionCount > 0 && (
-              <>
-                <span className="flex h-4 w-4 items-center justify-center rounded-full bg-primary-100 text-[10px] text-primary-600 dark:bg-primary-900/30 dark:text-primary-400">
-                  ❤️
-                </span>
-                <span>{moment.reactionCount}</span>
-              </>
+              <div className="flex items-center">
+                <div className="flex -space-x-1">
+                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] text-white shadow-sm ring-1 ring-white dark:ring-dark-200">
+                    ❤️
+                  </span>
+                </div>
+                <span className="ml-1.5 font-medium">{moment.reactionCount}</span>
+              </div>
             )}
           </div>
-          <div className="flex gap-3">
+          <div className="flex gap-3 font-medium">
             {moment.commentCount > 0 && (
               <span>{moment.commentCount} bình luận</span>
             )}
             {moment.shareCount > 0 && (
-              <span>{moment.shareCount} lượt chia sẻ</span>
+              <span>{moment.shareCount} chia sẻ</span>
             )}
           </div>
         </div>
 
-        <div className="relative flex justify-between px-2 py-1">
-          <div
-            className="relative flex-1"
-            onMouseEnter={() => setShowReactions(true)}
-            onMouseLeave={() => setShowReactions(false)}
-          >
-            {showReactions && (
-              <div className="absolute bottom-full left-0 z-10 mb-2 flex gap-1 rounded-full border border-gray-100 bg-white p-1 shadow-lg animate-fade-in dark:border-gray-700 dark:bg-dark-300">
-                {REACTION_OPTIONS.map((reaction) => (
-                  <button
-                    key={reaction.key}
-                    onClick={() => {
-                      setShowReactions(false);
-                      onReact(moment.momentId, reaction.key);
-                    }}
-                    className="text-2xl transition-transform hover:scale-125"
-                    title={reaction.key}
-                  >
-                    {reaction.icon}
-                  </button>
-                ))}
-              </div>
-            )}
-            <button
-              onClick={() =>
-                onReact(moment.momentId, activeReaction ? "like" : "like")
-              }
-              className={`flex w-full items-center justify-center gap-2 rounded-lg py-2 text-sm font-medium transition-colors hover:bg-gray-50 dark:hover:bg-dark-300 ${
-                activeReaction
-                  ? "bg-primary-50 text-primary-600 dark:bg-primary-900/20 dark:text-primary-300"
-                  : "bg-gray-50 text-gray-600 hover:bg-gray-100 dark:bg-dark-300 dark:text-gray-400 dark:hover:bg-dark-400"
-              } disabled:opacity-60`}
+        {/* Action Buttons */}
+        <div className="border-t border-gray-100 px-2 py-1 dark:border-gray-800">
+          <div className="flex items-center gap-1">
+            <div
+              className="relative flex-1"
+              onMouseEnter={() => setShowReactions(true)}
+              onMouseLeave={() => setShowReactions(false)}
             >
-              {activeReaction ? (
-                <span className="text-base">{activeReaction.icon}</span>
-              ) : (
-                <Heart className="h-5 w-5" />
+              {showReactions && (
+                <div className="absolute bottom-full left-0 z-10 mb-2 flex gap-1.5 rounded-full border border-gray-100 bg-white p-2 shadow-xl animate-in fade-in slide-in-from-bottom-2 dark:border-gray-700 dark:bg-dark-300">
+                  {REACTION_OPTIONS.map((reaction) => (
+                    <button
+                      key={reaction.key}
+                      onClick={() => {
+                        setShowReactions(false);
+                        onReact(moment.momentId, reaction.key);
+                      }}
+                      className="text-2xl transition-transform hover:scale-125 active:scale-110"
+                      title={reaction.label}
+                    >
+                      {reaction.icon}
+                    </button>
+                  ))}
+                </div>
               )}
-              {activeReaction?.label || "Cảm xúc"}
-            </button>
+              <button
+                onClick={() =>
+                  onReact(
+                    moment.momentId,
+                    activeReaction ? activeReaction.key : "like",
+                  )
+                }
+                className={`flex w-full items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-semibold transition-all ${
+                  activeReaction
+                    ? "bg-primary-50/50 text-primary-500 dark:bg-primary-900/20"
+                    : "text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-dark-300"
+                }`}
+              >
+                {activeReaction ? (
+                  <span className="text-lg leading-none">
+                    {activeReaction.icon}
+                  </span>
+                ) : (
+                  <Heart
+                    className={`h-5 w-5 ${
+                      activeReaction ? "fill-primary-500" : ""
+                    }`}
+                  />
+                )}
+                {activeReaction?.label || "Thích"}
+              </button>
+            </div>
 
             <button
               onClick={() => setShowComments(!showComments)}
-              className="flex flex-1 items-center justify-center gap-2 rounded-lg py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 dark:text-gray-400 dark:hover:bg-dark-300"
+              className={`flex flex-1 items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-semibold transition-all ${
+                showComments
+                  ? "bg-primary-50/50 text-primary-500 dark:bg-primary-900/20"
+                  : "text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-dark-300"
+              }`}
             >
               <MessageCircle className="h-5 w-5" />
               Bình luận
@@ -391,76 +410,77 @@ export default function MomentCard({
 
             <button
               onClick={() => onShare(moment.momentId)}
-              className="flex flex-1 items-center justify-center gap-2 rounded-lg py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 dark:text-gray-400 dark:hover:bg-dark-300"
+              className="flex flex-1 items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-semibold text-gray-600 transition-all hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-dark-300"
             >
               <Share2 className="h-5 w-5" />
               Chia sẻ
             </button>
           </div>
-
-          {showComments ? (
-            <div className="border-t border-gray-100 bg-gray-50 dark:border-gray-800 dark:bg-dark-100/30">
-              <MomentComments
-                momentId={moment.momentId}
-                onCountChange={handleCommentCountDelta}
-                canManageComments={isOwner}
-              />
-            </div>
-          ) : null}
-
-          {activeViewerUrl ? (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4">
-              <button
-                type="button"
-                onClick={closeViewer}
-                className="absolute right-4 top-4 rounded-full bg-white/10 p-3 text-white transition hover:bg-white/20"
-              >
-                <X className="h-5 w-5" />
-              </button>
-
-              {viewerMediaCount > 1 ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={showPrevMedia}
-                    className="absolute left-4 rounded-full bg-white/10 p-3 text-white transition hover:bg-white/20"
-                  >
-                    <ChevronLeft className="h-6 w-6" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={showNextMedia}
-                    className="absolute right-4 rounded-full bg-white/10 p-3 text-white transition hover:bg-white/20"
-                  >
-                    <ChevronRight className="h-6 w-6" />
-                  </button>
-                </>
-              ) : null}
-
-              <div className="absolute top-4 text-sm font-semibold text-white">
-                {viewerIndex + 1}/{viewerMediaCount}
-              </div>
-
-              <div className="max-h-[88vh] max-w-[88vw] overflow-hidden rounded-3xl bg-black">
-                {isVideoUrl(activeViewerUrl) ? (
-                  <video
-                    src={activeViewerUrl}
-                    className="max-h-[88vh] max-w-[88vw]"
-                    controls
-                    playsInline
-                    autoPlay
-                  />
-                ) : (
-                  <img
-                    src={activeViewerUrl}
-                    alt="Moment media preview"
-                    className="max-h-[88vh] max-w-[88vw] object-contain"
-                  />
-                )}
-              </div>
-            </div>
-          ) : null}
         </div>
+
+        {/* Comments Section */}
+        {showComments && (
+          <div className="border-t border-gray-100 bg-gray-50/30 dark:border-gray-800 dark:bg-dark-100/10">
+            <MomentComments
+              momentId={moment.momentId}
+              onCountChange={handleCommentCountDelta}
+              canManageComments={isOwner}
+            />
+          </div>
+        )}
+
+        {activeViewerUrl ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4">
+            <button
+              type="button"
+              onClick={closeViewer}
+              className="absolute right-4 top-4 rounded-full bg-white/10 p-3 text-white transition hover:bg-white/20"
+            >
+              <X className="h-5 w-5" />
+            </button>
+
+            {viewerMediaCount > 1 ? (
+              <>
+                <button
+                  type="button"
+                  onClick={showPrevMedia}
+                  className="absolute left-4 rounded-full bg-white/10 p-3 text-white transition hover:bg-white/20"
+                >
+                  <ChevronLeft className="h-6 w-6" />
+                </button>
+                <button
+                  type="button"
+                  onClick={showNextMedia}
+                  className="absolute right-4 rounded-full bg-white/10 p-3 text-white transition hover:bg-white/20"
+                >
+                  <ChevronRight className="h-6 w-6" />
+                </button>
+              </>
+            ) : null}
+
+            <div className="absolute top-4 text-sm font-semibold text-white">
+              {viewerIndex + 1}/{viewerMediaCount}
+            </div>
+
+            <div className="max-h-[88vh] max-w-[88vw] overflow-hidden rounded-3xl bg-black">
+              {isVideoUrl(activeViewerUrl) ? (
+                <video
+                  src={activeViewerUrl}
+                  className="max-h-[88vh] max-w-[88vw]"
+                  controls
+                  playsInline
+                  autoPlay
+                />
+              ) : (
+                <img
+                  src={activeViewerUrl}
+                  alt="Moment media preview"
+                  className="max-h-[88vh] max-w-[88vw] object-contain"
+                />
+              )}
+            </div>
+          </div>
+        ) : null}
 
         {showActions ? (
           <div

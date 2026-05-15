@@ -48,6 +48,14 @@ const permissionOptions: Array<{ value: GroupPermissionScope; label: string }> =
   { value: "admin", label: "Chỉ Admin" },
 ];
 
+const pickDisplayName = (...values: Array<unknown>) => {
+  for (const value of values) {
+    const text = String(value ?? "").trim();
+    if (text) return text;
+  }
+  return "";
+};
+
 export default function GroupManagementScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -100,9 +108,9 @@ export default function GroupManagementScreen() {
 
         const participantIds = group.participants.map((p: any) => String(p.userId));
         const requesterIds = (joinRequests as any)?.requests?.map((r: any) => String(r.userId)) || [];
-        
+
         const allNeededIds = [...new Set([...uniqueFriendIds, ...participantIds, ...requesterIds])];
-        
+
         const users = await Promise.all(
           allNeededIds.map((uId) => userService.getUserById(uId).catch(() => null)),
         );
@@ -147,6 +155,20 @@ export default function GroupManagementScreen() {
       [key: string]: any;
     }) => {
       if (String(incomingId) !== String(id)) return;
+
+      // Handle basic updates (name, avatar) immediately
+      if (updates.name || updates.avatar || updates.avatarUrl) {
+        const basicUpdates: any = {};
+        if (updates.name) basicUpdates.name = updates.name;
+        if (updates.avatar) {
+          basicUpdates.avatar = updates.avatar;
+          basicUpdates.avatarUrl = updates.avatar;
+        }
+        if (updates.avatarUrl) basicUpdates.avatarUrl = updates.avatarUrl;
+        updateConversation(id, basicUpdates);
+      }
+
+      // If settings or participants changed, perform refresh
       if (!updates?.groupSettings && !updates?.participants) return;
 
       try {
@@ -204,9 +226,9 @@ export default function GroupManagementScreen() {
       }
     };
 
-    socket.on("chat:update_conversation", onUpdateConversation);
+    socketService.on("chat:update_conversation", onUpdateConversation);
     return () => {
-      socket.off("chat:update_conversation", onUpdateConversation);
+      socketService.off("chat:update_conversation", onUpdateConversation);
     };
   }, [id, user, group, updateConversation]);
 
@@ -218,6 +240,15 @@ export default function GroupManagementScreen() {
     });
     return map;
   }, [allUsers]);
+
+
+
+
+
+  const handleRename = useCallback(() => {
+    if (!group) return;
+    setShowRenameModal(true);
+  }, [group]);
 
   if (!group || !user) return null;
 
@@ -243,10 +274,10 @@ export default function GroupManagementScreen() {
     }
   };
 
-  const handleRename = useCallback(() => {
-    if (!group) return;
-    setShowRenameModal(true);
-  }, [group]);
+
+
+
+
 
   const handleAvatarChange = async () => {
     if (!group) return;
@@ -413,13 +444,13 @@ export default function GroupManagementScreen() {
       setIsLoading(true);
       const res = isDeputy
         ? await revokeDeputy(id, {
-            userId: String(user.id),
-            deputyUserId: String(participant.userId),
-          })
+          userId: String(user.id),
+          deputyUserId: String(participant.userId),
+        })
         : await appointDeputy(id, {
-            userId: String(user.id),
-            deputyUserId: String(participant.userId),
-          });
+          userId: String(user.id),
+          deputyUserId: String(participant.userId),
+        });
       syncParticipants(res.group?.participants);
       GrayToast(isDeputy ? "Đã thu hồi quyền phó nhóm" : "Đã cấp quyền phó nhóm");
     } catch (error: any) {
@@ -433,7 +464,7 @@ export default function GroupManagementScreen() {
     const isMe = String(participant.userId) === String(user.id);
     if (isMe) return;
 
-    const participantName = getParticipantName(participant.userId, participant.nickname);
+    const participantName = getParticipantName(participant);
     const options: MessageActionItem[] = [];
 
     if (isAdmin) {
@@ -505,7 +536,7 @@ export default function GroupManagementScreen() {
       setGroupMenuOptions([
         ...transferCandidates.map((participant) => ({
           key: `transfer-${participant.userId}`,
-          text: getParticipantName(participant.userId, participant.nickname),
+          text: getParticipantName(participant),
           onPress: async () => {
             try {
               setIsLoading(true);
@@ -597,14 +628,25 @@ export default function GroupManagementScreen() {
     setShowGroupMenu(true);
   };
 
-  const getParticipantName = (pId: string, fallback?: string) => {
-    const userInfo = participantsMap.get(String(pId));
-    return userInfo?.fullName || userInfo?.userName || fallback || `User ${pId}`;
+  const getParticipantName = (participant: any) => {
+    const pId = String(participant?.userId || "");
+    const userInfo = participantsMap.get(pId);
+    return (
+      pickDisplayName(
+        participant?.nickname,
+        participant?.fullName,
+        participant?.userName,
+        participant?.name,
+        userInfo?.fullName,
+        userInfo?.userName,
+        userInfo?.name,
+      ) || `User ${pId}`
+    );
   };
 
   const inviteQrValue = String(
     settings?.invite?.inviteUrl ||
-      (settings?.invite?.code ? `groupInvite:${settings.invite.code}` : ""),
+    (settings?.invite?.code ? `groupInvite:${settings.invite.code}` : ""),
   ).trim();
 
   return (
@@ -630,11 +672,11 @@ export default function GroupManagementScreen() {
         <View style={{ flex: 1, marginLeft: 4, flexDirection: "row", alignItems: "center" }}>
           <TouchableOpacity onPress={handleAvatarChange} style={{ marginRight: 12 }}>
             <View>
-                <Avatar
-                  uri={group?.avatarUrl || group?.avatar}
-                  name={group?.name}
-                  size={40}
-                />
+              <Avatar
+                uri={group?.avatarUrl || group?.avatar}
+                name={group?.name}
+                size={40}
+              />
               <View style={{ position: "absolute", bottom: -2, right: -2, backgroundColor: "#FFF", borderRadius: 10, padding: 2 }}>
                 <Ionicons name="camera" size={10} color="#3B82F6" />
               </View>
@@ -657,17 +699,17 @@ export default function GroupManagementScreen() {
         <View style={{ backgroundColor: "#FFF", borderRadius: 12, padding: 16, marginBottom: 16, alignItems: "center" }}>
           <TouchableOpacity onPress={handleAvatarChange} style={{ marginBottom: 12 }}>
             <View>
-          <Avatar
-            uri={group?.avatarUrl || group?.avatar}
-            name={group?.name}
-            size={80}
-          />
+              <Avatar
+                uri={group?.avatarUrl || group?.avatar}
+                name={group?.name}
+                size={80}
+              />
               <View style={{ position: "absolute", bottom: 0, right: 0, backgroundColor: "#3B82F6", borderRadius: 15, padding: 6, borderWidth: 2, borderColor: "#FFF" }}>
                 <Ionicons name="camera" size={18} color="#FFF" />
               </View>
             </View>
           </TouchableOpacity>
-          
+
           <TouchableOpacity onPress={handleRename} style={{ flexDirection: "row", alignItems: "center", marginBottom: 4 }}>
             <Text style={{ fontSize: 20, fontWeight: "700", color: "#1F2937", textAlign: "center" }}>{group?.name}</Text>
             <Ionicons name="create-outline" size={20} color="#3B82F6" style={{ marginLeft: 8 }} />
@@ -781,7 +823,7 @@ export default function GroupManagementScreen() {
               settings.pendingJoinRequests.map((req: any) => (
                 <View key={req.requestId} style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: "#F3F4F6" }}>
                   <View style={{ flex: 1 }}>
-                    <Text style={{ fontWeight: "600", color: "#1F2937" }}>{getParticipantName(req.userId)}</Text>
+                    <Text style={{ fontWeight: "600", color: "#1F2937" }}>{getParticipantName(req)}</Text>
                     <Text style={{ fontSize: 11, color: "#6B7280" }}>{new Date(req.requestedAt).toLocaleString("vi-VN")}</Text>
                   </View>
                   <View style={{ flexDirection: "row", gap: 8 }}>
@@ -863,7 +905,7 @@ export default function GroupManagementScreen() {
               <View key={p.userId} style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "#F3F4F6" }}>
                 <View>
                   <Text style={{ fontWeight: "600", color: "#1F2937", fontSize: 15 }}>
-                    {getParticipantName(p.userId, p.nickname)} {isMe && "(Bạn)"}
+                    {getParticipantName(p)} {isMe && "(Bạn)"}
                   </Text>
                   <Text style={{ fontSize: 12, color: p.role === "admin" ? "#F59E0B" : p.role === "deputy" ? "#3B82F6" : "#9CA3AF" }}>
                     {p.role === "admin" ? "Trưởng nhóm" : p.role === "deputy" ? "Phó nhóm" : "Thành viên"}

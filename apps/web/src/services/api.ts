@@ -82,7 +82,7 @@ const normalizeParticipantPresence = (participant: any) => ({
 export const mapUser = (u: any): User => ({
     ...u,
     id: u.userId || u.id || u._id,
-    fullName: u.userName || u.fullName || 'User',
+    fullName: u.userName || u.fullName || u.name || 'User',
     avatarUrl: u.avartarUrl || u.avatarUrl || null,
     phoneNumber: u.phone || u.phoneNumber || '',
     birthday: u.birthday || null,
@@ -605,6 +605,12 @@ const getUserByPhone = async (phone: string): Promise<User> => {
     return mapUser(data);
 }
 
+const getUserById = async (userId: string): Promise<User> => {
+    const response = await fetchWithAuth(`/users/id/${userId}`);
+    const data = await response.json();
+    return mapUser(data);
+}
+
 const getFriends = async (userId: string): Promise<User[]> => {
     if (!userId || userId === 'undefined') return [];
     const response = await fetchWithAuth(`/friends/${userId}`);
@@ -696,6 +702,7 @@ export {
     updateLabel,
     deleteLabel,
     getUserByPhone,
+    getUserById,
     getFriends,
     askAssistant,
     getAssistantHistory,

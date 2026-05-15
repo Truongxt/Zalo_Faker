@@ -26,7 +26,8 @@
         }
       ],
       "expo-secure-store",
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      "@config-plugins/react-native-webrtc"
     ],
     "experiments": {
       "typedRoutes": true
@@ -43,6 +44,7 @@
     "android": {
       "package": "com.zalofaker.app",
       "softwareKeyboardLayoutMode": "resize",
+      "usesCleartextTraffic": true,
       "permissions": [
         "RECORD_AUDIO",
         "CAMERA",

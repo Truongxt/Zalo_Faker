@@ -45,6 +45,7 @@ export default function ChatLayout() {
     updateMessage,
     updateConversation,
     updateParticipantPresence,
+    removeConversation,
     setLastSyncedAt,
   } = useChatStore();
   const { user } = useAuthStore();
@@ -224,6 +225,16 @@ export default function ChatLayout() {
         updateMessage(data.conversationId, String(normalized.id), normalized);
       };
 
+      const handleConversationRemovedGlobal = ({
+        conversationId,
+      }: {
+        conversationId?: string;
+      }) => {
+        const targetId = String(conversationId || "").trim();
+        if (!targetId) return;
+        removeConversation(targetId);
+      };
+
       const handleIncomingGroupCall = (data: any) => {
         // Don't show if we're already in a group call
         const currentGroupCall = useCallStore.getState().groupCall;
@@ -303,10 +314,20 @@ export default function ChatLayout() {
         socket.on("chat:reaction", handleReactionGlobal);
         socket.on("chat:pinned_message", handlePinnedMessageGlobal);
         socket.on("chat:message_updated", handleMessageUpdatedGlobal);
-        socket.on("presence:online", handlePresenceOnline);
-        socket.on("presence:offline", handlePresenceOffline);
-        socket.on("connect", refreshConversationPresence);
-        refreshConversationPresence();
+        socket.on("chat:conversation_removed", handleConversationRemovedGlobal);
+        if (handlePresenceOnline) {
+          socket.on("presence:online", handlePresenceOnline);
+        }
+        if (handlePresenceOffline) {
+          socket.on("presence:offline", handlePresenceOffline);
+        }
+        if (refreshConversationPresence) {
+          if (socket.connected) {
+            refreshConversationPresence();
+          } else {
+            socket.once("connect", refreshConversationPresence);
+          }
+        }
       }
     }
 
@@ -322,15 +343,9 @@ export default function ChatLayout() {
         socket.off("chat:reaction");
         socket.off("chat:pinned_message");
         socket.off("chat:message_updated");
-        if (handlePresenceOnline) {
-          socket.off("presence:online", handlePresenceOnline);
-        }
-        if (handlePresenceOffline) {
-          socket.off("presence:offline", handlePresenceOffline);
-        }
-        if (refreshConversationPresence) {
-          socket.off("connect", refreshConversationPresence);
-        }
+        socket.off("chat:conversation_removed");
+        socket.off("presence:online");
+        socket.off("presence:offline");
       }
     };
   }, [
@@ -340,6 +355,7 @@ export default function ChatLayout() {
     updateMessage,
     updateConversation,
     updateParticipantPresence,
+    removeConversation,
     setLastSyncedAt,
   ]);
 

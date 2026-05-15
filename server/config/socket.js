@@ -114,6 +114,21 @@ const getCallPreviewText = (callPayload) => {
   return callPayload.callType === "video" ? "Cuộc gọi video" : "Cuộc gọi";
 };
 
+const resolveUserDisplayName = (user, fallback = "Nguoi dung") => {
+  if (!user || typeof user !== "object") return fallback;
+  return (
+    String(user.fullName || "").trim()
+    || String(user.userName || "").trim()
+    || String(user.name || "").trim()
+    || fallback
+  );
+};
+
+const resolveUserAvatar = (user) => {
+  if (!user || typeof user !== "object") return null;
+  return user.avatarUrl || user.avartarUrl || null;
+};
+
 const resolveCallStatus = (status, fallback = "finished") => {
   return normalizeCallStatus(status) || fallback;
 };
@@ -866,8 +881,8 @@ module.exports = (socketConfig) => {
                 conversationId: room.conversationId,
                 callType: room.callType,
                 hostUserId: room.hostUserId,
-                callerName: callerInfo?.fullName || "Nguoi dung",
-                callerAvatar: callerInfo?.avatarUrl || null,
+                callerName: resolveUserDisplayName(callerInfo, "Nguoi dung"),
+                callerAvatar: resolveUserAvatar(callerInfo),
                 participantCount: room.participants.size,
                 isGroupCall: true,
               };
@@ -917,8 +932,8 @@ module.exports = (socketConfig) => {
           conversationId: room.conversationId,
           callType: room.callType,
           hostUserId: room.hostUserId,
-          callerName: callerInfo?.fullName || "Nguoi dung",
-          callerAvatar: callerInfo?.avatarUrl || null,
+          callerName: resolveUserDisplayName(callerInfo, "Nguoi dung"),
+          callerAvatar: resolveUserAvatar(callerInfo),
           participantCount: room.participants.size,
           isGroupCall: true,
         };
@@ -955,15 +970,36 @@ module.exports = (socketConfig) => {
         await ensureConversationMembership(room.conversationId, socket.userId);
 
         // Get current participants BEFORE joining (for signaling)
-        const existingParticipants = groupCallManager.getParticipantsArray(roomId)
+        const existingParticipantsRaw = groupCallManager.getParticipantsArray(roomId)
           .filter((p) => p.userId !== socket.userId);
 
-        const { isNew } = groupCallManager.joinRoom(roomId, socket.userId, socket.id);
+        const existingParticipants = await Promise.all(
+          existingParticipantsRaw.map(async (participant) => {
+            let participantInfo = null;
+            try {
+              participantInfo = await userRepository.getById(participant.userId);
+            } catch (e) {
+              participantInfo = null;
+            }
+
+            return {
+              ...participant,
+              name: resolveUserDisplayName(participantInfo, String(participant.userId)),
+              avatar: resolveUserAvatar(participantInfo),
+            };
+          }),
+        );
+
+        const { isNew, socketChanged } = groupCallManager.joinRoom(
+          roomId,
+          socket.userId,
+          socket.id,
+        );
 
         // Get user info
         let userInfo = null;
         try {
-          userInfo = await userRepository.findUserById(socket.userId);
+          userInfo = await userRepository.getById(socket.userId);
         } catch (e) {
           // fallback
         }
@@ -975,21 +1011,24 @@ module.exports = (socketConfig) => {
           existingParticipants,
         });
 
-        if (isNew) {
+        if (isNew || socketChanged) {
           // Notify all other participants that a new user joined
           const joinPayload = {
             roomId,
             userId: socket.userId,
-            userName: userInfo?.fullName || "Nguoi dung",
-            userAvatar: userInfo?.avatarUrl || null,
+            userName: resolveUserDisplayName(userInfo, "Nguoi dung"),
+            userAvatar: resolveUserAvatar(userInfo),
             participantCount: room.participants.size,
+            reconnected: Boolean(socketChanged),
           };
 
           for (const participant of existingParticipants) {
             emitToUserRoom(participant.userId, "group:user-joined", joinPayload);
           }
 
-          console.log(`[GroupCall] User ${socket.userId} joined room ${roomId} (${room.participants.size} total)`);
+          console.log(
+            `[GroupCall] User ${socket.userId} joined room ${roomId} (${room.participants.size} total)`,
+          );
         }
       } catch (err) {
         console.error("group:join error:", err);
