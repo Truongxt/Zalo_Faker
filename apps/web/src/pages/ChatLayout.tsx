@@ -44,10 +44,12 @@ export default function ChatLayout() {
     addMessage,
     updateMessage,
     updateConversation,
+    updateParticipantPresence,
     removeConversation,
     setLastSyncedAt,
   } = useChatStore();
   const { user } = useAuthStore();
+  const conversations = useChatStore((state) => state.conversations);
   const dragStateRef = useRef<{ startX: number; startWidth: number } | null>(
     null,
   );
@@ -97,6 +99,14 @@ export default function ChatLayout() {
     };
 
     loadData();
+
+    let refreshConversationPresence: (() => void) | undefined;
+    let handlePresenceOnline:
+      | ((payload: { userId: string }) => void)
+      | undefined;
+    let handlePresenceOffline:
+      | ((payload: { userId: string; lastActiveAt?: string }) => void)
+      | undefined;
 
     if (user?.id) {
       socketService.connect(user.id);
@@ -241,6 +251,57 @@ export default function ChatLayout() {
         });
       };
 
+      refreshConversationPresence = () => {
+        const socket = socketService.getSocket();
+        if (!socket) return;
+
+        const participantIds = new Set<string>();
+        useChatStore.getState().conversations.forEach((conversation) => {
+          (conversation.participants || []).forEach((participant) => {
+            const participantId = String(participant.userId || "");
+            if (participantId && participantId !== String(user.id)) {
+              participantIds.add(participantId);
+            }
+          });
+        });
+
+        if (participantIds.size === 0) return;
+
+        socket.emit(
+          "presence:get_online_users",
+          Array.from(participantIds),
+          (response: {
+            success: boolean;
+            onlineStatuses?: Record<string, boolean>;
+            lastSeenStatuses?: Record<string, string | null>;
+          }) => {
+            if (!response?.success || !response.onlineStatuses) return;
+
+            Object.entries(response.onlineStatuses).forEach(([participantId, isOnline]) => {
+              updateParticipantPresence(
+                participantId,
+                isOnline ? "online" : "offline",
+                response.lastSeenStatuses?.[participantId] || null,
+              );
+            });
+          },
+        );
+      };
+
+      handlePresenceOnline = ({ userId: onlineUserId }: { userId: string }) => {
+        updateParticipantPresence(String(onlineUserId), "online");
+      };
+
+      handlePresenceOffline = ({
+        userId: offlineUserId,
+        lastActiveAt,
+      }: {
+        userId: string;
+        lastActiveAt?: string;
+      }) => {
+        updateParticipantPresence(String(offlineUserId), "offline", lastActiveAt);
+      };
+
       const socket = socketService.getSocket();
       if (socket) {
         console.log("[socket] attaching global listeners:", socket.id);
@@ -254,7 +315,19 @@ export default function ChatLayout() {
         socket.on("chat:pinned_message", handlePinnedMessageGlobal);
         socket.on("chat:message_updated", handleMessageUpdatedGlobal);
         socket.on("chat:conversation_removed", handleConversationRemovedGlobal);
-        socket.on("group:dissolved", handleConversationRemovedGlobal);
+        if (handlePresenceOnline) {
+          socket.on("presence:online", handlePresenceOnline);
+        }
+        if (handlePresenceOffline) {
+          socket.on("presence:offline", handlePresenceOffline);
+        }
+        if (refreshConversationPresence) {
+          if (socket.connected) {
+            refreshConversationPresence();
+          } else {
+            socket.once("connect", refreshConversationPresence);
+          }
+        }
       }
     }
 
@@ -271,7 +344,8 @@ export default function ChatLayout() {
         socket.off("chat:pinned_message");
         socket.off("chat:message_updated");
         socket.off("chat:conversation_removed");
-        socket.off("group:dissolved");
+        socket.off("presence:online");
+        socket.off("presence:offline");
       }
     };
   }, [
@@ -280,9 +354,66 @@ export default function ChatLayout() {
     addMessage,
     updateMessage,
     updateConversation,
+    updateParticipantPresence,
     removeConversation,
     setLastSyncedAt,
   ]);
+
+  useEffect(() => {
+    if (!user?.id || conversations.length === 0) return;
+
+    const socket = socketService.getSocket() || socketService.connect(user.id);
+    if (!socket) return;
+
+    const participantIds = Array.from(
+      new Set(
+        conversations.flatMap((conversation) =>
+          (conversation.participants || [])
+            .map((participant) => String(participant.userId || ""))
+            .filter(
+              (participantId) =>
+                participantId && participantId !== String(user.id),
+            ),
+        ),
+      ),
+    );
+
+    if (participantIds.length === 0) return;
+
+    const refreshPresence = () => {
+      socket.emit(
+        "presence:get_online_users",
+        participantIds,
+        (response: {
+          success: boolean;
+          onlineStatuses?: Record<string, boolean>;
+          lastSeenStatuses?: Record<string, string | null>;
+        }) => {
+          if (!response?.success || !response.onlineStatuses) return;
+
+          Object.entries(response.onlineStatuses).forEach(
+            ([participantId, isOnline]) => {
+              updateParticipantPresence(
+                participantId,
+                isOnline ? "online" : "offline",
+                response.lastSeenStatuses?.[participantId] || null,
+              );
+            },
+          );
+        },
+      );
+    };
+
+    if (socket.connected) {
+      refreshPresence();
+    } else {
+      socket.once("connect", refreshPresence);
+    }
+
+    return () => {
+      socket.off("connect", refreshPresence);
+    };
+  }, [conversations, user?.id, updateParticipantPresence]);
 
   useEffect(() => {
     const syncSidebarLayout = () => {

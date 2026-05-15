@@ -232,8 +232,17 @@ module.exports = (socketConfig) => {
     }
   });
 
-  const isUserOnline = async (userId) => {
+  const isUserOnline = async (userId, excludeSocketId = null) => {
     try {
+      const room = io.sockets.adapter.rooms.get(`user:${String(userId)}`);
+      if (room) {
+        for (const socketId of room) {
+          if (socketId !== excludeSocketId && io.sockets.sockets.has(socketId)) {
+            return true;
+          }
+        }
+      }
+
       if (!getIsRedisReady()) return false;
 
       for await (const key of redisClient.scanIterator({
@@ -241,7 +250,7 @@ module.exports = (socketConfig) => {
         COUNT: 10,
       })) {
         const socketId = await redisClient.get(key);
-        if (socketId && io.sockets.sockets.has(socketId)) {
+        if (socketId && socketId !== excludeSocketId && io.sockets.sockets.has(socketId)) {
           return true;
         }
 
@@ -348,7 +357,7 @@ module.exports = (socketConfig) => {
     try {
       forceLogoutOlderSessions(socket);
 
-      const wasOnlineBefore = await isUserOnline(userId);
+      const wasOnlineBefore = await isUserOnline(userId, socket.id);
 
       if (getIsRedisReady()) {
         await touchPresence(userId, platform, socket.id);
@@ -1201,11 +1210,19 @@ module.exports = (socketConfig) => {
     socket.on("presence:get_online_users", async (userIds, callback) => {
       try {
         const onlineStatuses = {};
+        const lastSeenStatuses = {};
         for (const uid of userIds || []) {
-          onlineStatuses[uid] = await isUserOnline(String(uid));
+          const normalizedUid = String(uid);
+          const online = await isUserOnline(normalizedUid);
+          onlineStatuses[uid] = online;
+
+          if (!online) {
+            const user = await userRepository.getById(normalizedUid).catch(() => null);
+            lastSeenStatuses[uid] = user?.lastActiveAt || null;
+          }
         }
 
-        callback?.({ success: true, onlineStatuses });
+        callback?.({ success: true, onlineStatuses, lastSeenStatuses });
       } catch (err) {
         console.error("presence:get_online_users error:", err);
         callback?.({ success: false, error: err.message });
@@ -1261,16 +1278,17 @@ module.exports = (socketConfig) => {
           }
         }
 
-        const stillOnline = await isUserOnline(socket.userId);
+        const stillOnline = await isUserOnline(socket.userId, socket.id);
         if (!stillOnline) {
+          const lastActiveAt = new Date().toISOString();
           await userRepository
             .updateUser(String(socket.userId), {
               presenceStatus: "offline",
-              lastActiveAt: new Date().toISOString(),
+              lastActiveAt,
             })
             .catch((err) => console.warn("Failed to update presenceStatus to offline:", err?.message));
 
-          socket.broadcast.emit("presence:offline", { userId: socket.userId });
+          socket.broadcast.emit("presence:offline", { userId: socket.userId, lastActiveAt });
         }
       } catch (err) {
         console.error("disconnect presence cleanup error:", err);

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useAuthStore } from '@/stores/authStore';
 import { useChatStore } from '@/stores/chatStore';
 import { friendsService } from '@/services/friendsService';
@@ -20,6 +20,7 @@ import { useToast } from '@/contexts/ToastContext';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { chatService } from '@/services/chat';
 import { socketService } from '@/lib/socket';
+import { getPresenceLabel } from '@/lib/presence';
 
 type ContactTab = 'friends' | 'groups' | 'requests' | 'blocked';
 
@@ -40,6 +41,42 @@ export default function Contacts() {
     tabParam === 'groups' || tabParam === 'requests' || tabParam === 'blocked'
       ? tabParam
       : 'friends';
+
+  const getFriendId = (friend: any) => String(friend?.userId || friend?.id || friend?._id || '');
+
+  const updateFriendPresence = useCallback((
+    targetUserId: string,
+    status: 'online' | 'offline',
+    lastSeen?: string | null,
+  ) => {
+    setFriends((prev) => {
+      let changed = false;
+      const nextFriends = prev.map((friend) => {
+        if (getFriendId(friend) !== String(targetUserId)) return friend;
+
+        const nextLastSeen = status === 'offline'
+          ? lastSeen || friend.lastSeen || null
+          : friend.lastSeen || null;
+
+        if (friend.status === status && (friend.lastSeen || null) === nextLastSeen) {
+          return friend;
+        }
+
+        changed = true;
+        return {
+          ...friend,
+          status,
+          presenceStatus: status,
+          lastSeen: nextLastSeen,
+        };
+      });
+
+      return changed ? nextFriends : prev;
+    });
+  }, []);
+
+  const isFriendOnline = (friend: any) =>
+    String(friend?.presenceStatus || friend?.status || '').toLowerCase() === 'online';
 
   const setActiveTab = (tab: ContactTab) => {
     const nextParams = new URLSearchParams(searchParams);
@@ -97,57 +134,85 @@ export default function Contacts() {
       setFriends((prev) => prev.filter((f) => String(f.userId) !== String(blockedByUserId)));
     };
 
-    const handleFriendRequestReceived = ({
-      toUserId,
-    }: {
-      toUserId?: string | number;
-    }) => {
-      if (String(toUserId || '') !== String(user.id)) return;
-      loadData();
+    const handlePresenceOnline = ({ userId: onlineUserId }: { userId: string }) => {
+      updateFriendPresence(String(onlineUserId), 'online');
     };
 
-    const handleFriendRequestAccepted = ({
-      fromUserId,
-      toUserId,
+    const handlePresenceOffline = ({
+      userId: offlineUserId,
+      lastActiveAt,
     }: {
-      fromUserId?: string | number;
-      toUserId?: string | number;
+      userId: string;
+      lastActiveAt?: string;
     }) => {
-      const myId = String(user.id);
-      if (String(fromUserId || '') !== myId && String(toUserId || '') !== myId) return;
-      loadData();
-    };
-
-    const handleFriendRequestRejected = ({
-      fromUserId,
-      toUserId,
-    }: {
-      fromUserId?: string | number;
-      toUserId?: string | number;
-    }) => {
-      const myId = String(user.id);
-      if (String(fromUserId || '') !== myId && String(toUserId || '') !== myId) return;
-      loadData();
+      updateFriendPresence(String(offlineUserId), 'offline', lastActiveAt || null);
     };
 
     socketService.on('friend:removed', handleFriendRemoved);
     socketService.on('friend:blocked', handleFriendBlocked);
     socketService.on('friend:unblocked', handleFriendUnblocked);
     socketService.on('friend:blocked_by', handleBlockedBy);
-    socketService.on('friend:request_received', handleFriendRequestReceived);
-    socketService.on('friend:request_accepted', handleFriendRequestAccepted);
-    socketService.on('friend:request_rejected', handleFriendRequestRejected);
+    socketService.on('presence:online', handlePresenceOnline);
+    socketService.on('presence:offline', handlePresenceOffline);
 
     return () => {
       socketService.off('friend:removed', handleFriendRemoved);
       socketService.off('friend:blocked', handleFriendBlocked);
       socketService.off('friend:unblocked', handleFriendUnblocked);
       socketService.off('friend:blocked_by', handleBlockedBy);
-      socketService.off('friend:request_received', handleFriendRequestReceived);
-      socketService.off('friend:request_accepted', handleFriendRequestAccepted);
-      socketService.off('friend:request_rejected', handleFriendRequestRejected);
+      socketService.off('presence:online', handlePresenceOnline);
+      socketService.off('presence:offline', handlePresenceOffline);
     };
-  }, [user?.id]);
+  }, [user?.id, updateFriendPresence]);
+
+  useEffect(() => {
+    if (!user?.id || friends.length === 0) return;
+
+    const socket = socketService.getSocket() || socketService.connect(user.id);
+    if (!socket) return;
+
+    const friendIds = Array.from(
+      new Set(
+        friends
+          .map(getFriendId)
+          .filter((friendId) => friendId && friendId !== String(user.id)),
+      ),
+    );
+
+    if (friendIds.length === 0) return;
+
+    const refreshFriendPresence = () => {
+      socket.emit(
+        'presence:get_online_users',
+        friendIds,
+        (response: {
+          success: boolean;
+          onlineStatuses?: Record<string, boolean>;
+          lastSeenStatuses?: Record<string, string | null>;
+        }) => {
+          if (!response?.success || !response.onlineStatuses) return;
+
+          Object.entries(response.onlineStatuses).forEach(([friendId, isOnline]) => {
+            updateFriendPresence(
+              friendId,
+              isOnline ? 'online' : 'offline',
+              response.lastSeenStatuses?.[friendId] || null,
+            );
+          });
+        },
+      );
+    };
+
+    if (socket.connected) {
+      refreshFriendPresence();
+    } else {
+      socket.once('connect', refreshFriendPresence);
+    }
+
+    return () => {
+      socket.off('connect', refreshFriendPresence);
+    };
+  }, [friends, user?.id, updateFriendPresence]);
 
   const handleAcceptRequest = async (req: FriendRequest) => {
     try {
@@ -374,13 +439,13 @@ export default function Contacts() {
                         <h3 className="font-semibold text-gray-900 dark:text-white truncate">{friend.fullName || 'Người dùng'}</h3>
                         <div className="flex items-center gap-1.5 mt-0.5">
                           <div
-                            className={`w-2 h-2 rounded-full ${['online', 'active'].includes(friend.status?.toLowerCase() || '')
+                            className={`w-2 h-2 rounded-full ${isFriendOnline(friend)
                               ? 'bg-green-500'
                               : 'bg-gray-400'
                               }`}
                           />
-                          <p className="text-[11px] text-gray-500 truncate capitalize">
-                            {['online', 'active'].includes(friend.status?.toLowerCase() || '') ? 'Đang hoạt động' : 'Ngoại tuyến'}
+                          <p className="text-[11px] text-gray-500 truncate">
+                            {getPresenceLabel(friend.status, friend.lastSeen)}
                           </p>
                         </div>
                       </button>

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import { vi } from 'date-fns/locale';
-import { Loader2, Send, Trash2, Reply, Smile, X, MessageCircle } from 'lucide-react';
+import { Loader2, Send, Reply, Smile, X, MessageCircle } from 'lucide-react';
 import { useToast } from '@/contexts/ToastContext';
 import { momentService } from '@/services/momentService';
 import { useAuthStore } from '@/stores/authStore';

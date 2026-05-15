@@ -74,6 +74,9 @@ export interface Message {
         isForwarded?: boolean
         forwardedFromMessageId?: string
         forwardedAt?: string
+        folderId?: string
+        folder?: string
+        subfolder?: string
         transcript?: string
         transcriptStatus?: string
         transcriptUpdatedAt?: string
@@ -84,6 +87,8 @@ export interface Message {
     readBy: { userId: string; readAt: string }[]
     isDeleted: boolean
     createdAt: string
+    senderName?: string
+    senderAvatar?: string
     // Added for helper
     lastRead?: string
 }
@@ -284,6 +289,7 @@ export interface Participant {
     role: 'admin' | 'deputy' | 'member'
     joinedAt: string
     lastRead?: string
+    lastSeen?: string | null
     // User info (populated)
     fullName?: string
     avatarUrl?: string
@@ -422,6 +428,15 @@ const dedupeConversations = (conversations: Array<Partial<Conversation> & Record
     return Array.from(bestByKey.values())
 }
 
+const resetConversationPresence = (conversations: Conversation[] = []) =>
+    conversations.map((conversation) => ({
+        ...conversation,
+        participants: (conversation.participants || []).map((participant) => ({
+            ...participant,
+            status: 'offline',
+        })),
+    }))
+
 interface ChatState {
     conversations: Conversation[]
     activeConversation: Conversation | null
@@ -443,6 +458,7 @@ interface ChatState {
     setConversations: (conversations: Conversation[]) => void
     addConversation: (conversation: Conversation) => void
     updateConversation: (id: string, updates: Partial<Conversation>) => void
+    updateParticipantPresence: (userId: string, status: 'online' | 'offline', lastSeen?: string | null) => void
     removeConversation: (id: string) => void
     setActiveConversation: (conversation: Conversation | null) => void
 
@@ -535,6 +551,57 @@ export const useChatStore = create<ChatState>()(
             : state.activeConversation
     })),
 
+    updateParticipantPresence: (userId, status, lastSeen = null) => set((state) => {
+        let changed = false
+        const patchParticipants = (participants: Participant[] = []) => {
+            let participantsChanged = false
+            const nextParticipants = participants.map((participant) => {
+                if (String(participant.userId) !== String(userId)) return participant
+
+                const nextLastSeen = status === 'offline'
+                    ? lastSeen || participant.lastSeen || null
+                    : participant.lastSeen || null
+
+                if (participant.status === status && (participant.lastSeen || null) === nextLastSeen) {
+                    return participant
+                }
+
+                changed = true
+                participantsChanged = true
+                return {
+                    ...participant,
+                    status,
+                    lastSeen: nextLastSeen,
+                }
+            })
+
+            return participantsChanged ? nextParticipants : participants
+        }
+
+        const nextConversations = state.conversations.map((conversation) => {
+            const nextParticipants = patchParticipants(conversation.participants)
+            return nextParticipants === conversation.participants
+                ? conversation
+                : { ...conversation, participants: nextParticipants }
+        })
+
+        const nextActiveParticipants = state.activeConversation
+            ? patchParticipants(state.activeConversation.participants)
+            : null
+
+        if (!changed) return state
+
+        return {
+            conversations: nextConversations,
+            activeConversation: state.activeConversation
+                ? {
+                    ...state.activeConversation,
+                    participants: nextActiveParticipants || state.activeConversation.participants,
+                }
+                : null,
+        }
+    }),
+
     removeConversation: (id) => set((state) => ({
         conversations: state.conversations.filter((c) => c.id !== id),
         activeConversation: state.activeConversation?.id === id
@@ -614,7 +681,13 @@ export const useChatStore = create<ChatState>()(
 
         const owner = get().cacheOwnerUserId
         if (!owner) {
-            set({ cacheOwnerUserId: normalizedUserId })
+            set((state) => ({
+                cacheOwnerUserId: normalizedUserId,
+                conversations: resetConversationPresence(state.conversations),
+                activeConversation: state.activeConversation
+                    ? resetConversationPresence([state.activeConversation])[0]
+                    : null,
+            }))
             return
         }
 
@@ -623,7 +696,15 @@ export const useChatStore = create<ChatState>()(
                 ...createInitialState(),
                 cacheOwnerUserId: normalizedUserId,
             })
+            return
         }
+
+        set((state) => ({
+            conversations: resetConversationPresence(state.conversations),
+            activeConversation: state.activeConversation
+                ? resetConversationPresence([state.activeConversation])[0]
+                : null,
+        }))
     },
 
     clearChatState: () => set({ ...createInitialState() }),

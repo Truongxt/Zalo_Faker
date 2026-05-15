@@ -110,7 +110,21 @@ class SocketService {
         senderId?: string
         type: string
         content: { text?: string; mediaUrl?: string; fileName?: string; fileSize?: number; duration?: number }
-        metadata?: { isAnnouncement?: boolean; isImportant?: boolean }
+        attachments?: Array<{
+            url: string
+            type: 'image' | 'video' | 'file' | 'voice'
+            name?: string
+            size?: number
+            duration?: number
+            thumbnailUrl?: string
+        }>
+        metadata?: {
+            isAnnouncement?: boolean
+            isImportant?: boolean
+            folderId?: string
+            folder?: string
+            subfolder?: string
+        }
         replyTo?: string
         clientTempId?: string
     }, callback?: (res: { success: boolean; message?: any; error?: string }) => void) {

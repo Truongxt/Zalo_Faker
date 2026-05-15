@@ -12,28 +12,47 @@ import { Audio } from "expo-av";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import {
-  mediaDevices,
-  MediaStream,
-  RTCIceCandidate,
-  RTCPeerConnection,
-  RTCSessionDescription,
-  RTCView,
-} from "react-native-webrtc";
 import { Avatar } from "@/components/ui/Avatar";
 import { groupCallInviteStore } from "@/lib/groupCallInviteStore";
 import { socketService } from "@/lib/socket";
 import { useAuthStore } from "@/stores/authStore";
 
+declare const require: any;
+
 type CallType = "video" | "audio";
 type CallState = "ringing" | "accepted" | "ended";
 type CallNotice = { id: string; text: string };
+type MediaStream = any;
+
+type WebRTCModule = {
+  mediaDevices: any;
+  RTCIceCandidate: any;
+  RTCPeerConnection: any;
+  RTCSessionDescription: any;
+  RTCView: any;
+};
 
 type PeerState = {
-  pc: RTCPeerConnection;
+  pc: any;
   makingOffer: boolean;
   ignoreOffer: boolean;
   pendingCandidates: any[];
+};
+
+const loadWebRTC = (): WebRTCModule | null => {
+  try {
+    const webRTC = require("react-native-webrtc");
+    if (!webRTC?.mediaDevices || !webRTC?.RTCPeerConnection || !webRTC?.RTCView) {
+      return null;
+    }
+    return webRTC;
+  } catch (error) {
+    console.warn(
+      "WebRTC native module is unavailable. Use a development build or release APK instead of Expo Go.",
+      error,
+    );
+    return null;
+  }
 };
 
 const RTC_CONFIG = {
@@ -65,6 +84,8 @@ export default function CallScreen() {
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
   const { user } = useAuthStore();
+  const webRTC = useMemo(loadWebRTC, []);
+  const RTCVideoView = webRTC?.RTCView;
 
   const callType: CallType = params.callType === "video" ? "video" : "audio";
   const isCaller = String(params.isCaller) === "true";
@@ -240,8 +261,15 @@ export default function CallScreen() {
 
     const stream = localStreamRef.current;
     if (!stream) return null;
+    if (!webRTC) {
+      Alert.alert(
+        "Khong ho tro WebRTC",
+        "Hay mo bang development build hoac APK release. Expo Go khong co native module WebRTC.",
+      );
+      return null;
+    }
 
-    const pc = new RTCPeerConnection(RTC_CONFIG as any);
+    const pc = new webRTC.RTCPeerConnection(RTC_CONFIG as any);
     const peerState: PeerState = {
       pc,
       makingOffer: false,
@@ -305,7 +333,7 @@ export default function CallScreen() {
     }
 
     return pc;
-  }, [addRemoteStream, emitSignal, user?.id]);
+  }, [addRemoteStream, emitSignal, user?.id, webRTC]);
 
   const handleOffer = useCallback(async (fromId: string, offer: any) => {
     if (!fromId || !offer) return;
@@ -316,6 +344,7 @@ export default function CallScreen() {
       peerState = peersRef.current.get(fromId);
     }
     if (!peerState) return;
+    if (!webRTC) return;
 
     const pc = peerState.pc;
     const isPolite = String(user?.id || "") < String(fromId);
@@ -327,10 +356,10 @@ export default function CallScreen() {
       if (offerCollision) {
         await pc.setLocalDescription({ type: "rollback" } as any);
       }
-      await pc.setRemoteDescription(new RTCSessionDescription(offer));
+      await pc.setRemoteDescription(new webRTC.RTCSessionDescription(offer));
 
       for (const candidate of peerState.pendingCandidates.splice(0)) {
-        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+        await pc.addIceCandidate(new webRTC.RTCIceCandidate(candidate));
       }
 
       const answer = await pc.createAnswer();
@@ -340,22 +369,23 @@ export default function CallScreen() {
     } catch (err) {
       console.warn("[Mobile WebRTC] handle offer failed:", err);
     }
-  }, [createPeerConnection, emitSignal, user?.id]);
+  }, [createPeerConnection, emitSignal, user?.id, webRTC]);
 
   const handleAnswer = useCallback(async (fromId: string, answer: any) => {
     const peerState = peersRef.current.get(fromId);
     if (!peerState || !answer) return;
+    if (!webRTC) return;
 
     try {
-      await peerState.pc.setRemoteDescription(new RTCSessionDescription(answer));
+      await peerState.pc.setRemoteDescription(new webRTC.RTCSessionDescription(answer));
       for (const candidate of peerState.pendingCandidates.splice(0)) {
-        await peerState.pc.addIceCandidate(new RTCIceCandidate(candidate));
+        await peerState.pc.addIceCandidate(new webRTC.RTCIceCandidate(candidate));
       }
       setIsRemoteAccepted(true);
     } catch (err) {
       console.warn("[Mobile WebRTC] handle answer failed:", err);
     }
-  }, []);
+  }, [webRTC]);
 
   const handleIceCandidate = useCallback(async (fromId: string, candidate: any) => {
     let peerState = peersRef.current.get(fromId);
@@ -364,6 +394,7 @@ export default function CallScreen() {
       peerState = peersRef.current.get(fromId);
     }
     if (!peerState || !candidate) return;
+    if (!webRTC) return;
 
     if (!peerState.pc.remoteDescription) {
       peerState.pendingCandidates.push(candidate);
@@ -371,16 +402,23 @@ export default function CallScreen() {
     }
 
     try {
-      await peerState.pc.addIceCandidate(new RTCIceCandidate(candidate));
+      await peerState.pc.addIceCandidate(new webRTC.RTCIceCandidate(candidate));
     } catch (err) {
       if (!peerState.ignoreOffer) {
         console.warn("[Mobile WebRTC] add ICE failed:", err);
       }
     }
-  }, [createPeerConnection]);
+  }, [createPeerConnection, webRTC]);
 
   const initLocalMedia = useCallback(async () => {
     if (localStreamRef.current) return localStreamRef.current;
+    if (!webRTC) {
+      Alert.alert(
+        "Khong ho tro WebRTC",
+        "Expo Go khong co native module WebRTC. Hay chay npx expo run:android hoac cai APK release.",
+      );
+      throw new Error("WebRTC native module unavailable");
+    }
 
     await Audio.setAudioModeAsync({
       allowsRecordingIOS: true,
@@ -390,7 +428,7 @@ export default function CallScreen() {
       staysActiveInBackground: true,
     });
 
-    const stream = await mediaDevices.getUserMedia({
+    const stream = await webRTC.mediaDevices.getUserMedia({
       audio: true,
       video: callType === "video"
         ? {
@@ -405,7 +443,7 @@ export default function CallScreen() {
     localStreamRef.current = stream;
     setLocalStream(stream);
     return stream;
-  }, [callType]);
+  }, [callType, webRTC]);
 
   const mergeParticipantNamesFromJoin = useCallback((joinRes: any) => {
     const list = Array.isArray(joinRes?.existingParticipants) ? joinRes.existingParticipants : [];
@@ -884,8 +922,8 @@ export default function CallScreen() {
                 const tileStyle = getTileStyle(index, allGroupTiles.length) as any;
                 return (
                   <View key={tile.userId} style={{ ...tileStyle, borderWidth: 1, borderColor: "#111827", backgroundColor: "#1f2937" }}>
-                    {streamUrl && !media.isVideoOff ? (
-                      <RTCView
+                    {streamUrl && !media.isVideoOff && RTCVideoView ? (
+                      <RTCVideoView
                         streamURL={streamUrl}
                         objectFit="cover"
                         mirror={tile.isLocal}
@@ -909,8 +947,8 @@ export default function CallScreen() {
             </View>
           ) : (
             <View style={{ flex: 1 }}>
-              {remoteEntries[0] ? (
-                <RTCView
+              {remoteEntries[0] && RTCVideoView ? (
+                <RTCVideoView
                   streamURL={getStreamUrl(remoteEntries[0][1])}
                   objectFit="cover"
                   style={{ width: "100%", height: "100%", position: "absolute" }}
@@ -921,9 +959,9 @@ export default function CallScreen() {
                 </View>
               )}
 
-              {localStream && !isLocalVideoOff && (
+              {localStream && !isLocalVideoOff && RTCVideoView && (
                 <View style={{ position: "absolute", top: insets.top + 20, right: 20, width: 100, height: 150, borderRadius: 12, overflow: "hidden", borderWidth: 2, borderColor: "#374151" }}>
-                  <RTCView
+                  <RTCVideoView
                     streamURL={getStreamUrl(localStream)}
                     objectFit="cover"
                     mirror
