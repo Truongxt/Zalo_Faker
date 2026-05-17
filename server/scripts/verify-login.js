@@ -43,7 +43,7 @@ async function verifyLogin(email, password) {
     }
 }
 
-const targetEmail = process.argv[2] || "demo1@zalo-faker.com";
+const targetEmail = process.argv[2] || "demo1@taklo.com";
 const targetPass = process.argv[3] || "123456";
 
 verifyLogin(targetEmail, targetPass);

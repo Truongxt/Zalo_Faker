@@ -5,7 +5,7 @@ const path = 'd:/CNM/Zalo_Faker/apps/web/src/pages/ChatRoom.tsx';
 let content = fs.readFileSync(path, 'utf8');
 
 // 2. Fix the corrupted strings seen in screenshot
-// Zalo Faker strings:
+// taklo strings:
 // "Nhập tin nhắn..." -> "Nháº­p tin nháº¯n..."
 // "Đang hoạt động" -> "Äang hoáº¡t Ä‘á»™ng"
 // "Tắt chế độ tin nhắn quan trọng" -> "Tắt chế độ tin nhắn quan trọng"

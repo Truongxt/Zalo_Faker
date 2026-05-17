@@ -1,4 +1,4 @@
-# 📊 Use Case Diagram - Zalo Faker
+# 📊 Use Case Diagram - taklo
 
 ## Tổng Quan Hệ Thống
 
@@ -10,7 +10,7 @@ flowchart TB
         AI[🤖 AI Chatbot]
     end
 
-    subgraph "Hệ thống Zalo Faker"
+    subgraph "Hệ thống taklo"
         subgraph "🔐 Authentication"
             UC1[Đăng ký tài khoản]
             UC2[Đăng nhập]

@@ -1,5 +1,5 @@
 {
-    "name": "@zalo-faker/web",
+    "name": "@taklo/web",
     "version": "1.0.0",
     "private": true,
     "type": "module",

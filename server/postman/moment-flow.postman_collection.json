@@ -1,13 +1,13 @@
 {
   "info": {
     "_postman_id": "4ba4c20a-8f31-46f9-ac8b-e9fdc5df076f",
-    "name": "Zalo Faker Moment Flow",
+    "name": "taklo Moment Flow",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
     "description": "Collection test module khoanh khac."
   },
   "variable": [
     { "key": "baseUrl", "value": "http://localhost:3000" },
-    { "key": "email", "value": "demo1@zalo-faker.com" },
+    { "key": "email", "value": "demo1@taklo.com" },
     { "key": "password", "value": "123456" },
     { "key": "accessToken", "value": "" },
     { "key": "momentId", "value": "" }

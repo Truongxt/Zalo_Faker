@@ -1,8 +1,23 @@
-﻿import { useState, FormEvent } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import QRCode from "react-qr-code";
 import { useAuthStore } from "@/stores/authStore";
-import { authService } from "@/services/auth";
-import { Eye, EyeOff, MessageCircle, Loader2 } from "lucide-react";
+import { authService, type QrLoginSession } from "@/services/auth";
+import {
+  Eye,
+  EyeOff,
+  Loader2,
+  MessageCircle,
+  QrCode,
+  RefreshCw,
+  Smartphone,
+} from "lucide-react";
+
+const formatRemainingSeconds = (expiresAt?: string) => {
+  if (!expiresAt) return 0;
+  const diff = Math.ceil((new Date(expiresAt).getTime() - Date.now()) / 1000);
+  return Math.max(0, diff);
+};
 
 export default function Login() {
   const navigate = useNavigate();
@@ -15,6 +30,99 @@ export default function Login() {
   const [error, setLocalError] = useState("");
   const [isLockedError, setIsLockedError] = useState(false);
 
+  const [qrSession, setQrSession] = useState<QrLoginSession | null>(null);
+  const [isQrLoading, setIsQrLoading] = useState(false);
+  const [qrError, setQrError] = useState("");
+  const [qrHint, setQrHint] = useState("");
+  const [qrRemainingSeconds, setQrRemainingSeconds] = useState(0);
+
+  const qrExpiresText = useMemo(() => {
+    if (!qrSession) return "";
+    if (qrRemainingSeconds <= 0) return "Ma QR da het han";
+    return `Ma het han sau ${qrRemainingSeconds}s`;
+  }, [qrRemainingSeconds, qrSession]);
+
+  const applyLoginResult = (payload: {
+    user: any;
+    accessToken: string;
+    refreshToken: string;
+  }) => {
+    setUser(payload.user);
+    setAccessToken(payload.accessToken);
+    setRefreshToken(payload.refreshToken);
+    navigate("/chat");
+  };
+
+  const requestQrSession = async () => {
+    setQrError("");
+    setQrHint("");
+    setIsQrLoading(true);
+    try {
+      const session = await authService.createQrLoginSession();
+      setQrSession(session);
+      setQrRemainingSeconds(formatRemainingSeconds(session.expiresAt));
+      setQrHint("Mo app taklo tren dien thoai, vao QR Scanner va quet ma nay.");
+    } catch (err: any) {
+      setQrSession(null);
+      setQrError(err?.message || "Khong tao duoc ma QR");
+    } finally {
+      setIsQrLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    requestQrSession();
+  }, []);
+
+  useEffect(() => {
+    if (!qrSession) return;
+
+    let isActive = true;
+    const pollStatus = async () => {
+      try {
+        const status = await authService.getQrLoginStatus(
+          qrSession.sessionId,
+          qrSession.pollToken
+        );
+        if (!isActive) return;
+
+        if (status.status === "confirmed" && status.auth) {
+          applyLoginResult(status.auth);
+          return;
+        }
+
+        if (status.status === "expired" || status.status === "consumed") {
+          setQrHint("Phien QR da het han. Vui long tao ma moi.");
+          setQrSession(null);
+          return;
+        }
+
+        setQrHint("Dang cho xac nhan tren dien thoai...");
+      } catch (err: any) {
+        if (!isActive) return;
+        setQrError(err?.message || "Khong kiem tra duoc trang thai QR login");
+      }
+    };
+
+    pollStatus();
+    const timerId = window.setInterval(pollStatus, 2000);
+
+    return () => {
+      isActive = false;
+      window.clearInterval(timerId);
+    };
+  }, [qrSession]);
+
+  useEffect(() => {
+    if (!qrSession) return;
+    const tick = () => {
+      setQrRemainingSeconds(formatRemainingSeconds(qrSession.expiresAt));
+    };
+    tick();
+    const timerId = window.setInterval(tick, 1000);
+    return () => window.clearInterval(timerId);
+  }, [qrSession]);
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setLocalError("");
@@ -23,16 +131,13 @@ export default function Login() {
 
     try {
       const data = await authService.login(identifier, password);
-      setUser(data.user);
-      setAccessToken(data.accessToken);
-      setRefreshToken(data.refreshToken);
-      navigate("/chat");
+      applyLoginResult(data);
     } catch (err: any) {
-      const message = err.message || "Đăng nhập thất bại. Vui lòng thử lại.";
-      const locked = /locked|khóa/i.test(message);
+      const message = err.message || "Dang nhap that bai. Vui long thu lai.";
+      const locked = /locked|khoa/i.test(message);
       setIsLockedError(locked);
       const displayMessage = locked
-        ? "Tài khoản đang bị khóa. Vui lòng mở khóa để tiếp tục."
+        ? "Tai khoan dang bi khoa. Vui long mo khoa de tiep tuc."
         : message;
       setLocalError(displayMessage);
       setError(displayMessage);
@@ -49,34 +154,19 @@ export default function Login() {
             <div className="w-14 h-14 bg-white/20 rounded-2xl flex items-center justify-center backdrop-blur-sm">
               <MessageCircle className="w-8 h-8 text-white" />
             </div>
-            <h1 className="text-3xl font-bold">Zalo Faker</h1>
+            <h1 className="text-3xl font-bold">taklo</h1>
           </div>
 
           <h2 className="text-4xl font-bold mb-6 leading-tight">
-            Kết nối mọi lúc,
+            Ket noi moi luc,
             <br />
-            mọi nơi
+            moi noi
           </h2>
 
           <p className="text-lg text-white/80 mb-8">
-            Nhắn tin, gọi video, chia sẻ khoảnh khắc với bạn bè và gia đình.
-            Hoàn toàn miễn phí.
+            Nhan tin, goi video, chia se khoanh khac voi ban be va gia dinh.
+            Hoan toan mien phi.
           </p>
-
-          <div className="flex gap-4">
-            <div className="flex items-center gap-2 bg-white/10 px-4 py-2 rounded-lg backdrop-blur-sm">
-              <span className="text-2xl">💬</span>
-              <span>Chat nhanh</span>
-            </div>
-            <div className="flex items-center gap-2 bg-white/10 px-4 py-2 rounded-lg backdrop-blur-sm">
-              <span className="text-2xl">📹</span>
-              <span>Video call</span>
-            </div>
-            <div className="flex items-center gap-2 bg-white/10 px-4 py-2 rounded-lg backdrop-blur-sm">
-              <span className="text-2xl">🤖</span>
-              <span>AI Bot</span>
-            </div>
-          </div>
         </div>
       </div>
 
@@ -88,30 +178,28 @@ export default function Login() {
                 <MessageCircle className="w-6 h-6 text-white" />
               </div>
               <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-                Zalo Faker
+                taklo
               </h1>
             </div>
           </div>
 
           <div className="card p-8">
             <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
-              Đăng nhập
+              Dang nhap
             </h2>
             <p className="text-gray-600 dark:text-gray-400 mb-8">
-              Chào mừng bạn trở lại! Vui lòng đăng nhập để tiếp tục.
+              Chao mung ban quay lai. Dang nhap mat khau hoac dung ma QR.
             </p>
 
             {error && (
               <div className="mb-6 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
-                <p className="text-red-600 dark:text-red-400 text-sm">
-                  {error}
-                </p>
+                <p className="text-red-600 dark:text-red-400 text-sm">{error}</p>
                 {isLockedError ? (
                   <Link
                     to="/unlock-account"
                     className="inline-block mt-2 text-amber-600 hover:text-amber-700 text-sm font-medium"
                   >
-                    Mở khóa tài khoản ngay
+                    Mo khoa tai khoan ngay
                   </Link>
                 ) : null}
               </div>
@@ -120,14 +208,14 @@ export default function Login() {
             <form onSubmit={handleSubmit} className="space-y-5">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Email hoặc số điện thoại
+                  Email hoac so dien thoai
                 </label>
                 <input
                   type="text"
                   value={identifier}
                   onChange={(e) => setIdentifier(e.target.value)}
                   className="input"
-                  placeholder="example@email.com hoặc 09xxxxxxxx"
+                  placeholder="example@email.com hoac 09xxxxxxxx"
                   required
                   autoComplete="username"
                 />
@@ -135,7 +223,7 @@ export default function Login() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Mật khẩu
+                  Mat khau
                 </label>
                 <div className="relative">
                   <input
@@ -168,14 +256,14 @@ export default function Login() {
                     className="w-4 h-4 rounded border-gray-300 text-primary-500 focus:ring-primary-500"
                   />
                   <span className="text-sm text-gray-600 dark:text-gray-400">
-                    Ghi nhớ đăng nhập
+                    Ghi nho dang nhap
                   </span>
                 </label>
                 <Link
                   to="/forgot-password"
                   className="text-sm text-primary-500 hover:text-primary-600 font-medium"
                 >
-                  Quên mật khẩu?
+                  Quen mat khau?
                 </Link>
               </div>
 
@@ -184,7 +272,7 @@ export default function Login() {
                   to="/unlock-account"
                   className="text-sm text-amber-600 hover:text-amber-700 font-medium"
                 >
-                  Mở khóa tài khoản
+                  Mo khoa tai khoan
                 </Link>
               </div>
 
@@ -196,54 +284,78 @@ export default function Login() {
                 {isLoading ? (
                   <Loader2 className="w-5 h-5 animate-spin" />
                 ) : (
-                  "Đăng nhập"
+                  "Dang nhap"
                 )}
               </button>
             </form>
 
-            {/* <div className="relative my-8">
-                            <div className="absolute inset-0 flex items-center">
-                                <div className="w-full border-t border-gray-200 dark:border-gray-700" />
-                            </div>
-                            <div className="relative flex justify-center text-sm">
-                                <span className="px-4 bg-white dark:bg-dark-200 text-gray-500">Hoặc tiếp tục với</span>
-                            </div>
-                        </div>
+            <div className="relative my-8">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-gray-200 dark:border-gray-700" />
+              </div>
+              <div className="relative flex justify-center text-sm">
+                <span className="px-4 bg-white dark:bg-dark-200 text-gray-500">
+                  Hoac dang nhap bang QR
+                </span>
+              </div>
+            </div>
 
-                        <div className="grid grid-cols-2 gap-4">
-                            <button
-                                type="button"
-                                onClick={handleGoogleLogin}
-                                className="btn-secondary h-12 gap-2"
-                            >
-                                <svg className="w-5 h-5" viewBox="0 0 24 24">
-                                    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-                                    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-                                    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
-                                    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
-                                </svg>
-                                Google
-                            </button>
+            <div className="rounded-2xl border border-gray-200 dark:border-gray-700 p-5">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 text-gray-700 dark:text-gray-200">
+                  <QrCode className="w-5 h-5 text-primary-500" />
+                  <span className="font-semibold">Dang nhap nhanh</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={requestQrSession}
+                  disabled={isQrLoading}
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 text-sm hover:bg-gray-50 disabled:opacity-70"
+                >
+                  {isQrLoading ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="w-4 h-4" />
+                  )}
+                  Tao ma moi
+                </button>
+              </div>
 
-                            <button
-                                type="button"
-                                className="btn-secondary h-12 gap-2"
-                            >
-                                <svg className="w-5 h-5 text-[#1877F2]" fill="currentColor" viewBox="0 0 24 24">
-                                    <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" />
-                                </svg>
-                                Facebook
-                            </button>
-                        </div> */}
+              <div className="mt-4 flex justify-center">
+                <div className="rounded-xl bg-white p-3 border border-gray-200">
+                  {qrSession ? (
+                    <QRCode value={qrSession.qrCodeValue} size={180} />
+                  ) : (
+                    <div className="w-[180px] h-[180px] flex items-center justify-center bg-gray-100 rounded-lg text-gray-500 text-sm text-center px-3">
+                      {isQrLoading ? "Dang tao ma QR..." : "Chua co ma QR"}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="mt-4 text-sm text-gray-600 dark:text-gray-300">
+                <div className="flex items-center gap-2">
+                  <Smartphone className="w-4 h-4 text-primary-500" />
+                  <span>
+                    Mo app taklo tren dien thoai, vao QR Scanner va quet ma.
+                  </span>
+                </div>
+                {qrSession ? (
+                  <p className="mt-2 text-xs text-gray-500">{qrExpiresText}</p>
+                ) : null}
+                {qrHint ? <p className="mt-2 text-xs text-primary-600">{qrHint}</p> : null}
+                {qrError ? <p className="mt-2 text-xs text-red-600">{qrError}</p> : null}
+              </div>
+            </div>
           </div>
 
           <p className="text-center mt-8 text-gray-600 dark:text-gray-400">
-            Chưa có tài khoản?{" "}
+            Chua co tai khoan?{" "}
             <Link
               to="/register"
               className="text-primary-500 hover:text-primary-600 font-medium"
             >
-              Đăng ký ngay
+              Dang ky ngay
             </Link>
           </p>
         </div>

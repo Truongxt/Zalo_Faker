@@ -10,6 +10,35 @@ export interface LoginHistoryItem {
     ipAddress: string
 }
 
+export interface QrLoginSession {
+    sessionId: string
+    pollToken: string
+    qrCodeValue: string
+    expiresAt: string
+    expiresIn: number
+}
+
+export interface QrLoginStatus {
+    status: 'pending' | 'confirmed' | 'expired' | 'consumed'
+    expiresAt?: string
+    auth?: {
+        user: any
+        accessToken: string
+        refreshToken: string
+    }
+}
+
+const mapServerUserToClient = (rawUser: any): User => ({
+    ...rawUser,
+    id: rawUser.userId,
+    avatarUrl: rawUser.avartarUrl,
+    fullName: rawUser.userName || 'User',
+    phone: rawUser.phone || null,
+    birthday: rawUser.birthday || null,
+    gender: rawUser.gender || 'other',
+    hasHiddenPin: !!rawUser.hiddenChatPin,
+})
+
 export const authService = {
     async register(data: {
         fullName: string;
@@ -40,7 +69,7 @@ export const authService = {
             throw new Error(error.message || 'Registration failed');
         }
         
-        // Sau khi đăng ký thành công, gọi login để tự động đăng nhập và lấy chuỗi token
+        // Auto-login after successful registration to return token set.
         return await this.login(data.email, data.password);
     },
 
@@ -63,21 +92,12 @@ export const authService = {
 
         if (!response.ok) {
             const error = await response.json();
-            throw new Error(error.message || 'Đăng nhập thất bại. Sai email hoặc password.');
+            throw new Error(error.message || 'Dang nhap that bai. Sai email hoac password.');
         }
 
         const data = await response.json();
         
-        const mappedUser: User = {
-            ...data.user,
-            id: data.user.userId,
-            avatarUrl: data.user.avartarUrl,
-            fullName: data.user.userName || 'User',
-            phone: data.user.phone || null,
-            birthday: data.user.birthday || null,
-            gender: data.user.gender || 'other',
-            hasHiddenPin: !!data.user.hiddenChatPin,
-        }
+        const mappedUser: User = mapServerUserToClient(data.user)
 
         return {
             user: mappedUser,
@@ -87,20 +107,51 @@ export const authService = {
     },
 
     async loginWithGoogle(): Promise<void> {
-        throw new Error('Đăng nhập Google chưa được hỗ trợ tại Backend.');
+        throw new Error('Dang nhap Google chua duoc ho tro tai Backend.');
     },
 
+    async createQrLoginSession(): Promise<QrLoginSession> {
+        const response = await fetch(`${baseAPI}/users/qr-login/session`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.message || 'Khong tao duoc phien dang nhap QR');
+        }
+
+        return response.json();
+    },
+
+    async getQrLoginStatus(sessionId: string, pollToken: string): Promise<QrLoginStatus> {
+        const response = await fetch(
+            `${baseAPI}/users/qr-login/session/${encodeURIComponent(sessionId)}/status?pollToken=${encodeURIComponent(pollToken)}`,
+            { method: 'GET' }
+        );
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.message || 'Khong kiem tra duoc trang thai QR login');
+        }
+
+        const payload = await response.json();
+        if (payload?.status === 'confirmed' && payload?.auth?.user) {
+            payload.auth.user = mapServerUserToClient(payload.auth.user);
+        }
+        return payload;
+    },
     async logout(): Promise<void> {
         const store = useAuthStore.getState();
         if (store.refreshToken) {
             try {
-                // Backend có hỗ trợ nhận vào refreshToken để logout
+                // Backend supports refreshToken to revoke active session.
                 await fetchWithAuth(`/users/logout`, {
                     method: 'POST',
                     body: JSON.stringify({ refreshToken: store.refreshToken })
                 });
             } catch (err) {
-                console.error("Lỗi khi gọi API logout backend:", err);
+                console.error("Loi khi goi API logout backend:", err);
             }
         }
     },
@@ -161,7 +212,7 @@ export const authService = {
         });
         if (!response.ok) {
             const error = await response.json();
-            throw new Error(error.message || 'Không thể gửi OTP');
+            throw new Error(error.message || 'Khong the gui OTP');
         }
         return response.json();
     },
@@ -174,7 +225,7 @@ export const authService = {
         });
         if (!response.ok) {
             const error = await response.json();
-            throw new Error(error.message || 'Xác thực OTP thất bại');
+            throw new Error(error.message || 'Xac thuc OTP that bai');
         }
         return response.json();
     },
@@ -187,7 +238,7 @@ export const authService = {
         });
         if (!response.ok) {
             const error = await response.json();
-            throw new Error(error.message || 'Không thể đặt lại mật khẩu');
+            throw new Error(error.message || 'Khong the dat lai mat khau');
         }
         return response.json();
     },
@@ -200,7 +251,7 @@ export const authService = {
         });
         if (!response.ok) {
             const error = await response.json();
-            throw new Error(error.message || 'Không thể gửi OTP');
+            throw new Error(error.message || 'Khong the gui OTP');
         }
         return response.json();
     },
@@ -213,7 +264,7 @@ export const authService = {
         });
         if (!response.ok) {
             const error = await response.json();
-            throw new Error(error.message || 'Xác thực OTP thất bại');
+            throw new Error(error.message || 'Xac thuc OTP that bai');
         }
         return response.json();
     },
@@ -271,7 +322,7 @@ export const authService = {
         })
         if (!response.ok) {
             const error = await response.json()
-            throw new Error(error.message || 'Mở khóa tài khoản thất bại')
+            throw new Error(error.message || 'Mo khoa tai khoan that bai')
         }
         return response.json()
     },

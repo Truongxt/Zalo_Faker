@@ -52,11 +52,11 @@ router.post("/register", userController.register);
  *             properties:
  *               identifier:
  *                 type: string
- *                 example: user1@zalo-faker.com hoặc 0901234567
+ *                 example: user1@taklo.com hoặc 0901234567
  *               email:
  *                 type: string
  *                 description: Backward-compatible field. Có thể gửi identifier thay cho email.
- *                 example: user1@zalo-faker.com
+ *                 example: user1@taklo.com
  *               password:
  *                 type: string
  *                 example: 123456
@@ -65,6 +65,9 @@ router.post("/register", userController.register);
  *         description: Login thành công
  */
 router.post("/login", userController.login);
+router.post("/qr-login/session", userController.createQrLoginSession);
+router.get("/qr-login/session/:sessionId/status", userController.getQrLoginSessionStatus);
+router.post("/qr-login/confirm", auth, userController.confirmQrLogin);
 
 
 /**

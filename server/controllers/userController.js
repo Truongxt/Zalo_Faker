@@ -1,5 +1,6 @@
 const { get } = require("../routes/friendRoutes");
 const userService = require("../services/userService");
+const qrLoginService = require("../services/qrLoginService");
 
 const userController = {
 
@@ -113,6 +114,47 @@ getUserById: async (req, res) => {
     } catch (err) {
       const message = err.message || "Failed to suggest friends";
       const status = /required|array/i.test(message) ? 400 : 500;
+      res.status(status).json({ message });
+    }
+  },
+
+  createQrLoginSession: async (_req, res) => {
+    try {
+      const session = await qrLoginService.createSession();
+      res.status(201).json(session);
+    } catch (err) {
+      res.status(500).json({ message: err.message || "Failed to create QR login session" });
+    }
+  },
+
+  getQrLoginSessionStatus: async (req, res) => {
+    try {
+      const { sessionId } = req.params || {};
+      const pollToken = req.query?.pollToken;
+      const result = await qrLoginService.getSessionStatus({ sessionId, pollToken });
+      res.json(result);
+    } catch (err) {
+      const message = err.message || "Failed to get QR login status";
+      const status = /required|invalid session/i.test(message) ? 400 : 500;
+      res.status(status).json({ message });
+    }
+  },
+
+  confirmQrLogin: async (req, res) => {
+    try {
+      const { sessionId, confirmCode, code } = req.body || {};
+      const userId = req.user?.userId || req.user?.id;
+      const result = await qrLoginService.confirmSession({
+        sessionId,
+        confirmCode: confirmCode || code,
+        userId,
+        deviceInfo: req.headers["user-agent"] || "Mobile",
+        ipAddress: req.headers["x-forwarded-for"] || req.connection?.remoteAddress || req.ip || "Unknown",
+      });
+      res.json(result);
+    } catch (err) {
+      const message = err.message || "Failed to confirm QR login";
+      const status = /required|invalid|expired|no longer available/i.test(message) ? 400 : 500;
       res.status(status).json({ message });
     }
   },

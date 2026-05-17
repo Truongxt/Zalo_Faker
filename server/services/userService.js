@@ -137,6 +137,53 @@ const uploadAvatarToS3 = async (userId, file) => {
   return data.Location;
 };
 
+const createAuthenticatedSession = async (user, loginMeta = {}) => {
+  const accountStatus = user.accountStatus || user.status || "active";
+  const sessionId = generateSessionId();
+  const sessionPlatform = normalizePlatform(loginMeta.platform);
+  const payload = {
+    userId: user.userId,
+    email: user.email,
+    accountStatus,
+    sessionId,
+    platform: sessionPlatform,
+  };
+
+  const accessToken = signAccessToken(payload);
+  const refreshToken = signRefreshToken(payload);
+
+  await safeSet(buildSessionKey(user.userId, sessionPlatform), sessionId);
+  await safeDel(buildLegacySessionKey(user.userId));
+
+  await refreshTokenRepository.deleteByUserIdAndPlatform(user.userId, sessionPlatform);
+  await refreshTokenRepository.create({
+    refreshToken,
+    userId: user.userId,
+    platform: sessionPlatform,
+    createdAt: new Date().toISOString()
+  });
+
+  try {
+    await loginHistoryRepository.create({
+      userId: user.userId,
+      loginId: `${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+      loginAt: new Date().toISOString(),
+      platform: sessionPlatform,
+      deviceInfo: loginMeta.deviceInfo || "Unknown",
+      ipAddress: loginMeta.ipAddress || "Unknown",
+    });
+  } catch (err) {
+    console.warn("Failed to record login history:", err?.message || err);
+  }
+
+  const { password: _, ...safeUser } = user;
+  return {
+    user: safeUser,
+    accessToken,
+    refreshToken
+  };
+};
+
 const UserService = {
 
   register: async userData => {
@@ -218,7 +265,7 @@ const UserService = {
 
         let value = userData[field];
 
-        // 👉 nếu update password thì hash
+        // Hash password when updating password field.
         if (field === "password") {
           value = await bcrypt.hash(value + "nhan123@@", 10);
         }
@@ -276,52 +323,29 @@ const UserService = {
 
     const isMatch = await bcrypt.compare(normalizedPassword + "nhan123@@", user.password);
     if (!isMatch) throw new Error("Invalid password");
+    return await createAuthenticatedSession(user, loginMeta);
+  },
 
-    const sessionId = generateSessionId();
-    const sessionPlatform = normalizePlatform(loginMeta.platform);
-    const payload = {
-      userId: user.userId,
-      email: user.email,
-      accountStatus,
-      sessionId,
-      platform: sessionPlatform,
-    };
-
-    const accessToken = signAccessToken(payload);
-    const refreshToken = signRefreshToken(payload);
-
-    await safeSet(buildSessionKey(user.userId, sessionPlatform), sessionId);
-    await safeDel(buildLegacySessionKey(user.userId));
-
-    await refreshTokenRepository.deleteByUserIdAndPlatform(user.userId, sessionPlatform);
-    await refreshTokenRepository.create({
-      refreshToken,
-      userId: user.userId,
-      platform: sessionPlatform,
-      createdAt: new Date().toISOString()
-    });
-
-    // ── Record login history ──────────────────────────────────
-    try {
-      await loginHistoryRepository.create({
-        userId: user.userId,
-        loginId: `${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
-        loginAt: new Date().toISOString(),
-        platform: sessionPlatform,
-        deviceInfo: loginMeta.deviceInfo || "Unknown",
-        ipAddress: loginMeta.ipAddress || "Unknown",
-      });
-    } catch (err) {
-      console.warn("Failed to record login history:", err?.message || err);
+  loginByUserId: async (userId, loginMeta = {}) => {
+    const normalizedUserId = String(userId || "").trim();
+    if (!normalizedUserId) {
+      throw new Error("userId is required");
     }
 
-    const { password: _, ...safeUser } = user;
+    const user = await userRepository.getById(normalizedUserId);
+    if (!user) {
+      throw new Error("User not found");
+    }
 
-    return {
-      user: safeUser,
-      accessToken,
-      refreshToken
-    };
+    const accountStatus = user.accountStatus || user.status || "active";
+    if (accountStatus === "locked") {
+      throw new Error("Account is locked");
+    }
+    if (accountStatus === "deleted") {
+      throw new Error("Account is deleted");
+    }
+
+    return await createAuthenticatedSession(user, loginMeta);
   },
   logout: async refreshToken => {
     try {
@@ -431,11 +455,11 @@ const UserService = {
   },
 
   refreshToken: async (refreshToken) => {
-    // 1. Kiểm tra refresh token có trong DB không
+    // 1. Check refresh token exists in DB.
     const stored = await refreshTokenRepository.findByToken(refreshToken);
     if (!stored) throw new Error("Invalid refresh token");
 
-    // 2. Verify refresh token còn hạn không
+    // 2. Verify refresh token validity.
     const decoded = require("../utils/jwt").verifyRefreshToken(refreshToken);
 
     // 2.1. Check latest account status before issuing new access token
@@ -446,7 +470,7 @@ const UserService = {
     if (accountStatus === "locked") throw new Error("Account is locked");
     if (accountStatus === "deleted") throw new Error("Account is deleted");
 
-    // 3. Tạo access token mới
+    // 3. Create new access token.
     const sessionId = decoded.sessionId;
     if (!sessionId) throw new Error("Session expired");
 
@@ -576,19 +600,19 @@ const UserService = {
       throw new Error("userId, oldPassword, and newPassword are required");
     }
 
-    // 1. Lấy user từ database
+    // 1. Load user from database.
     const user = await userRepository.getById(userId);
     if (!user) {
       throw new Error("User not found");
     }
 
-    // 2. Xác thực mật khẩu cũ
+    // 2. Verify current password.
     const isMatch = await bcrypt.compare(oldPassword + "nhan123@@", user.password);
     if (!isMatch) {
       throw new Error("Old password is incorrect");
     }
 
-    // 3. Hash mật khẩu mới
+    // 3. Hash new password.
     const hashedNewPassword = await bcrypt.hash(newPassword + "nhan123@@", 10);
 
     // 4. Update password

@@ -174,7 +174,7 @@ export default function Register() {
             <div className="w-14 h-14 bg-white/20 rounded-2xl flex items-center justify-center backdrop-blur-sm">
               <MessageCircle className="w-8 h-8 text-white" />
             </div>
-            <h1 className="text-3xl font-bold">Zalo Faker</h1>
+            <h1 className="text-3xl font-bold">taklo</h1>
           </div>
 
           <h2 className="text-4xl font-bold mb-6 leading-tight">
@@ -221,7 +221,7 @@ export default function Register() {
                 <MessageCircle className="w-6 h-6 text-white" />
               </div>
               <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-                Zalo Faker
+                taklo
               </h1>
             </div>
           </div>

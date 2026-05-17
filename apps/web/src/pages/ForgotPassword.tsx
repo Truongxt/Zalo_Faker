@@ -186,7 +186,7 @@ export default function ForgotPassword() {
                             <div className="w-12 h-12 gradient-primary rounded-xl flex items-center justify-center">
                                 <MessageCircle className="w-6 h-6 text-white" />
                             </div>
-                            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Zalo Faker</h1>
+                            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">taklo</h1>
                         </div>
                     </div>
 

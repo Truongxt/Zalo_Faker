@@ -1,4 +1,4 @@
-# 🚀 Hướng Dẫn Deploy Zalo Faker
+# 🚀 Hướng Dẫn Deploy taklo
 
 ## Tổng Quan
 
@@ -17,7 +17,7 @@ Tất cả đều sử dụng free tier:
 ### Bước 2: Tạo Project
 
 1. Click **New Project** → **Deploy from GitHub repo**
-2. Chọn repository `zalo-faker`
+2. Chọn repository `taklo`
 3. Chọn folder `server` làm root directory
 
 ### Bước 3: Cấu hình Environment Variables
