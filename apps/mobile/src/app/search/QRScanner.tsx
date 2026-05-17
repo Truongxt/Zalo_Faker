@@ -17,6 +17,12 @@ import {
 import * as ImagePicker from "expo-image-picker";
 import { requestJoinByInviteCode } from "@/services/groupService";
 import { chatService } from "@/services/chat";
+import { apiFetch } from "@/services/fetchClient";
+
+type WebQrLoginPayload = {
+  sessionId: string;
+  confirmCode: string;
+};
 
 export default function QRScanner() {
   const router = useRouter();
@@ -24,6 +30,8 @@ export default function QRScanner() {
   const [scanned, setScanned] = useState(false);
   const [isPickingImage, setIsPickingImage] = useState(false);
   const [pendingInviteCode, setPendingInviteCode] = useState<string | null>(null);
+  const [pendingWebLogin, setPendingWebLogin] = useState<WebQrLoginPayload | null>(null);
+  const [isSubmittingWebLogin, setIsSubmittingWebLogin] = useState(false);
   const [isSubmittingJoin, setIsSubmittingJoin] = useState(false);
 
   useEffect(() => {
@@ -56,6 +64,49 @@ export default function QRScanner() {
     const fallbackMatch = /(?:\?|&|^)code=([^&]+)/i.exec(trimmed);
     if (fallbackMatch?.[1]) {
       return decodeURIComponent(fallbackMatch[1]).trim();
+    }
+
+    return null;
+  };
+
+  const extractWebLoginPayload = (rawData: string): WebQrLoginPayload | null => {
+    const trimmed = String(rawData || "").trim();
+    if (!trimmed) return null;
+
+    const directMatch = /^(?:taklo:\/\/)?qr-login\?(.+)$/i.exec(trimmed);
+    if (directMatch?.[1]) {
+      const params = new URLSearchParams(directMatch[1]);
+      const sid = params.get("sid") || params.get("sessionId");
+      const code = params.get("code") || params.get("confirmCode");
+      if (sid && code) {
+        return { sessionId: sid.trim(), confirmCode: code.trim() };
+      }
+    }
+
+    try {
+      const parsedUrl = new URL(trimmed);
+      const isTakloQrLogin =
+        parsedUrl.protocol.toLowerCase() === "taklo:"
+        && parsedUrl.host.toLowerCase() === "qr-login";
+
+      if (isTakloQrLogin) {
+        const sid = parsedUrl.searchParams.get("sid") || parsedUrl.searchParams.get("sessionId");
+        const code = parsedUrl.searchParams.get("code") || parsedUrl.searchParams.get("confirmCode");
+        if (sid && code) {
+          return { sessionId: sid.trim(), confirmCode: code.trim() };
+        }
+      }
+    } catch (_error) {
+      // Ignore URL parse error.
+    }
+
+    const sidMatch = /(?:\?|&|^)sid=([^&]+)/i.exec(trimmed);
+    const codeMatch = /(?:\?|&|^)code=([^&]+)/i.exec(trimmed);
+    if (sidMatch?.[1] && codeMatch?.[1]) {
+      return {
+        sessionId: decodeURIComponent(sidMatch[1]).trim(),
+        confirmCode: decodeURIComponent(codeMatch[1]).trim(),
+      };
     }
 
     return null;
@@ -97,9 +148,37 @@ export default function QRScanner() {
     }
   };
 
+  const handleConfirmWebLogin = async () => {
+    if (!pendingWebLogin || isSubmittingWebLogin) return;
+
+    try {
+      setIsSubmittingWebLogin(true);
+      await apiFetch<{ message: string }>("/api/users/qr-login/confirm", {
+        method: "POST",
+        body: {
+          sessionId: pendingWebLogin.sessionId,
+          confirmCode: pendingWebLogin.confirmCode,
+        },
+      });
+      alert("Da xac nhan dang nhap web thanh cong.");
+    } catch (error: any) {
+      alert(error?.message || "Khong the xac nhan dang nhap web.");
+    } finally {
+      setIsSubmittingWebLogin(false);
+      setPendingWebLogin(null);
+      setScanned(false);
+    }
+  };
+
   const navigateByQrData = (data: string) => {
     const normalizedData = String(data || "").trim();
     setScanned(true);
+
+    const webLoginPayload = extractWebLoginPayload(normalizedData);
+    if (webLoginPayload) {
+      setPendingWebLogin(webLoginPayload);
+      return;
+    }
 
     const userMatch = /^userId:(.+)$/i.exec(normalizedData);
     if (userMatch?.[1]) {
@@ -245,6 +324,53 @@ export default function QRScanner() {
                   <ActivityIndicator color="#fff" />
                 ) : (
                   <Text style={styles.confirmButtonText}>Gửi yêu cầu</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={Boolean(pendingWebLogin)}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          if (isSubmittingWebLogin) return;
+          setPendingWebLogin(null);
+          setScanned(false);
+        }}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Xac nhan dang nhap web?</Text>
+            <Text style={styles.modalSubtitle}>Web session: {pendingWebLogin?.sessionId || "---"}</Text>
+            <Text style={styles.modalHint}>
+              Neu ban vua mo trang dang nhap web, bam "Xac nhan" de dang nhap cho trinh duyet do.
+            </Text>
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.cancelButton]}
+                onPress={() => {
+                  if (isSubmittingWebLogin) return;
+                  setPendingWebLogin(null);
+                  setScanned(false);
+                }}
+                disabled={isSubmittingWebLogin}
+              >
+                <Text style={styles.cancelButtonText}>Huy</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.modalButton, styles.confirmButton]}
+                onPress={handleConfirmWebLogin}
+                disabled={isSubmittingWebLogin}
+              >
+                {isSubmittingWebLogin ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.confirmButtonText}>Xac nhan</Text>
                 )}
               </TouchableOpacity>
             </View>

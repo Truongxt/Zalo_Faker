@@ -1,4 +1,4 @@
-package com.zalofaker.app
+package com.taklo.app
 import expo.modules.splashscreen.SplashScreenManager
 
 import android.os.Build

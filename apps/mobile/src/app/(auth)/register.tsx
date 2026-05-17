@@ -15,7 +15,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { userService } from "@/services";
 
 const DEFAULT_AVATAR_URL =
-  "https://ui-avatars.com/api/?name=Zalo+Faker&background=0068FF&color=fff&size=256";
+        "https://ui-avatars.com/api/?name=taklo&background=0068FF&color=fff&size=256";
 
 const GENDERS = [
   { label: "Nam", value: "male" },

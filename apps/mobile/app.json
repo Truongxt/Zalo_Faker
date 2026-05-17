@@ -1,8 +1,8 @@
 {
   "expo": {
-    "name": "Zalo Faker",
-    "slug": "zalo-faker",
-    "scheme": "zalofaker",
+    "name": "taklo",
+    "slug": "taklo",
+    "scheme": "taklo",
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
@@ -21,8 +21,8 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Cho phép Zalo Faker truy cập ảnh của bạn",
-          "cameraPermission": "Cho phép Zalo Faker sử dụng camera"
+          "photosPermission": "Cho phép taklo truy cập ảnh của bạn",
+          "cameraPermission": "Cho phép taklo sử dụng camera"
         }
       ],
       "expo-secure-store",
@@ -33,16 +33,16 @@
       "typedRoutes": true
     },
     "ios": {
-      "bundleIdentifier": "com.zalofaker.app",
+      "bundleIdentifier": "com.taklo.app",
       "supportsTablet": true,
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "Cho phep Zalo Faker su dung microphone de goi thoai",
-        "NSCameraUsageDescription": "Cho phep Zalo Faker su dung camera de goi video",
-        "NSContactsUsageDescription": "Cho phep Zalo Faker truy cap danh ba de goi y ket ban"
+        "NSMicrophoneUsageDescription": "Cho phep taklo su dung microphone de goi thoai",
+        "NSCameraUsageDescription": "Cho phep taklo su dung camera de goi video",
+        "NSContactsUsageDescription": "Cho phep taklo truy cap danh ba de goi y ket ban"
       }
     },
     "android": {
-      "package": "com.zalofaker.app",
+      "package": "com.taklo.app",
       "softwareKeyboardLayoutMode": "resize",
       "usesCleartextTraffic": true,
       "permissions": [

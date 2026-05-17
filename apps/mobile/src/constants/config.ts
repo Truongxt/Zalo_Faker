@@ -33,7 +33,7 @@ export const SOCKET_URL =
   DEFAULT_SOCKET_URL;
 
 export const APP_CONFIG = {
-  name: "Zalo Faker",
+  name: "taklo",
   version: "1.0.0",
   maxFileSize: 25 * 1024 * 1024, // 25MB
   maxImageSize: 10 * 1024 * 1024, // 10MB

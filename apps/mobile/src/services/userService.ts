@@ -333,6 +333,16 @@ class UserService {
     return response.data;
   }
 
+  async logoutLoginSession(
+    userId: string,
+    loginId: string,
+  ): Promise<{ message: string; isCurrentSessionRevoked?: boolean }> {
+    const response = await apiClient.post<{ message: string; isCurrentSessionRevoked?: boolean }>(
+      `/api/users/${userId}/login-history/${loginId}/logout`,
+    );
+    return response.data;
+  }
+
   // PUT /api/users/:userId/hidden-pin - cài mới/đổi PIN ẩn cuộc trò chuyện
   async updateHiddenPin(userId: string, pin: string): Promise<{ message: string }> {
     const response = await apiClient.put<{ message: string }>(`/api/users/${userId}/hidden-pin`, { pin });

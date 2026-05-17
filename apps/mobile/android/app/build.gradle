@@ -87,9 +87,9 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace 'com.zalofaker.app'
+    namespace 'com.taklo.app'
     defaultConfig {
-        applicationId 'com.zalofaker.app'
+        applicationId 'com.taklo.app'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

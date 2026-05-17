@@ -1,4 +1,4 @@
-# 📱 Zalo Faker
+# 📱 taklo
 
 > Modern messaging application with chat, voice/video calls, and AI chatbot
 
@@ -31,7 +31,7 @@
 ## 📁 Project Structure
 
 ```
-zalo-faker/
+taklo/
 ├── apps/
 │   ├── web/          # React.js web application
 │   └── mobile/       # React Native mobile app
@@ -53,8 +53,8 @@ zalo-faker/
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-username/zalo-faker.git
-cd zalo-faker
+git clone https://github.com/your-username/taklo.git
+cd taklo
 
 # Install dependencies
 pnpm install

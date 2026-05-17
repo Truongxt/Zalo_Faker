@@ -45,7 +45,7 @@ function buildSeedUsers(hashedPassword) {
       avartarUrl: "https://i.pravatar.cc/300?img=" + (i + 10),
       birthday: `199${i % 10}-0${(i % 9) + 1}-15`,
       createdAt: new Date().toISOString(),
-      email: `user${i}@zalo-faker.com`,
+      email: `user${i}@taklo.com`,
       gender: i % 2 === 0 ? "female" : "male",
       password: hashedPassword,
       phone: `09000000${String(i).padStart(2, "0")}`,

@@ -11,7 +11,7 @@ AWS.config.update({
 const dynamodb = new AWS.DynamoDB.DocumentClient();
 const TABLE_NAME = "User";
 const DEFAULT_PASSWORD = process.env.DEFAULT_TEST_PASSWORD || "123456nhan123@@";
-const TEST_EMAIL_DOMAIN = (process.env.TEST_EMAIL_DOMAIN || "@zalo-faker.com").toLowerCase();
+const TEST_EMAIL_DOMAIN = (process.env.TEST_EMAIL_DOMAIN || "@taklo.com").toLowerCase();
 
 async function scanUsers() {
   const users = [];
