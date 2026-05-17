@@ -4,6 +4,7 @@ import { baseAPI, fetchWithAuth } from './api'
 export interface LoginHistoryItem {
     loginId: string
     userId: string
+    sessionId?: string
     loginAt: string
     platform: string
     deviceInfo: string
@@ -311,6 +312,13 @@ export const authService = {
 
     async getLoginHistory(userId: string, limit = 20): Promise<LoginHistoryItem[]> {
         const response = await fetchWithAuth(`/users/${userId}/login-history?limit=${limit}`)
+        return response.json()
+    },
+
+    async logoutLoginSession(userId: string, loginId: string): Promise<{ message: string; isCurrentSessionRevoked?: boolean }> {
+        const response = await fetchWithAuth(`/users/${userId}/login-history/${loginId}/logout`, {
+            method: 'POST',
+        })
         return response.json()
     },
 

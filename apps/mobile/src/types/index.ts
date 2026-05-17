@@ -77,6 +77,7 @@ export interface UploadResponse {
 export interface LoginHistoryItem {
   userId: string;
   loginId: string;
+  sessionId?: string;
   loginAt: string;
   platform: string;   // "mobile" | "web" | "unknown"
   deviceInfo: string;

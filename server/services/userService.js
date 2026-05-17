@@ -76,6 +76,8 @@ const normalizePlatform = (platform) => {
 
 const buildSessionKey = (userId, platform = "unknown") =>
   `auth:session:${String(userId)}:${normalizePlatform(platform)}`;
+const buildSessionIdKey = (userId, sessionId) =>
+  `auth:session:${String(userId)}:sid:${String(sessionId)}`;
 
 const buildLegacySessionKey = (userId) => `auth:session:${String(userId)}`;
 const generateSessionId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
@@ -84,6 +86,15 @@ const resolveSessionKey = async ({ userId, sessionId, platform }) => {
   const normalizedUserId = String(userId || "");
   const expectedSessionId = String(sessionId || "");
   const normalizedPlatform = normalizePlatform(platform);
+
+  const sessionIdKey = buildSessionIdKey(normalizedUserId, expectedSessionId);
+  const sessionIdValue = await safeGet(sessionIdKey);
+  if (sessionIdValue) {
+    return {
+      key: sessionIdKey,
+      platform: normalizedPlatform,
+    };
+  }
 
   const scopedKey = buildSessionKey(normalizedUserId, normalizedPlatform);
   const scopedSessionId = await safeGet(scopedKey);
@@ -140,6 +151,7 @@ const uploadAvatarToS3 = async (userId, file) => {
 const createAuthenticatedSession = async (user, loginMeta = {}) => {
   const accountStatus = user.accountStatus || user.status || "active";
   const sessionId = generateSessionId();
+  const loginId = `${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
   const sessionPlatform = normalizePlatform(loginMeta.platform);
   const payload = {
     userId: user.userId,
@@ -153,12 +165,16 @@ const createAuthenticatedSession = async (user, loginMeta = {}) => {
   const refreshToken = signRefreshToken(payload);
 
   await safeSet(buildSessionKey(user.userId, sessionPlatform), sessionId);
+  await safeSet(buildSessionIdKey(user.userId, sessionId), "1");
   await safeDel(buildLegacySessionKey(user.userId));
 
-  await refreshTokenRepository.deleteByUserIdAndPlatform(user.userId, sessionPlatform);
   await refreshTokenRepository.create({
     refreshToken,
     userId: user.userId,
+    loginId,
+    sessionId,
+    deviceInfo: loginMeta.deviceInfo || "Unknown",
+    ipAddress: loginMeta.ipAddress || "Unknown",
     platform: sessionPlatform,
     createdAt: new Date().toISOString()
   });
@@ -166,7 +182,8 @@ const createAuthenticatedSession = async (user, loginMeta = {}) => {
   try {
     await loginHistoryRepository.create({
       userId: user.userId,
-      loginId: `${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+      loginId,
+      sessionId,
       loginAt: new Date().toISOString(),
       platform: sessionPlatform,
       deviceInfo: loginMeta.deviceInfo || "Unknown",
@@ -356,6 +373,8 @@ const UserService = {
       const sessionPlatform = normalizePlatform(decoded?.platform);
 
       if (userId && sessionId) {
+        await safeDel(buildSessionIdKey(userId, sessionId));
+
         const matchedSession = await resolveSessionKey({
           userId,
           sessionId,
@@ -889,6 +908,63 @@ const UserService = {
   getLoginHistory: async (userId, limit = 20) => {
     if (!userId) throw new Error("userId is required");
     return await loginHistoryRepository.getByUserId(userId, limit);
+  },
+
+  logoutLoginSession: async (userId, loginId, currentSessionId = "") => {
+    const normalizedUserId = String(userId || "").trim();
+    const normalizedLoginId = String(loginId || "").trim();
+
+    if (!normalizedUserId || !normalizedLoginId) {
+      throw new Error("userId and loginId are required");
+    }
+
+    const user = await userRepository.getById(normalizedUserId);
+    if (!user) {
+      throw new Error("User not found");
+    }
+
+    const tokens = await refreshTokenRepository.findByUserIdAndLoginId(
+      normalizedUserId,
+      normalizedLoginId,
+    );
+
+    if (!tokens.length) {
+      return {
+        message: "Session is already logged out",
+        loginId: normalizedLoginId,
+        revokedTokenCount: 0,
+        isCurrentSessionRevoked: false,
+      };
+    }
+
+    for (const tokenItem of tokens) {
+      if (tokenItem?.refreshToken) {
+        await refreshTokenRepository.delete(tokenItem.refreshToken);
+      }
+
+      if (tokenItem?.sessionId) {
+        await safeDel(buildSessionIdKey(normalizedUserId, tokenItem.sessionId));
+      }
+
+      if (tokenItem?.platform) {
+        const scopedKey = buildSessionKey(normalizedUserId, tokenItem.platform);
+        const scopedSession = await safeGet(scopedKey);
+        if (scopedSession && scopedSession === tokenItem.sessionId) {
+          await safeDel(scopedKey);
+        }
+      }
+    }
+
+    const isCurrentSessionRevoked = tokens.some(
+      (tokenItem) => String(tokenItem?.sessionId || "") === String(currentSessionId || ""),
+    );
+
+    return {
+      message: "Session logged out",
+      loginId: normalizedLoginId,
+      revokedTokenCount: tokens.length,
+      isCurrentSessionRevoked,
+    };
   },
 
   comparePassword: async (userId, password) => {

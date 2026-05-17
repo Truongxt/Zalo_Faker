@@ -1,6 +1,6 @@
 ﻿import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, Loader2, RefreshCw } from 'lucide-react'
+import { ArrowLeft, Loader2, LogOut, RefreshCw } from 'lucide-react'
 import { useAuthStore } from '@/stores/authStore'
 import { authService, type LoginHistoryItem } from '@/services/auth'
 import { useToast } from '@/contexts/ToastContext'
@@ -24,6 +24,7 @@ export default function LoginHistory() {
     const [history, setHistory] = useState<LoginHistoryItem[]>([])
     const [isLoading, setIsLoading] = useState(true)
     const [isRefreshing, setIsRefreshing] = useState(false)
+    const [loggingOutLoginId, setLoggingOutLoginId] = useState<string | null>(null)
 
     const fetchHistory = useCallback(async () => {
         if (!user?.id && !user?.userId) return
@@ -47,6 +48,27 @@ export default function LoginHistory() {
             addToast(error instanceof Error ? error.message : 'Làm mới thất bại', 'error')
         } finally {
             setIsRefreshing(false)
+        }
+    }
+
+    const handleRemoteLogout = async (loginId: string) => {
+        if (!user?.id && !user?.userId) return
+        const userId = user?.id || user?.userId!
+        setLoggingOutLoginId(loginId)
+        try {
+            const result = await authService.logoutLoginSession(userId, loginId)
+            addToast(result?.message || 'Đã đăng xuất phiên từ xa', 'success')
+            await fetchHistory()
+
+            if (result?.isCurrentSessionRevoked) {
+                addToast('Phiên hiện tại đã bị đăng xuất. Vui lòng đăng nhập lại.', 'error')
+                useAuthStore.getState().logout()
+                navigate('/login')
+            }
+        } catch (error) {
+            addToast(error instanceof Error ? error.message : 'Đăng xuất phiên thất bại', 'error')
+        } finally {
+            setLoggingOutLoginId(null)
         }
     }
 
@@ -91,6 +113,20 @@ export default function LoginHistory() {
                                 </div>
                                 <p className="text-sm text-gray-600 dark:text-gray-300 mt-2">Thiết bị: {item.deviceInfo || 'Không xác định'}</p>
                                 <p className="text-sm text-gray-600 dark:text-gray-300">IP: {item.ipAddress || 'Không xác định'}</p>
+                                <div className="mt-3 flex justify-end">
+                                    <button
+                                        onClick={() => handleRemoteLogout(item.loginId)}
+                                        disabled={loggingOutLoginId === item.loginId}
+                                        className="inline-flex items-center gap-2 px-3 py-2 text-sm rounded-lg border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-60"
+                                    >
+                                        {loggingOutLoginId === item.loginId ? (
+                                            <Loader2 className="w-4 h-4 animate-spin" />
+                                        ) : (
+                                            <LogOut className="w-4 h-4" />
+                                        )}
+                                        Đăng xuất thiết bị này
+                                    </button>
+                                </div>
                             </div>
                         ))}
                     </div>

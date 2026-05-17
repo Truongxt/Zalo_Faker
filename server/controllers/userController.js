@@ -350,6 +350,30 @@ getUserById: async (req, res) => {
     }
   },
 
+  logoutLoginSession: async (req, res) => {
+    try {
+      const { userId, loginId } = req.params;
+      const requesterId = req.user?.userId || req.user?.id;
+      const requesterSessionId = req.user?.sessionId || "";
+
+      if (!requesterId || String(requesterId) !== String(userId)) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+
+      const result = await userService.logoutLoginSession(
+        userId,
+        loginId,
+        requesterSessionId,
+      );
+
+      res.json(result);
+    } catch (err) {
+      const message = err.message || "Failed to logout session";
+      const status = /required|not found|forbidden/i.test(message) ? 400 : 500;
+      res.status(status).json({ message });
+    }
+  },
+
   // ===== HIDDEN CHAT PIN =====
   getHiddenPinStatus: async (req, res) => {
     try {

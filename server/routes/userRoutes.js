@@ -253,6 +253,7 @@ router.post("/suggest-friends", auth, userController.suggestFriendsByPhones);
  *         description: Danh sách lịch sử đăng nhập
  */
 router.get("/:userId/login-history", auth, userController.getLoginHistory);
+router.post("/:userId/login-history/:loginId/logout", auth, userController.logoutLoginSession);
 
 router.get("/:userId/hidden-pin/status", auth, userController.getHiddenPinStatus);
 router.put("/:userId/hidden-pin", auth, userController.updateHiddenPin);

@@ -51,6 +51,7 @@ export default function LoginHistoryScreen() {
   const [history, setHistory] = useState<LoginHistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [revokingLoginId, setRevokingLoginId] = useState<string | null>(null);
   const { logout } = useAuthStore();
 
   const fetchHistory = useCallback(async () => {
@@ -102,6 +103,49 @@ export default function LoginHistoryScreen() {
     setLoading(true);
     fetchHistory().finally(() => setLoading(false));
   }, [fetchHistory]);
+
+  const handleRemoteLogout = useCallback(
+    (loginId: string) => {
+      if (!user?.id || revokingLoginId) return;
+
+      Alert.alert(
+        "Dang xuat thiet bi?",
+        "Phien dang nhap duoc chon se bi dang xuat tu xa.",
+        [
+          { text: "Huy", style: "cancel" },
+          {
+            text: "Dang xuat",
+            style: "destructive",
+            onPress: async () => {
+              try {
+                setRevokingLoginId(loginId);
+                const result = await userService.logoutLoginSession(user.id, loginId);
+                await fetchHistory();
+
+                if (result?.isCurrentSessionRevoked) {
+                  Alert.alert("Phien hien tai da bi dang xuat", "Vui long dang nhap lai.");
+                  logout();
+                  router.replace("/(auth)/login");
+                  return;
+                }
+
+                Alert.alert("Thanh cong", result?.message || "Da dang xuat thiet bi.");
+              } catch (err: any) {
+                const message =
+                  err?.response?.data?.message ||
+                  err?.message ||
+                  "Khong the dang xuat thiet bi nay";
+                Alert.alert("Loi", message);
+              } finally {
+                setRevokingLoginId(null);
+              }
+            },
+          },
+        ],
+      );
+    },
+    [fetchHistory, logout, revokingLoginId, router, user?.id],
+  );
 
   const goBackSafe = () => {
     if (router.canGoBack()) {
@@ -206,6 +250,20 @@ export default function LoginHistoryScreen() {
                     IP: {item.ipAddress}
                   </Text>
                 </View>
+
+                <TouchableOpacity
+                  className="mt-3 self-end px-3 py-2 rounded-lg border border-red-200"
+                  onPress={() => handleRemoteLogout(item.loginId)}
+                  disabled={revokingLoginId === item.loginId}
+                >
+                  {revokingLoginId === item.loginId ? (
+                    <ActivityIndicator size="small" color="#DC2626" />
+                  ) : (
+                    <Text className="text-red-600 text-xs font-semibold">
+                      Dang xuat thiet bi nay
+                    </Text>
+                  )}
+                </TouchableOpacity>
               </View>
             ))}
           </View>
