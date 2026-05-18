@@ -1,15 +1,15 @@
 {
   "info": {
     "_postman_id": "d0d8f86f-6d76-4b45-9f7f-91f8c9f8f4f2",
-    "name": "Zalo Faker Group Flow",
+    "name": "taklo Group Flow",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
     "description": "Collection test toan bo luong group: login, tao nhom, cap quyen, xem thanh vien, thu hoi quyen, chuyen admin, va giai tan nhom."
   },
   "variable": [
     { "key": "baseUrl", "value": "http://localhost:3000" },
-    { "key": "email", "value": "demo1@zalo-faker.com" },
+    { "key": "email", "value": "demo1@taklo.com" },
     { "key": "password", "value": "123456" },
-    { "key": "secondAdminEmail", "value": "demo2@zalo-faker.com" },
+    { "key": "secondAdminEmail", "value": "demo2@taklo.com" },
     { "key": "secondAdminPassword", "value": "123456" },
     { "key": "accessToken", "value": "" },
     { "key": "refreshToken", "value": "" },

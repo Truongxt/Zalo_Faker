@@ -129,7 +129,7 @@ export default function Landing() {
                                                 <div className="flex-1 flex items-center justify-center">
                                                     <div className="flex items-center gap-1.5 text-sm text-gray-500">
                                                         <MessageCircle className="w-4 h-4 text-primary-500" />
-                                                        <span className="font-medium">Zalo Faker</span>
+                                                        <span className="font-medium">taklo</span>
                                                     </div>
                                                 </div>
                                             </div>

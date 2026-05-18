@@ -2,8 +2,7 @@ import { socketService } from '@/lib/socket'
 import { useChatStore, Message, Conversation } from '@/stores/chatStore'
 import { useAuthStore } from '@/stores/authStore'
 import { notificationService } from './notificationService'
-
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api'
+import { baseAPI } from './api'
 
 export const chatService = {
     // Initialize socket listeners
@@ -88,7 +87,7 @@ export const chatService = {
         setLoadingConversations(true)
 
         try {
-            const response = await fetch(`${API_URL}/conversations`, {
+            const response = await fetch(`${baseAPI}/conversations`, {
                 headers: {
                     'Authorization': `Bearer ${accessToken}`
                 }
@@ -113,7 +112,7 @@ export const chatService = {
         setLoadingMessages(true)
 
         try {
-            const url = new URL(`${API_URL}/conversations/${conversationId}/messages`)
+            const url = new URL(`${baseAPI}/conversations/${conversationId}/messages`)
             if (before) url.searchParams.set('before', before)
             url.searchParams.set('limit', '50')
 
@@ -171,7 +170,7 @@ export const chatService = {
 
         // Also send via HTTP for persistence
         try {
-            const response = await fetch(`${API_URL}/conversations/${conversationId}/messages`, {
+            const response = await fetch(`${baseAPI}/conversations/${conversationId}/messages`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -202,7 +201,7 @@ export const chatService = {
         socketService.markAsRead(conversationId, messageId, user.id)
 
         try {
-            await fetch(`${API_URL}/conversations/${conversationId}/messages/${messageId}/read`, {
+            await fetch(`${baseAPI}/conversations/${conversationId}/messages/${messageId}/read`, {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${accessToken}`
@@ -223,7 +222,7 @@ export const chatService = {
         updateMessage(conversationId, messageId, { isDeleted: true })
 
         try {
-            await fetch(`${API_URL}/conversations/${conversationId}/messages/${messageId}`, {
+            await fetch(`${baseAPI}/conversations/${conversationId}/messages/${messageId}`, {
                 method: 'DELETE',
                 headers: {
                     'Authorization': `Bearer ${accessToken}`
@@ -259,7 +258,7 @@ export const chatService = {
     async createConversation(participantIds: string[], type: 'private' | 'group' = 'private', name?: string): Promise<Conversation> {
         const { accessToken } = useAuthStore.getState()
 
-        const response = await fetch(`${API_URL}/conversations`, {
+        const response = await fetch(`${baseAPI}/conversations`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',

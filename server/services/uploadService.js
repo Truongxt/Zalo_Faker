@@ -9,7 +9,7 @@ const uploadFile = async (file) => {
     const fileName = `${uuidv4()}.${fileExtension}`;
     
     const params = {
-        Bucket: process.env.S3_BUCKET_NAME || "zalo-faker-dev",
+        Bucket: process.env.S3_BUCKET_NAME || "taklo-dev",
         Key: `uploads/${fileName}`,
         Body: file.buffer,
         ContentType: file.mimetype

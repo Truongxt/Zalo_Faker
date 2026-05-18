@@ -29,7 +29,7 @@ export interface PendingMessage {
 }
 
 class OfflineMessagesDB {
-    private dbName = 'ZaloFaker'
+    private dbName = 'taklo'
     private storeName = 'pendingMessages'
     private dbPromise: Promise<IDBDatabase>
 

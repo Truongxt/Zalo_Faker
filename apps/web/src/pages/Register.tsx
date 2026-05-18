@@ -17,7 +17,7 @@ const RESEND_COOLDOWN_SECONDS = 60;
 export default function Register() {
   const navigate = useNavigate();
   const { addToast } = useToast();
-  const { setUser, setAccessToken } = useAuthStore();
+  const { setUser, setAccessToken, setRefreshToken } = useAuthStore();
 
   const [step, setStep] = useState<RegisterStep>("email");
   const [otp, setOtp] = useState("");
@@ -135,7 +135,7 @@ export default function Register() {
     setLocalError("");
 
     try {
-      const { user, accessToken } = await authService.register({
+      const { user, accessToken, refreshToken } = await authService.register({
         fullName: fullName.trim(),
         email: email.trim().toLowerCase(),
         phone: phone.trim(),
@@ -145,6 +145,7 @@ export default function Register() {
       });
       setUser(user);
       setAccessToken(accessToken);
+      setRefreshToken(refreshToken);
       addToast("Đăng ký tài khoản thành công!", "success");
       navigate("/chat");
     } catch (err: any) {
@@ -174,7 +175,7 @@ export default function Register() {
             <div className="w-14 h-14 bg-white/20 rounded-2xl flex items-center justify-center backdrop-blur-sm">
               <MessageCircle className="w-8 h-8 text-white" />
             </div>
-            <h1 className="text-3xl font-bold">Zalo Faker</h1>
+            <h1 className="text-3xl font-bold">taklo</h1>
           </div>
 
           <h2 className="text-4xl font-bold mb-6 leading-tight">
@@ -221,7 +222,7 @@ export default function Register() {
                 <MessageCircle className="w-6 h-6 text-white" />
               </div>
               <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-                Zalo Faker
+                taklo
               </h1>
             </div>
           </div>

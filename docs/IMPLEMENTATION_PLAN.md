@@ -1,4 +1,4 @@
-# 📱 Kế Hoạch Phát Triển Ứng Dụng Nhắn Tin - Zalo Faker
+# 📱 Kế Hoạch Phát Triển Ứng Dụng Nhắn Tin - taklo
 
 ## 🎯 Tổng Quan Dự Án
 
@@ -454,7 +454,7 @@ cloudinary.config({
 export const MediaService = {
   async uploadImage(file) {
     const result = await cloudinary.uploader.upload(file.path, {
-      folder: 'zalo-faker/images',
+      folder: 'taklo/images',
       transformation: [
         { width: 1200, crop: 'limit' },
         { quality: 'auto' }
@@ -468,7 +468,7 @@ export const MediaService = {
 
   async uploadVideo(file) {
     const result = await cloudinary.uploader.upload(file.path, {
-      folder: 'zalo-faker/videos',
+      folder: 'taklo/videos',
       resource_type: 'video',
       eager: [{ format: 'mp4', quality: 'auto' }]
     });
@@ -480,7 +480,7 @@ export const MediaService = {
 
   async uploadDocument(file) {
     const result = await cloudinary.uploader.upload(file.path, {
-      folder: 'zalo-faker/documents',
+      folder: 'taklo/documents',
       resource_type: 'raw'
     });
     return { url: result.secure_url };
@@ -710,8 +710,8 @@ eas build --platform all
 ### Installation
 ```bash
 # Clone repository
-git clone https://github.com/your-team/zalo-faker.git
-cd zalo-faker
+git clone https://github.com/your-team/taklo.git
+cd taklo
 
 # Install dependencies
 pnpm install
@@ -747,7 +747,7 @@ pnpm dev  # Starts all apps
 
 ## ❓ Câu Hỏi Cần Xác Nhận
 
-1. **Tên ứng dụng chính thức** - "Zalo Faker" hay tên khác?
+1. **Tên ứng dụng chính thức** - "taklo" hay tên khác?
 2. **Theme màu** - Giữ màu xanh Zalo hay đổi sang màu khác?
 3. **Group call** - Có cần video call nhóm (phức tạp hơn) hay chỉ 1-1?
 4. **AI features** - Cần những tính năng AI cụ thể nào?

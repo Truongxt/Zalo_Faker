@@ -1,4 +1,4 @@
-package com.zalofaker.app
+package com.taklo.app
 
 import android.app.Application
 import android.content.res.Configuration

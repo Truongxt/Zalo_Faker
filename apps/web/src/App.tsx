@@ -193,7 +193,7 @@ export default function App() {
                       </svg>
                     </div>
                     <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">
-                      Chào mừng đến Zalo Faker
+                      Chào mừng đến taklo
                     </h2>
                     <p className="text-gray-600 dark:text-gray-400">
                       Chọn một cuộc trò chuyện để bắt đầu

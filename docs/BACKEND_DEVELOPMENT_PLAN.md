@@ -1,4 +1,4 @@
-# 🛠️ Backend Development Plan - Zalo Faker
+# 🛠️ Backend Development Plan - taklo
 
 > Kế hoạch chi tiết để team 4 người phát triển Backend
 

@@ -1,4 +1,4 @@
-# 📊 Class Diagram - Zalo Faker
+# 📊 Class Diagram - taklo
 
 > Sơ đồ lớp chi tiết cho ứng dụng chat
 

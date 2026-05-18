@@ -90,7 +90,7 @@ export default function LoginScreen() {
             <View className="w-20 h-20 rounded-2xl bg-[#0068FF] items-center justify-center mb-4 shadow-lg">
               <Text className="text-white text-3xl font-bold">ZF</Text>
             </View>
-            <Text className="text-2xl font-bold text-gray-900">Zalo Faker</Text>
+            <Text className="text-2xl font-bold text-gray-900">taklo</Text>
             <Text className="text-gray-500 mt-1 text-sm">
               Đăng nhập để tiếp tục
             </Text>

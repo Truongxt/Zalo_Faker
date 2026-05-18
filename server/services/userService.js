@@ -11,6 +11,7 @@ const friendRepository = require("../repository/friendsRepository");
 const refreshTokenRepository = require("../repository/RefreshTokenRepository");
 const loginHistoryRepository = require("../repository/loginHistoryRepository");
 const { safeGet, safeSet, safeDel } = require("../utils/redisClient");
+const { forceLogoutSessions } = require("../utils/socketEmitter");
 const { sendOTPEmail } = require("../utils/sendEmail");
 const { validateRegistrationEmail } = require("../utils/emailValidation");
 const { uploadFile } = require("./file.service");
@@ -76,6 +77,8 @@ const normalizePlatform = (platform) => {
 
 const buildSessionKey = (userId, platform = "unknown") =>
   `auth:session:${String(userId)}:${normalizePlatform(platform)}`;
+const buildSessionIdKey = (userId, sessionId) =>
+  `auth:session:${String(userId)}:sid:${String(sessionId)}`;
 
 const buildLegacySessionKey = (userId) => `auth:session:${String(userId)}`;
 const generateSessionId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
@@ -84,6 +87,15 @@ const resolveSessionKey = async ({ userId, sessionId, platform }) => {
   const normalizedUserId = String(userId || "");
   const expectedSessionId = String(sessionId || "");
   const normalizedPlatform = normalizePlatform(platform);
+
+  const sessionIdKey = buildSessionIdKey(normalizedUserId, expectedSessionId);
+  const sessionIdValue = await safeGet(sessionIdKey);
+  if (sessionIdValue) {
+    return {
+      key: sessionIdKey,
+      platform: normalizedPlatform,
+    };
+  }
 
   const scopedKey = buildSessionKey(normalizedUserId, normalizedPlatform);
   const scopedSessionId = await safeGet(scopedKey);
@@ -135,6 +147,59 @@ const uploadAvatarToS3 = async (userId, file) => {
 
   const data = await s3.upload(params).promise();
   return data.Location;
+};
+
+const createAuthenticatedSession = async (user, loginMeta = {}) => {
+  const accountStatus = user.accountStatus || user.status || "active";
+  const sessionId = generateSessionId();
+  const loginId = `${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+  const sessionPlatform = normalizePlatform(loginMeta.platform);
+  const payload = {
+    userId: user.userId,
+    email: user.email,
+    accountStatus,
+    sessionId,
+    platform: sessionPlatform,
+  };
+
+  const accessToken = signAccessToken(payload);
+  const refreshToken = signRefreshToken(payload);
+
+  await safeSet(buildSessionKey(user.userId, sessionPlatform), sessionId);
+  await safeSet(buildSessionIdKey(user.userId, sessionId), "1");
+  await safeDel(buildLegacySessionKey(user.userId));
+
+  await refreshTokenRepository.create({
+    refreshToken,
+    userId: user.userId,
+    loginId,
+    sessionId,
+    deviceInfo: loginMeta.deviceInfo || "Unknown",
+    ipAddress: loginMeta.ipAddress || "Unknown",
+    platform: sessionPlatform,
+    createdAt: new Date().toISOString()
+  });
+
+  try {
+    await loginHistoryRepository.create({
+      userId: user.userId,
+      loginId,
+      sessionId,
+      loginAt: new Date().toISOString(),
+      platform: sessionPlatform,
+      deviceInfo: loginMeta.deviceInfo || "Unknown",
+      ipAddress: loginMeta.ipAddress || "Unknown",
+    });
+  } catch (err) {
+    console.warn("Failed to record login history:", err?.message || err);
+  }
+
+  const { password: _, ...safeUser } = user;
+  return {
+    user: safeUser,
+    accessToken,
+    refreshToken
+  };
 };
 
 const UserService = {
@@ -218,7 +283,7 @@ const UserService = {
 
         let value = userData[field];
 
-        // 👉 nếu update password thì hash
+        // Hash password when updating password field.
         if (field === "password") {
           value = await bcrypt.hash(value + "nhan123@@", 10);
         }
@@ -276,52 +341,29 @@ const UserService = {
 
     const isMatch = await bcrypt.compare(normalizedPassword + "nhan123@@", user.password);
     if (!isMatch) throw new Error("Invalid password");
+    return await createAuthenticatedSession(user, loginMeta);
+  },
 
-    const sessionId = generateSessionId();
-    const sessionPlatform = normalizePlatform(loginMeta.platform);
-    const payload = {
-      userId: user.userId,
-      email: user.email,
-      accountStatus,
-      sessionId,
-      platform: sessionPlatform,
-    };
-
-    const accessToken = signAccessToken(payload);
-    const refreshToken = signRefreshToken(payload);
-
-    await safeSet(buildSessionKey(user.userId, sessionPlatform), sessionId);
-    await safeDel(buildLegacySessionKey(user.userId));
-
-    await refreshTokenRepository.deleteByUserIdAndPlatform(user.userId, sessionPlatform);
-    await refreshTokenRepository.create({
-      refreshToken,
-      userId: user.userId,
-      platform: sessionPlatform,
-      createdAt: new Date().toISOString()
-    });
-
-    // ── Record login history ──────────────────────────────────
-    try {
-      await loginHistoryRepository.create({
-        userId: user.userId,
-        loginId: `${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
-        loginAt: new Date().toISOString(),
-        platform: sessionPlatform,
-        deviceInfo: loginMeta.deviceInfo || "Unknown",
-        ipAddress: loginMeta.ipAddress || "Unknown",
-      });
-    } catch (err) {
-      console.warn("Failed to record login history:", err?.message || err);
+  loginByUserId: async (userId, loginMeta = {}) => {
+    const normalizedUserId = String(userId || "").trim();
+    if (!normalizedUserId) {
+      throw new Error("userId is required");
     }
 
-    const { password: _, ...safeUser } = user;
+    const user = await userRepository.getById(normalizedUserId);
+    if (!user) {
+      throw new Error("User not found");
+    }
 
-    return {
-      user: safeUser,
-      accessToken,
-      refreshToken
-    };
+    const accountStatus = user.accountStatus || user.status || "active";
+    if (accountStatus === "locked") {
+      throw new Error("Account is locked");
+    }
+    if (accountStatus === "deleted") {
+      throw new Error("Account is deleted");
+    }
+
+    return await createAuthenticatedSession(user, loginMeta);
   },
   logout: async refreshToken => {
     try {
@@ -332,6 +374,8 @@ const UserService = {
       const sessionPlatform = normalizePlatform(decoded?.platform);
 
       if (userId && sessionId) {
+        await safeDel(buildSessionIdKey(userId, sessionId));
+
         const matchedSession = await resolveSessionKey({
           userId,
           sessionId,
@@ -431,11 +475,11 @@ const UserService = {
   },
 
   refreshToken: async (refreshToken) => {
-    // 1. Kiểm tra refresh token có trong DB không
+    // 1. Check refresh token exists in DB.
     const stored = await refreshTokenRepository.findByToken(refreshToken);
     if (!stored) throw new Error("Invalid refresh token");
 
-    // 2. Verify refresh token còn hạn không
+    // 2. Verify refresh token validity.
     const decoded = require("../utils/jwt").verifyRefreshToken(refreshToken);
 
     // 2.1. Check latest account status before issuing new access token
@@ -446,7 +490,7 @@ const UserService = {
     if (accountStatus === "locked") throw new Error("Account is locked");
     if (accountStatus === "deleted") throw new Error("Account is deleted");
 
-    // 3. Tạo access token mới
+    // 3. Create new access token.
     const sessionId = decoded.sessionId;
     if (!sessionId) throw new Error("Session expired");
 
@@ -576,19 +620,19 @@ const UserService = {
       throw new Error("userId, oldPassword, and newPassword are required");
     }
 
-    // 1. Lấy user từ database
+    // 1. Load user from database.
     const user = await userRepository.getById(userId);
     if (!user) {
       throw new Error("User not found");
     }
 
-    // 2. Xác thực mật khẩu cũ
+    // 2. Verify current password.
     const isMatch = await bcrypt.compare(oldPassword + "nhan123@@", user.password);
     if (!isMatch) {
       throw new Error("Old password is incorrect");
     }
 
-    // 3. Hash mật khẩu mới
+    // 3. Hash new password.
     const hashedNewPassword = await bcrypt.hash(newPassword + "nhan123@@", 10);
 
     // 4. Update password
@@ -865,6 +909,90 @@ const UserService = {
   getLoginHistory: async (userId, limit = 20) => {
     if (!userId) throw new Error("userId is required");
     return await loginHistoryRepository.getByUserId(userId, limit);
+  },
+
+  logoutLoginSession: async (userId, loginId, currentSessionId = "") => {
+    const normalizedUserId = String(userId || "").trim();
+    const normalizedLoginId = String(loginId || "").trim();
+
+    if (!normalizedUserId || !normalizedLoginId) {
+      throw new Error("userId and loginId are required");
+    }
+
+    const user = await userRepository.getById(normalizedUserId);
+    if (!user) {
+      throw new Error("User not found");
+    }
+
+    const tokens = await refreshTokenRepository.findByUserIdAndLoginId(
+      normalizedUserId,
+      normalizedLoginId,
+    );
+    const loginHistoryItem = await loginHistoryRepository.getByUserIdAndLoginId(
+      normalizedUserId,
+      normalizedLoginId,
+    );
+
+    for (const tokenItem of tokens) {
+      if (tokenItem?.refreshToken) {
+        await refreshTokenRepository.delete(tokenItem.refreshToken);
+      }
+
+      if (tokenItem?.sessionId) {
+        await safeDel(buildSessionIdKey(normalizedUserId, tokenItem.sessionId));
+      }
+
+      if (tokenItem?.platform) {
+        const scopedKey = buildSessionKey(normalizedUserId, tokenItem.platform);
+        const scopedSession = await safeGet(scopedKey);
+        if (scopedSession && scopedSession === tokenItem.sessionId) {
+          await safeDel(scopedKey);
+        }
+      }
+    }
+
+    const revokedSessionIds = [...new Set([
+      ...tokens
+        .map((tokenItem) => String(tokenItem?.sessionId || "").trim())
+        .filter(Boolean),
+      String(loginHistoryItem?.sessionId || "").trim(),
+    ].filter(Boolean))];
+    const revokedPlatforms = [...new Set([
+      ...tokens
+        .map((tokenItem) => normalizePlatform(tokenItem?.platform))
+        .filter(Boolean),
+      normalizePlatform(loginHistoryItem?.platform),
+    ].filter(Boolean))];
+    const forcedSocketCount = await forceLogoutSessions({
+      userId: normalizedUserId,
+      sessionIds: revokedSessionIds,
+      platforms: revokedPlatforms,
+      reason: "Phiên đăng nhập này đã bị đăng xuất từ xa.",
+    });
+
+    const isCurrentSessionRevoked = revokedSessionIds.some(
+      (sessionId) => String(sessionId) === String(currentSessionId || ""),
+    ) || tokens.some(
+      (tokenItem) => String(tokenItem?.sessionId || "") === String(currentSessionId || ""),
+    );
+
+    if (!tokens.length && forcedSocketCount === 0) {
+      return {
+        message: "Session is already logged out",
+        loginId: normalizedLoginId,
+        revokedTokenCount: 0,
+        forcedSocketCount: 0,
+        isCurrentSessionRevoked,
+      };
+    }
+
+    return {
+      message: "Session logged out",
+      loginId: normalizedLoginId,
+      revokedTokenCount: tokens.length,
+      forcedSocketCount,
+      isCurrentSessionRevoked,
+    };
   },
 
   comparePassword: async (userId, password) => {
