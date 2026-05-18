@@ -55,12 +55,42 @@ const loadWebRTC = (): WebRTCModule | null => {
   }
 };
 
-const RTC_CONFIG = {
-  iceServers: [
+const parseIceServers = () => {
+  const rawJson = String(process.env.EXPO_PUBLIC_ICE_SERVERS || "").trim();
+  if (rawJson) {
+    try {
+      const parsed = JSON.parse(rawJson);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed;
+      }
+    } catch (error) {
+      console.warn("[Mobile WebRTC] EXPO_PUBLIC_ICE_SERVERS is invalid JSON:", error);
+    }
+  }
+
+  const turnUrl = String(process.env.EXPO_PUBLIC_TURN_URL || "").trim();
+  const turnUsername = String(process.env.EXPO_PUBLIC_TURN_USERNAME || "").trim();
+  const turnCredential = String(process.env.EXPO_PUBLIC_TURN_CREDENTIAL || "").trim();
+
+  const defaultServers: any[] = [
     { urls: "stun:stun.l.google.com:19302" },
     { urls: "stun:stun1.l.google.com:19302" },
     { urls: "stun:stun2.l.google.com:19302" },
-  ],
+  ];
+
+  if (turnUrl) {
+    defaultServers.push({
+      urls: turnUrl,
+      username: turnUsername || undefined,
+      credential: turnCredential || undefined,
+    });
+  }
+
+  return defaultServers;
+};
+
+const RTC_CONFIG = {
+  iceServers: parseIceServers(),
 };
 
 const getStreamUrl = (stream: MediaStream | null) => {
