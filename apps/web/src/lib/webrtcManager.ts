@@ -14,11 +14,41 @@ import { useCallStore } from '@/stores/callStore';
 // ICE Servers
 // ─────────────────────────────────────────────────
 
-const ICE_SERVERS: RTCIceServer[] = [
-  { urls: 'stun:stun.l.google.com:19302' },
-  { urls: 'stun:stun1.l.google.com:19302' },
-  { urls: 'stun:stun2.l.google.com:19302' },
-];
+const parseIceServers = (): RTCIceServer[] => {
+  const rawJson = String(import.meta.env.VITE_ICE_SERVERS || '').trim();
+  if (rawJson) {
+    try {
+      const parsed = JSON.parse(rawJson);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed as RTCIceServer[];
+      }
+    } catch (error) {
+      console.warn('[WebRTC] VITE_ICE_SERVERS is invalid JSON:', error);
+    }
+  }
+
+  const turnUrl = String(import.meta.env.VITE_TURN_URL || '').trim();
+  const turnUsername = String(import.meta.env.VITE_TURN_USERNAME || '').trim();
+  const turnCredential = String(import.meta.env.VITE_TURN_CREDENTIAL || '').trim();
+
+  const defaultServers: RTCIceServer[] = [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+  ];
+
+  if (turnUrl) {
+    defaultServers.push({
+      urls: turnUrl,
+      username: turnUsername || undefined,
+      credential: turnCredential || undefined,
+    });
+  }
+
+  return defaultServers;
+};
+
+const ICE_SERVERS: RTCIceServer[] = parseIceServers();
 
 const RTC_CONFIG: RTCConfiguration = {
   iceServers: ICE_SERVERS,
