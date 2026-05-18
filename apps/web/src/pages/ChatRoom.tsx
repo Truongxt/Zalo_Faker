@@ -449,7 +449,9 @@ export default function ChatRoom() {
             },
             joinRequests: settings.pendingJoinRequests || [],
             permissions: {
+              sendMessage: settings.permissions?.sendMessage || "all",
               sendMedia: settings.permissions?.sendMedia || "all",
+              startCall: settings.permissions?.startCall || "all",
               pinMessage: settings.permissions?.pinMessage || "admin_deputy",
               sendAnnouncement:
                 settings.permissions?.sendAnnouncement || "admin_deputy",
@@ -646,6 +648,19 @@ export default function ChatRoom() {
       return;
     }
     if (!message.trim() && pendingMediaList.length === 0) return;
+    if (
+      activeConversation?.type === "group" &&
+      !announcementMode &&
+      message.trim() &&
+      !canSendMessagesInGroup
+    ) {
+      addToast(
+        "Chỉ trưởng nhóm và phó nhóm có thể gửi tin nhắn trong nhóm này.",
+        "warning",
+        4000,
+      );
+      return;
+    }
     if (
       activeConversation?.type === "group" &&
       announcementMode &&
@@ -1731,7 +1746,9 @@ export default function ChatRoom() {
         invite: { code: "", approvalRequired: true },
         joinRequests: [],
         permissions: {
+          sendMessage: "all",
           sendMedia: "all",
+          startCall: "all",
           pinMessage:
             activeConversation?.type === "group" ? "admin_deputy" : "all",
           sendAnnouncement:
@@ -2098,9 +2115,15 @@ export default function ChatRoom() {
   );
 
   const groupPermissions = activeConversation?.groupSettings?.permissions;
+  const canSendMessagesInGroup =
+    activeConversation?.type !== "group" ||
+    canUseGroupScope(groupPermissions?.sendMessage);
   const canSendMediaInGroup =
     activeConversation?.type !== "group" ||
     canUseGroupScope(groupPermissions?.sendMedia);
+  const canStartCallsInGroup =
+    activeConversation?.type !== "group" ||
+    canUseGroupScope(groupPermissions?.startCall);
   const canSendAnnouncementInGroup =
     activeConversation?.type !== "group" ||
     canUseGroupScope(groupPermissions?.sendAnnouncement);
@@ -2111,6 +2134,9 @@ export default function ChatRoom() {
     activeConversation?.type === "group"
       ? canPinInGroup
       : activeConversation?.type === "private";
+  const canComposeCurrentText =
+    !isMessagingBlocked &&
+    (announcementMode ? canSendAnnouncementInGroup : canSendMessagesInGroup);
   const pinnedMessage =
     activeConversation?.groupSettings?.pinnedMessage || null;
   const conversationBackground = String(activeConversation?.background || "").trim();
@@ -2375,6 +2401,14 @@ export default function ChatRoom() {
 
   const startGroupCallFlow = (callType: 'audio' | 'video') => {
     if (!conversationId || !user) return;
+    if (!canStartCallsInGroup) {
+      addToast(
+        "Chỉ trưởng nhóm và phó nhóm có thể bắt đầu cuộc gọi trong nhóm này.",
+        "warning",
+        4000,
+      );
+      return;
+    }
     const socket = socketService.getSocket();
     if (!socket) return;
 
@@ -2596,13 +2630,29 @@ export default function ChatRoom() {
         <div className="flex items-center gap-1">
           <button
             onClick={handleStartVoiceCall}
-            className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-600 dark:text-gray-400"
+            className={`p-2 rounded-lg text-gray-600 dark:text-gray-400 ${activeConversation?.type === "group" && !canStartCallsInGroup
+              ? "opacity-50"
+              : "hover:bg-gray-100 dark:hover:bg-gray-800"
+              }`}
+            title={
+              activeConversation?.type === "group" && !canStartCallsInGroup
+                ? "Chỉ trưởng nhóm và phó nhóm có thể bắt đầu cuộc gọi"
+                : "Gọi thoại"
+            }
           >
             <Phone className="w-5 h-5" />
           </button>
           <button
             onClick={handleStartVideoCall}
-            className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-600 dark:text-gray-400"
+            className={`p-2 rounded-lg text-gray-600 dark:text-gray-400 ${activeConversation?.type === "group" && !canStartCallsInGroup
+              ? "opacity-50"
+              : "hover:bg-gray-100 dark:hover:bg-gray-800"
+              }`}
+            title={
+              activeConversation?.type === "group" && !canStartCallsInGroup
+                ? "Chỉ trưởng nhóm và phó nhóm có thể bắt đầu cuộc gọi"
+                : "Gọi video"
+            }
           >
             <Video className="w-5 h-5" />
           </button>
@@ -3114,6 +3164,11 @@ export default function ChatRoom() {
             </div>
           </div>
         )}
+        {activeConversation?.type === "group" && !canSendMessagesInGroup && !announcementMode && (
+          <div className="mb-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-200">
+            Chỉ trưởng nhóm và phó nhóm có thể gửi tin nhắn trong nhóm này.
+          </div>
+        )}
         <form onSubmit={handleSendMessage} className="flex items-center gap-2">
           <div className="flex items-center gap-1">
             <button
@@ -3205,7 +3260,7 @@ export default function ChatRoom() {
                 <textarea
                   ref={inputRef}
                   value={message}
-                  disabled={isMessagingBlocked}
+                  disabled={!canComposeCurrentText}
                   rows={1}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && !e.shiftKey) {
@@ -3224,6 +3279,8 @@ export default function ChatRoom() {
                       ? isBlockedByMe
                         ? "Bạn đã chặn người dùng này"
                         : "Bạn đã bị chặn"
+                      : activeConversation?.type === "group" && !announcementMode && !canSendMessagesInGroup
+                        ? "Chỉ trưởng nhóm và phó nhóm có thể gửi tin nhắn"
                       : announcementMode
                         ? "Nhập nội dung thông báo..."
                         : "Nhập tin nhắn..."
@@ -3265,7 +3322,7 @@ export default function ChatRoom() {
                     <button
                       type="button"
                       onClick={() => setShowPollComposer(true)}
-                      disabled={isMessagingBlocked}
+                      disabled={isMessagingBlocked || !canSendMessagesInGroup}
                       className="rounded-full p-1 text-gray-500 transition-colors hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-gray-700"
                       title="Tao binh chon"
                     >
@@ -3328,7 +3385,7 @@ export default function ChatRoom() {
                   <button
                     type="button"
                     onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-                    disabled={isMessagingBlocked}
+                    disabled={!canComposeCurrentText}
                     className={`p-1 rounded-full transition-colors ${showEmojiPicker
                       ? "bg-primary-100 text-primary-500"
                       : "hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500"
@@ -3363,8 +3420,8 @@ export default function ChatRoom() {
           {(message.trim() || pendingMediaList.length > 0) && !isRecording ? (
             <button
               type="submit"
-              disabled={isMessagingBlocked}
-              className="p-3 bg-primary-500 text-white rounded-full hover:bg-primary-600 transition-colors flex-shrink-0"
+              disabled={isMessagingBlocked || (pendingMediaList.length === 0 && !canComposeCurrentText)}
+              className="p-3 bg-primary-500 text-white rounded-full hover:bg-primary-600 transition-colors flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Send className="w-5 h-5" />
             </button>

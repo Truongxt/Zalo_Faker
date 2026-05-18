@@ -56,6 +56,15 @@ const pickDisplayName = (...values: Array<unknown>) => {
   return "";
 };
 
+type MemberRelationState =
+  | "self"
+  | "friend"
+  | "pending_sent"
+  | "pending_received"
+  | "blocked_by_me"
+  | "blocked_by_them"
+  | "none";
+
 export default function GroupManagementScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -69,6 +78,7 @@ export default function GroupManagementScreen() {
 
   const [allUsers, setAllUsers] = useState<any[]>([]);
   const [friendIds, setFriendIds] = useState<string[]>([]);
+  const [memberRelations, setMemberRelations] = useState<Record<string, MemberRelationState>>({});
   const [showAddMember, setShowAddMember] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [showRenameModal, setShowRenameModal] = useState(false);
@@ -77,7 +87,13 @@ export default function GroupManagementScreen() {
   const [showGroupMenu, setShowGroupMenu] = useState(false);
   const [settings, setSettings] = useState<any>({
     invite: { code: "", approvalRequired: true, inviteUrl: "" },
-    permissions: { sendMedia: "all", pinMessage: "admin_deputy", sendAnnouncement: "admin_deputy" },
+    permissions: {
+      sendMessage: "all",
+      sendMedia: "all",
+      startCall: "all",
+      pinMessage: "admin_deputy",
+      sendAnnouncement: "admin_deputy",
+    },
     pendingJoinRequests: [],
   });
 
@@ -87,7 +103,7 @@ export default function GroupManagementScreen() {
   );
 
   useEffect(() => {
-    if (!id || !user) return;
+    if (!id || !user || !group) return;
 
     const loadUsersAndSettings = async () => {
       try {
@@ -117,6 +133,52 @@ export default function GroupManagementScreen() {
 
         setAllUsers(users.filter(Boolean) as any[]);
 
+        const relationEntries = await Promise.all(
+          participantIds
+            .filter((participantId) => participantId && participantId !== String(user.id))
+            .map(async (participantId) => {
+              if (uniqueFriendIds.includes(participantId)) {
+                return [participantId, "friend"] as const;
+              }
+
+              const relation = await friendsService
+                .getExitingFriend(String(user.id), participantId)
+                .catch(() => null);
+
+              if (!relation) {
+                return [participantId, "none"] as const;
+              }
+
+              const relationStatus = String((relation as any).status || "").toLowerCase();
+              if (relationStatus === "accepted") return [participantId, "friend"] as const;
+              if (relationStatus === "pending") {
+                return [
+                  participantId,
+                  String((relation as any).fromUserId) === String(user.id)
+                    ? "pending_sent"
+                    : "pending_received",
+                ] as const;
+              }
+              if (relationStatus === "blocked") {
+                return [
+                  participantId,
+                  String((relation as any).fromUserId) === String(user.id)
+                    ? "blocked_by_me"
+                    : "blocked_by_them",
+                ] as const;
+              }
+
+              return [participantId, "none"] as const;
+            }),
+        );
+
+        setMemberRelations(
+          relationEntries.reduce<Record<string, MemberRelationState>>((acc, [participantId, state]) => {
+            acc[participantId] = state;
+            return acc;
+          }, {}),
+        );
+
         if (latestSettings) {
           setSettings({
             invite: {
@@ -125,7 +187,9 @@ export default function GroupManagementScreen() {
               inviteUrl: latestSettings?.invite?.inviteUrl || "",
             },
             permissions: {
+              sendMessage: latestSettings?.permissions?.sendMessage || "all",
               sendMedia: latestSettings?.permissions?.sendMedia || "all",
+              startCall: latestSettings?.permissions?.startCall || "all",
               pinMessage: latestSettings?.permissions?.pinMessage || "admin_deputy",
               sendAnnouncement: latestSettings?.permissions?.sendAnnouncement || "admin_deputy",
             },
@@ -139,7 +203,7 @@ export default function GroupManagementScreen() {
     };
 
     loadUsersAndSettings();
-  }, [id, user]);
+  }, [id, user, group, group?.participants]);
 
   useEffect(() => {
     if (!id || !user || !group) return;
@@ -193,7 +257,9 @@ export default function GroupManagementScreen() {
             inviteUrl: latestSettings?.invite?.inviteUrl || "",
           },
           permissions: {
+            sendMessage: latestSettings?.permissions?.sendMessage || "all",
             sendMedia: latestSettings?.permissions?.sendMedia || "all",
+            startCall: latestSettings?.permissions?.startCall || "all",
             pinMessage: latestSettings?.permissions?.pinMessage || "admin_deputy",
             sendAnnouncement:
               latestSettings?.permissions?.sendAnnouncement || "admin_deputy",
@@ -601,7 +667,9 @@ export default function GroupManagementScreen() {
     ]);
   };
 
-  const handleUpdatePermission = async (key: string) => {
+  const handleUpdatePermission = async (
+    key: "sendMessage" | "sendMedia" | "startCall" | "pinMessage" | "sendAnnouncement",
+  ) => {
     setGroupMenuTitle("Chọn quyền");
     setGroupMenuOptions([
       ...permissionOptions.map((opt) => ({
@@ -642,6 +710,46 @@ export default function GroupManagementScreen() {
         userInfo?.name,
       ) || `User ${pId}`
     );
+  };
+
+  const getParticipantAvatar = (participant: any) => {
+    const pId = String(participant?.userId || "");
+    const userInfo = participantsMap.get(pId);
+    return participant?.avatarUrl || userInfo?.avatarUrl || userInfo?.avartarUrl || null;
+  };
+
+  const getMemberRelationState = (participantUserId: string): MemberRelationState => {
+    if (String(participantUserId) === String(user?.id)) return "self";
+    return memberRelations[String(participantUserId)] || "none";
+  };
+
+  const handleOpenProfile = (participantUserId: string) => {
+    router.push({
+      pathname: "/profile/[userId]",
+      params: { userId: String(participantUserId) },
+    });
+  };
+
+  const handleSendFriendRequest = async (targetUserId: string) => {
+    if (!user?.id || !targetUserId || isLoading) return;
+
+    try {
+      setIsLoading(true);
+      await friendsService.sendFriendRequests(
+        String(user.id),
+        String(targetUserId),
+        "Xin chào, mình muốn kết bạn với bạn trong nhóm chat.",
+      );
+      setMemberRelations((prev) => ({
+        ...prev,
+        [String(targetUserId)]: "pending_sent",
+      }));
+      GrayToast("Đã gửi lời mời kết bạn");
+    } catch (error: any) {
+      GrayToast(error?.message || "Không thể gửi lời mời kết bạn");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const inviteQrValue = String(
@@ -853,6 +961,18 @@ export default function GroupManagementScreen() {
                 {permissionOptions.find((o) => o.value === settings.permissions.sendMedia)?.label}
               </Text>
             </TouchableOpacity>
+            <TouchableOpacity onPress={() => handleUpdatePermission("sendMessage")} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "#F3F4F6" }}>
+              <Text style={{ color: "#374151" }}>Gửi tin nhắn</Text>
+              <Text style={{ color: "#6B7280", fontWeight: "500" }}>
+                {permissionOptions.find((o) => o.value === settings.permissions.sendMessage)?.label}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => handleUpdatePermission("startCall")} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "#F3F4F6" }}>
+              <Text style={{ color: "#374151" }}>Bắt đầu cuộc gọi nhóm</Text>
+              <Text style={{ color: "#6B7280", fontWeight: "500" }}>
+                {permissionOptions.find((o) => o.value === settings.permissions.startCall)?.label}
+              </Text>
+            </TouchableOpacity>
             <TouchableOpacity onPress={() => handleUpdatePermission("pinMessage")} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "#F3F4F6" }}>
               <Text style={{ color: "#374151" }}>Ghim tin nhắn</Text>
               <Text style={{ color: "#6B7280", fontWeight: "500" }}>
@@ -901,9 +1021,14 @@ export default function GroupManagementScreen() {
               !isMe &&
               (isAdmin ||
                 (currentUserParticipant?.role === "deputy" && p.role === "member"));
+            const relationState = getMemberRelationState(String(p.userId));
             return (
               <View key={p.userId} style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "#F3F4F6" }}>
-                <View>
+                <View style={{ flex: 1, flexDirection: "row", alignItems: "center" }}>
+                  <TouchableOpacity onPress={() => handleOpenProfile(String(p.userId))} activeOpacity={0.8}>
+                    <Avatar name={getParticipantName(p)} uri={getParticipantAvatar(p)} size={42} />
+                  </TouchableOpacity>
+                  <View style={{ marginLeft: 12, flex: 1 }}>
                   <Text style={{ fontWeight: "600", color: "#1F2937", fontSize: 15 }}>
                     {getParticipantName(p)} {isMe && "(Bạn)"}
                   </Text>
@@ -911,6 +1036,16 @@ export default function GroupManagementScreen() {
                     {p.role === "admin" ? "Trưởng nhóm" : p.role === "deputy" ? "Phó nhóm" : "Thành viên"}
                   </Text>
                 </View>
+                  </View>
+                {!isMe && relationState === "none" && (
+                  <TouchableOpacity
+                    onPress={() => void handleSendFriendRequest(String(p.userId))}
+                    disabled={isLoading}
+                    style={{ marginRight: 10, width: 34, height: 34, borderRadius: 17, backgroundColor: "#EFF6FF", alignItems: "center", justifyContent: "center", opacity: isLoading ? 0.5 : 1 }}
+                  >
+                    <Ionicons name="person-add-outline" size={18} color="#2563EB" />
+                  </TouchableOpacity>
+                )}
                 {canManage && (
                   <TouchableOpacity onPress={() => handleMemberActions(p)} style={{ padding: 4 }}>
                     <Ionicons name="ellipsis-horizontal" size={20} color="#6B7280" />
