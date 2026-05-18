@@ -74,6 +74,9 @@ export interface Message {
         isForwarded?: boolean
         forwardedFromMessageId?: string
         forwardedAt?: string
+        folderId?: string
+        folder?: string
+        subfolder?: string
         transcript?: string
         transcriptStatus?: string
         transcriptUpdatedAt?: string
@@ -84,6 +87,8 @@ export interface Message {
     readBy: { userId: string; readAt: string }[]
     isDeleted: boolean
     createdAt: string
+    senderName?: string
+    senderAvatar?: string
     // Added for helper
     lastRead?: string
 }

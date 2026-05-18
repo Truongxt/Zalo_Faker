@@ -31,71 +31,12 @@ const getGridClass = (count: number): string => {
   return 'grid-cols-3 grid-rows-3';
 };
 
-const mergeFloat32Chunks = (chunks: Float32Array[]): Float32Array => {
-  const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
-  const merged = new Float32Array(totalLength);
-  let offset = 0;
-  chunks.forEach((chunk) => {
-    merged.set(chunk, offset);
-    offset += chunk.length;
-  });
-  return merged;
-};
-
-const audioBufferToWavBlob = (pcmData: Float32Array, sampleRate: number): Blob => {
-  const bytesPerSample = 2;
-  const blockAlign = bytesPerSample;
-  const byteRate = sampleRate * blockAlign;
-  const dataSize = pcmData.length * bytesPerSample;
-  const buffer = new ArrayBuffer(44 + dataSize);
-  const view = new DataView(buffer);
-
-  const writeString = (offset: number, value: string) => {
-    for (let i = 0; i < value.length; i += 1) {
-      view.setUint8(offset + i, value.charCodeAt(i));
-    }
-  };
-
-  writeString(0, 'RIFF');
-  view.setUint32(4, 36 + dataSize, true);
-  writeString(8, 'WAVE');
-  writeString(12, 'fmt ');
-  view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true);
-  view.setUint16(22, 1, true);
-  view.setUint32(24, sampleRate, true);
-  view.setUint32(28, byteRate, true);
-  view.setUint16(32, blockAlign, true);
-  view.setUint16(34, 16, true);
-  writeString(36, 'data');
-  view.setUint32(40, dataSize, true);
-
-  let writeOffset = 44;
-  for (let i = 0; i < pcmData.length; i += 1) {
-    const sample = Math.max(-1, Math.min(1, pcmData[i]));
-    const intSample = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
-    view.setInt16(writeOffset, intSample, true);
-    writeOffset += 2;
-  }
-
-  return new Blob([buffer], { type: 'audio/wav' });
-};
-
-const blobToDataUrl = (blob: Blob): Promise<string> =>
-  new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => resolve(String(reader.result || ''));
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(blob);
-  });
-
 // ─────────────────────────────────────────────────
 // Video Tile Component
 // ─────────────────────────────────────────────────
 
 function VideoTile({
   stream,
-  frame,
   label,
   isMuted,
   isVideoOff,
@@ -104,7 +45,6 @@ function VideoTile({
   avatar,
 }: {
   stream: MediaStream | null;
-  frame?: string | null;
   label: string;
   isMuted: boolean;
   isVideoOff: boolean;
@@ -126,7 +66,6 @@ function VideoTile({
   }, [stream]);
 
   const showVideo = stream && !isVideoOff;
-  const showFrame = !showVideo && frame;
 
   return (
     <div
@@ -142,12 +81,6 @@ function VideoTile({
           autoPlay
           playsInline
           muted={isLocal}
-          className="w-full h-full object-cover"
-        />
-      ) : showFrame ? (
-        <img
-          src={frame}
-          alt={label}
           className="w-full h-full object-cover"
         />
       ) : (
@@ -207,6 +140,7 @@ export default function GroupCallModal() {
     groupCall,
     addGroupParticipant,
     removeGroupParticipant,
+    removeGroupRemoteStream,
     updateGroupParticipantMedia,
     setGroupCallStatus,
     setGroupActiveSpeaker,
@@ -225,8 +159,16 @@ export default function GroupCallModal() {
     { id: string; name: string; type: 'join' | 'leave' }[]
   >([]);
   const notifIdRef = useRef(0);
+  const lastPresenceEventRef = useRef<Record<string, { type: 'join' | 'leave'; at: number }>>({});
 
-  const pushNotification = useCallback((name: string, type: 'join' | 'leave') => {
+  const pushPresenceNotification = useCallback((userId: string, name: string, type: 'join' | 'leave') => {
+    const now = Date.now();
+    const last = lastPresenceEventRef.current[userId];
+    if (last && last.type !== type && now - last.at < 1200) {
+      return;
+    }
+    lastPresenceEventRef.current[userId] = { type, at: now };
+
     const id = `notif-${++notifIdRef.current}`;
     setNotifications((prev) => [...prev, { id, name, type }]);
     setTimeout(() => {
@@ -234,12 +176,8 @@ export default function GroupCallModal() {
     }, 3500);
   }, []);
 
-  const [remoteFrames, setRemoteFrames] = useState<Record<string, string>>({});
-  const hiddenVideoRef = useRef<HTMLVideoElement>(null);
-
   const {
     roomId,
-    conversationId,
     callStatus,
     callType,
     participants,
@@ -307,48 +245,68 @@ export default function GroupCallModal() {
   );
 
   const handleUserJoined = useCallback(
-    async (data: { roomId: string; userId: string; userName: string; userAvatar: string | null }) => {
+    async (data: {
+      roomId: string;
+      userId: string;
+      userName: string;
+      userAvatar: string | null;
+      reconnected?: boolean;
+    }) => {
       if (data.roomId !== roomId || !meshRef.current) return;
+      if (!data.userId || String(data.userId) === String(user?.id)) return;
 
-      addGroupParticipant({
-        userId: data.userId,
-        name: data.userName,
-        avatar: data.userAvatar || undefined,
-        isMuted: false,
-        isVideoOff: false,
-      });
+      const knownParticipant = Boolean(participants[data.userId]);
+      if (data.reconnected && !knownParticipant) {
+        // Ignore out-of-sync reconnect signals to avoid phantom participants.
+        return;
+      }
+
+      if (!knownParticipant) {
+        addGroupParticipant({
+          userId: data.userId,
+          name: data.userName,
+          avatar: data.userAvatar || undefined,
+          isMuted: false,
+          isVideoOff: false,
+        });
+      }
 
       // Someone joined → we are now in an active call
       setGroupCallStatus('in-call');
 
-      // Show toast notification
-      pushNotification(data.userName || 'Người dùng', 'join');
+      if (!data.reconnected) {
+        // Show toast notification for actual joins
+        pushPresenceNotification(data.userId, data.userName || 'Nguoi dung', 'join');
+      }
 
-      // Create peer connection with the new user (we send offer)
-      await meshRef.current.createPeerConnection(data.userId, true);
+      // The newly joined participant creates offers to existing members from
+      // the group:join callback. Existing members only prepare to answer.
+      await meshRef.current.createPeerConnection(data.userId, false);
     },
-    [roomId, addGroupParticipant, setGroupCallStatus, pushNotification],
+    [roomId, user?.id, participants, addGroupParticipant, setGroupCallStatus, pushPresenceNotification],
   );
 
   const handleUserLeft = useCallback(
     (data: { roomId: string; userId: string; newHostUserId?: string }) => {
       if (data.roomId !== roomId) return;
+      const leftUserId = String(data.userId || '');
+      if (!leftUserId) return;
 
       // Get participant name before removing
-      const leavingParticipant = participants[data.userId];
-      const leavingName = leavingParticipant?.name || 'Người dùng';
+      const leavingName = participants[leftUserId]?.name || 'Nguoi dung';
 
-      removeGroupParticipant(data.userId);
-      meshRef.current?.closePeer(data.userId);
+      removeGroupParticipant(leftUserId);
+      removeGroupRemoteStream(leftUserId);
+      meshRef.current?.closePeer(leftUserId);
 
       if (data.newHostUserId) {
         setGroupHost(data.newHostUserId);
       }
 
       // Show toast notification
-      pushNotification(leavingName, 'leave');
+      pushPresenceNotification(leftUserId, leavingName, 'leave');
     },
-    [roomId, participants, removeGroupParticipant, setGroupHost, pushNotification],
+    [roomId, participants, removeGroupParticipant, removeGroupRemoteStream, setGroupHost, pushPresenceNotification],
   );
 
   const handleUserKicked = useCallback(
@@ -369,171 +327,6 @@ export default function GroupCallModal() {
     },
     [roomId, updateGroupParticipantMedia],
   );
-
-
-
-  const handleVideoFrame = useCallback(
-    (data: any) => {
-      if (String(data.conversationId) !== String(conversationId)) return;
-      if (data.frame && data.fromUserId) {
-        setRemoteFrames((prev) => ({
-          ...prev,
-          [data.fromUserId]: data.frame,
-        }));
-      }
-    },
-    [conversationId],
-  );
-
-  const handleAudioFrame = useCallback(
-    (data: any) => {
-      if (String(data.conversationId) !== String(conversationId)) return;
-      if (data.audio) {
-        const audioData = data.audio.startsWith('data:')
-          ? data.audio
-          : `data:audio/mp4;base64,${data.audio}`;
-        
-        const audio = new Audio(audioData);
-        audio.volume = 1.0;
-        audio.play().catch(() => {});
-      }
-    },
-    [conversationId],
-  );
-
-  // ───────────── Frame Capture for Mobile ─────────────
-
-  useEffect(() => {
-    if (callStatus !== 'in-call' || callType !== 'video' || isVideoOff || !localStream) return;
-
-    const interval = setInterval(() => {
-      const video = hiddenVideoRef.current;
-      if (!video) return;
-
-      if (video.srcObject !== localStream) {
-        video.srcObject = localStream;
-        video.muted = true;
-        video.play().catch(() => {});
-      }
-
-      const canvas = document.createElement('canvas');
-      canvas.width = 320;
-      canvas.height = 240;
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const frame = canvas.toDataURL('image/jpeg', 0.5);
-        socketService.getSocket()?.emit('video:frame', {
-          conversationId,
-          frame,
-          isGroupCall: true,
-        });
-      }
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [callStatus, callType, isVideoOff, localStream, conversationId]);
-
-  useEffect(() => {
-    if (callStatus !== 'in-call' || !localStream || isMuted) return;
-
-    const socket = socketService.getSocket();
-    if (!socket) return;
-
-    const audioTracks = localStream.getAudioTracks();
-    if (!audioTracks.length) return;
-
-    let cancelled = false;
-    let intervalId: number | null = null;
-    let sourceNode: MediaStreamAudioSourceNode | null = null;
-    let processorNode: ScriptProcessorNode | null = null;
-    let silentGain: GainNode | null = null;
-    let captureContext: AudioContext | null = null;
-    const pcmChunks: Float32Array[] = [];
-    let sentCount = 0;
-
-    (async () => {
-      try {
-        const audioOnlyStream = new MediaStream(audioTracks);
-        captureContext = new AudioContext();
-        if (captureContext.state === 'suspended') {
-          await captureContext.resume();
-        }
-
-        sourceNode = captureContext.createMediaStreamSource(audioOnlyStream);
-        processorNode = captureContext.createScriptProcessor(4096, 1, 1);
-        silentGain = captureContext.createGain();
-        silentGain.gain.value = 0;
-
-        sourceNode.connect(processorNode);
-        processorNode.connect(silentGain);
-        silentGain.connect(captureContext.destination);
-
-        processorNode.onaudioprocess = (event) => {
-          const channelData = event.inputBuffer.getChannelData(0);
-          pcmChunks.push(new Float32Array(channelData));
-        };
-
-        intervalId = window.setInterval(async () => {
-          if (cancelled) return;
-          if (!pcmChunks.length) return;
-
-          try {
-            const merged = mergeFloat32Chunks(pcmChunks.splice(0, pcmChunks.length));
-            const wavBlob = audioBufferToWavBlob(merged, captureContext!.sampleRate);
-            const base64 = await blobToDataUrl(wavBlob);
-            socket.emit('video:audio-frame', {
-              conversationId,
-              audio: base64,
-              audioMimeType: 'audio/wav',
-              isGroupCall: true,
-            });
-            sentCount += 1;
-            if (sentCount % 5 === 0) {
-              console.log('[GroupCall] Sent audio chunks:', sentCount, 'mime: audio/wav');
-            }
-          } catch (e) {
-            console.warn('[GroupCall] WAV audio emit failed:', e);
-          }
-        }, 1200);
-      } catch (e) {
-        console.warn('[GroupCall] Audio pipeline init failed:', e);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-      if (intervalId !== null) window.clearInterval(intervalId);
-      if (processorNode) {
-        processorNode.onaudioprocess = null;
-        try {
-          processorNode.disconnect();
-        } catch {
-          // noop
-        }
-      }
-      if (sourceNode) {
-        try {
-          sourceNode.disconnect();
-        } catch {
-          // noop
-        }
-      }
-      if (silentGain) {
-        try {
-          silentGain.disconnect();
-        } catch {
-          // noop
-        }
-      }
-      if (captureContext) {
-        captureContext.close().catch(() => {
-          // noop
-        });
-      }
-    };
-  }, [callStatus, localStream, isMuted, conversationId]);
-
   // ───────────── Initialize Call ─────────────
 
   useEffect(() => {
@@ -553,8 +346,6 @@ export default function GroupCallModal() {
     socket.on('group:user-left', handleUserLeft);
     socket.on('group:user-kicked', handleUserKicked);
     socket.on('group:media-changed', handleMediaChanged);
-    socket.on('video:frame', handleVideoFrame);
-    socket.on('video:audio-frame', handleAudioFrame);
 
     const initCall = async () => {
       // Create mesh manager
@@ -632,8 +423,6 @@ export default function GroupCallModal() {
       socket.off('group:user-left', handleUserLeft);
       socket.off('group:user-kicked', handleUserKicked);
       socket.off('group:media-changed', handleMediaChanged);
-      socket.off('video:frame', handleVideoFrame);
-      socket.off('video:audio-frame', handleAudioFrame);
     };
   }, [isActive, user?.id, roomId, callType]);
 
@@ -685,7 +474,6 @@ export default function GroupCallModal() {
   const allTiles: {
     userId: string;
     stream: MediaStream | null;
-    frame: string | null;
     label: string;
     isMuted: boolean;
     isVideoOff: boolean;
@@ -697,7 +485,6 @@ export default function GroupCallModal() {
   allTiles.push({
     userId: user?.id || '',
     stream: localStream,
-    frame: null,
     label: 'Bạn',
     isMuted,
     isVideoOff,
@@ -710,7 +497,6 @@ export default function GroupCallModal() {
     allTiles.push({
       userId,
       stream: remoteStreams[userId] || null,
-      frame: remoteFrames[userId] || null,
       label: participant.name || userId,
       isMuted: participant.isMuted,
       isVideoOff: participant.isVideoOff,
@@ -724,7 +510,6 @@ export default function GroupCallModal() {
 
   return (
     <div className="fixed inset-0 z-[100] flex flex-col bg-gray-900 animate-in fade-in duration-300">
-      <video ref={hiddenVideoRef} className="hidden" />
       {/* Header */}
       <div className="flex items-center justify-between px-6 py-4 bg-black/40 backdrop-blur-sm z-10">
         <div>
@@ -780,7 +565,6 @@ export default function GroupCallModal() {
             <VideoTile
               key={tile.userId}
               stream={tile.stream}
-              frame={tile.frame}
               label={tile.label}
               isMuted={tile.isMuted}
               isVideoOff={tile.isVideoOff}
@@ -913,3 +697,4 @@ export default function GroupCallModal() {
     </div>
   );
 }
+

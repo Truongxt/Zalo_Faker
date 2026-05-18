@@ -1,5 +1,6 @@
 const GroupService = require("../services/groupService");
 const { uploadFile } = require("../services/file.service");
+const { emitToUser } = require("../utils/socketEmitter");
 
 const getRequesterId = (req) => req.user?.userId;
 
@@ -420,9 +421,39 @@ const GroupController = {
 
   dissolveGroup: async (req, res) => {
     try {
-      const result = await GroupService.dissolveGroup(req.params.id, {
-        userId: getRequesterId(req)
+      const groupId = String(req.params.id || "");
+      const requesterId = getRequesterId(req);
+      const memberSnapshot = await GroupService.getGroupMembers(groupId, {
+        userId: requesterId
       });
+      const memberIds = Array.from(
+        new Set(
+          (memberSnapshot?.members || [])
+            .map((member) => String(member?.userId || ""))
+            .filter(Boolean)
+        )
+      );
+
+      const result = await GroupService.dissolveGroup(req.params.id, {
+        userId: requesterId
+      });
+
+      const payload = {
+        conversationId: groupId,
+        groupId,
+        dissolvedBy: String(requesterId || ""),
+        dissolvedAt: new Date().toISOString(),
+      };
+
+      await Promise.all(
+        memberIds.map(async (memberId) => {
+          await emitToUser(memberId, "group:dissolved", payload);
+          await emitToUser(memberId, "chat:conversation_removed", {
+            ...payload,
+            reason: "group_dissolved",
+          });
+        })
+      );
 
       return res.json(result);
     } catch (error) {

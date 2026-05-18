@@ -1,17 +1,36 @@
 import { Platform } from "react-native";
 
-const DEFAULT_API_URL = Platform.select({
-  android: "http://10.0.2.2:3000",
-  web: "http://localhost:3000",
-  default: "http://localhost:3000",
-});
+const PRODUCTION_API_URL = "http://13.212.107.150";
+const PRODUCTION_SOCKET_URL = "http://13.212.107.150";
 
-export const API_URL = process.env.EXPO_PUBLIC_API_URL || DEFAULT_API_URL;
+const DEV_API_URL =
+  Platform.select({
+    android: "http://10.0.2.2:3000",
+    web: "http://localhost:3000",
+    default: "http://localhost:3000",
+  }) || "http://localhost:3000";
+
+const normalizeUrl = (url?: string) => url?.trim().replace(/\/+$/, "");
+
+const socketOriginFromApiUrl = (apiUrl?: string) =>
+  normalizeUrl(apiUrl)?.replace(/\/api(?:\/.*)?$/, "");
+
+const apiOriginFromUrl = (apiUrl?: string) =>
+  socketOriginFromApiUrl(apiUrl);
+
+const DEFAULT_API_URL = __DEV__ ? DEV_API_URL : PRODUCTION_API_URL;
+
+const DEFAULT_SOCKET_URL = __DEV__
+  ? socketOriginFromApiUrl(DEV_API_URL)
+  : PRODUCTION_SOCKET_URL;
+
+export const API_URL =
+  apiOriginFromUrl(process.env.EXPO_PUBLIC_API_URL) || DEFAULT_API_URL;
 
 export const SOCKET_URL =
-  process.env.EXPO_PUBLIC_SOCKET_URL ||
-  process.env.EXPO_PUBLIC_API_URL ||
-  DEFAULT_API_URL;
+  normalizeUrl(process.env.EXPO_PUBLIC_SOCKET_URL) ||
+  socketOriginFromApiUrl(process.env.EXPO_PUBLIC_API_URL) ||
+  DEFAULT_SOCKET_URL;
 
 export const APP_CONFIG = {
   name: "taklo",

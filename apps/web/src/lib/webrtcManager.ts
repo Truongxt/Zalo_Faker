@@ -118,22 +118,9 @@ export class WebRTCMeshManager {
       }
     };
 
-    // Negotiation needed (renegotiation)
-    pc.onnegotiationneeded = async () => {
-      try {
-        peerState.makingOffer = true;
-        await pc.setLocalDescription();
-        socketService.getSocket()?.emit('webrtc:offer', {
-          toUserId: remoteUserId,
-          offer: pc.localDescription,
-          roomId: this.roomId,
-        });
-      } catch (err) {
-        console.error(`[WebRTC] Negotiation error with ${remoteUserId}:`, err);
-      } finally {
-        peerState.makingOffer = false;
-      }
-    };
+    // Offers are created explicitly by the joining peer. Letting this handler
+    // auto-send offers can make both sides send offers at the same time.
+    pc.onnegotiationneeded = null;
 
     // Connection state monitoring
     pc.onconnectionstatechange = () => {

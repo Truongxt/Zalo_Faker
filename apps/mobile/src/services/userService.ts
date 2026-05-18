@@ -65,10 +65,12 @@ const getMimeTypeFromUri = (fileUri: string) => {
 
 // Map server user shape to mobile User type
 const mapServerUser = (u: ServerUser): User => ({
-  id: u.userId,
+  id: (u as any).userId || (u as any).id || "",
   email: u.email,
   phone: u.phone,
-  fullName: u.userName,
+  fullName:
+    String((u as any).userName || (u as any).fullName || (u as any).name || "").trim() ||
+    `User ${String((u as any).userId || (u as any).id || "").trim()}`,
   avatarUrl: u.avartarUrl,
   birthday: u.birthday,
   gender: u.gender,

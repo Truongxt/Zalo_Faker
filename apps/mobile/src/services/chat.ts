@@ -437,6 +437,19 @@ export const chatService = {
       if (!id || !updates || Object.keys(updates).length === 0) return;
       useChatStore.getState().updateConversation(String(id), updates);
     });
+
+    const handleConversationRemoved = ({
+      conversationId,
+    }: {
+      conversationId?: string;
+    }) => {
+      const targetId = String(conversationId || "").trim();
+      if (!targetId) return;
+      useChatStore.getState().removeConversation(targetId);
+    };
+
+    socket.on("chat:conversation_removed", handleConversationRemoved);
+    socket.on("group:dissolved", handleConversationRemoved);
   },
 
   async loadConversations() {

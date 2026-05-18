@@ -317,11 +317,7 @@ export function Message({
               })()
             ) : (
               <>
-                {message.type !== "text" && !message.isDeleted ? (
-                  <Text className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">
-                    {message.type}
-                  </Text>
-                ) : null}
+                {/* Removed redundant message type label for cleaner UI */}
 
                 <Text
                   className={`text-[15px] leading-5 ${message.isDeleted ? "italic text-gray-500" : ""}`}

@@ -11,6 +11,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import {
   useChatStore,
   type Message,
+  type MessageAttachment,
   type GroupPermissionScope,
   normalizeMessage,
 } from "@/stores/chatStore";
@@ -86,6 +87,7 @@ import BackgroundPickerModal from "@/components/chat/BackgroundPickerModal";
 import PollComposerModal from "@/components/chat/PollComposerModal";
 import { useCallStore } from "@/stores/callStore";
 import { friendsService } from "@/services/friendsService";
+import PromptModal from "@/components/common/PromptModal";
 
 
 type InfoPanelSectionKey = "media" | "files" | "links";
@@ -190,6 +192,7 @@ export default function ChatRoom() {
     updateMessage,
     setActiveConversation,
     updateConversation,
+    removeConversation,
   } = useChatStore();
 
   // ✅ Dùng selector để tự re-render khi có tin mới
@@ -224,6 +227,7 @@ export default function ChatRoom() {
   const debouncedSearchQuery = useDebounce(searchMessageQuery, 300);
   const [showGroupManagement, setShowGroupManagement] = useState(false);
   const [showPollComposer, setShowPollComposer] = useState(false);
+  const [showNicknameModal, setShowNicknameModal] = useState(false);
   const [forwardMessage, setForwardMessage] = useState<Message | null>(null);
   const [showBackgroundPicker, setShowBackgroundPicker] = useState(false);
   const [announcementMode, setAnnouncementMode] = useState(false);
@@ -569,13 +573,40 @@ export default function ChatRoom() {
 
     socketService.on("chat:update_conversation", onUpdateConversation);
 
+    const onConversationRemoved = ({
+      conversationId: removedConversationId,
+      reason,
+    }: {
+      conversationId?: string;
+      reason?: string;
+    }) => {
+      if (String(removedConversationId || "") !== String(conversationId || "")) {
+        return;
+      }
+
+      removeConversation(String(conversationId));
+      addToast(
+        reason === "group_dissolved"
+          ? "Nhóm này đã được giải tán"
+          : "Cuộc trò chuyện đã bị xóa",
+        "info",
+        2500,
+      );
+      navigate("/chat");
+    };
+
+    socketService.on("chat:conversation_removed", onConversationRemoved);
+    socketService.on("group:dissolved", onConversationRemoved);
+
     return () => {
       socketService.leaveRoom(conversationId);
       socketService.off("chat:typing", handleTyping);
       socketService.off("chat:stop_typing", handleStopTyping);
       socketService.off("chat:update_conversation", onUpdateConversation);
+      socketService.off("chat:conversation_removed", onConversationRemoved);
+      socketService.off("group:dissolved", onConversationRemoved);
     };
-  }, [conversationId, user?.id, updateConversation]);
+  }, [addToast, conversationId, navigate, removeConversation, user?.id, updateConversation]);
 
   // Sau khi messages được load vào phòng hiện tại, auto read message mới nhất chưa đọc
   useEffect(() => {
@@ -1025,7 +1056,7 @@ export default function ChatRoom() {
         text: caption,
       };
 
-      const metadata = isGroup ? { folderId, folder, subfolder } : null;
+      const metadata = isGroup ? { folderId, folder, subfolder } : undefined;
 
       const tempId = `temp-group-media-${Date.now()}`;
       const optimisticMsg: Message = {
@@ -2087,16 +2118,8 @@ export default function ChatRoom() {
   const chatAreaBackgroundColor =
     getSolidBackgroundColor(conversationBackground) || undefined;
 
-  const handleUpdateNickname = async () => {
+  const handleUpdateNickname = async (newNickname: string) => {
     if (!conversationId || !user) return;
-    if (activeConversation?.type === "group") {
-      alert("Hiện chỉ hỗ trợ đổi tên gợi nhớ trong trò chuyện cá nhân.");
-      return;
-    }
-
-    const oldName = activeNickname || otherUser?.fullName || "";
-    const newNickname = prompt("Nhập tên gợi nhớ (để trống để xóa):", oldName);
-    if (newNickname === null) return;
 
     try {
       await updateParticipantSetting(conversationId, user.id, {
@@ -2623,7 +2646,13 @@ export default function ChatRoom() {
                   </button>
                 ) : (
                   <button
-                    onClick={handleUpdateNickname}
+                    onClick={() => {
+                      if (activeConversation?.type === "group") {
+                        alert("Hiện chỉ hỗ trợ đổi tên gợi nhớ trong trò chuyện cá nhân.");
+                        return;
+                      }
+                      setShowNicknameModal(true);
+                    }}
                     className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-dark-100 transition-colors"
                   >
                     Đổi tên gợi nhớ
@@ -3841,6 +3870,16 @@ export default function ChatRoom() {
           onClose={() => setShowBackgroundPicker(false)}
         />
       )}
+
+      <PromptModal
+        isOpen={showNicknameModal}
+        onClose={() => setShowNicknameModal(false)}
+        title="Đổi tên gợi nhớ"
+        message="Tên gợi nhớ giúp bạn dễ dàng nhận diện bạn bè."
+        placeholder="Nhập tên gợi nhớ..."
+        initialValue={activeNickname || otherUser?.fullName || ""}
+        onConfirm={handleUpdateNickname}
+      />
     </div>
   );
 }

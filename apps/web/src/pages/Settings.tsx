@@ -12,7 +12,6 @@ import {
   Info,
   ChevronRight,
   Shield,
-  Trash2,
   ClipboardList,
   LogOut,
 } from "lucide-react";
