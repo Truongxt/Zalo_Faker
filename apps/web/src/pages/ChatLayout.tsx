@@ -205,7 +205,9 @@ export default function ChatLayout() {
               invite: { code: "", approvalRequired: true },
               joinRequests: [],
               permissions: {
+                sendMessage: conversation.type === "group" ? "all" : "all",
                 sendMedia: "all",
+                startCall: conversation.type === "group" ? "all" : "all",
                 pinMessage: conversation.type === "group" ? "admin_deputy" : "all",
                 sendAnnouncement:
                   conversation.type === "group" ? "admin_deputy" : "all",

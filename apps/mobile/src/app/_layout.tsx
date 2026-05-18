@@ -13,10 +13,13 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { socketService } from "@/lib/socket";
 import { useAuthStore } from "@/stores/authStore";
 import { useChatStore } from "@/stores/chatStore";
+import { useNotificationStore } from "@/stores/notificationStore";
 import { chatService } from "@/services/chat";
 import { notificationService } from "@/services/notificationService";
+import { notificationsApi } from "@/services/notificationsApi";
 import { contactSuggestionsService } from "@/services/contactSuggestionsService";
 import FlashMessage from "react-native-flash-message";
+import type { MomentActivityNotification } from "@/types";
 // Giữ splash screen
 SplashScreen.preventAutoHideAsync().catch((error) => {
   console.warn(
@@ -29,6 +32,11 @@ export default function RootLayout() {
   const router = useRouter();
   const { initialized, initialize, isAuthenticated, user, logout } =
     useAuthStore();
+  const {
+    setNotifications,
+    prependNotification,
+    reset: resetNotifications,
+  } = useNotificationStore();
 
   useEffect(() => {
     initialize().finally(() => {
@@ -40,6 +48,7 @@ export default function RootLayout() {
 
   useEffect(() => {
     if (!isAuthenticated || !user?.id) {
+      resetNotifications();
       socketService.disconnect();
       return;
     }
@@ -48,6 +57,14 @@ export default function RootLayout() {
     chatService.init();
     socketService.connect();
     notificationService.registerForPushNotificationsAsync();
+    void notificationsApi
+      .getNotifications()
+      .then((result) => {
+        setNotifications(result.notifications || [], result.unreadCount || 0);
+      })
+      .catch((error) => {
+        console.warn("Failed to preload notifications:", error);
+      });
     void contactSuggestionsService.prewarmOnAppOpen(String(user.id));
     const appStateSubscription = AppState.addEventListener("change", (nextState) => {
       if (nextState === "active") {
@@ -76,15 +93,40 @@ export default function RootLayout() {
       forceLogout("Phien dang nhap da het hieu luc. Vui long dang nhap lai.");
     };
 
+    const handleNewNotification = (notification: MomentActivityNotification) => {
+      prependNotification(notification);
+      void notificationService.showLocalNotification(
+        notification.title,
+        notification.body || "Co cap nhat moi tu khoanh khac cua ban.",
+        {
+          type: "moment-notification",
+          momentId: notification.momentId,
+          commentId: notification.commentId,
+          notificationId: notification.notificationId,
+        },
+        notification.actorAvatarUrl || undefined,
+      );
+    };
+
     socketService.on("session:force_logout", handleForceLogout);
     socketService.on("connect_error", handleConnectError);
+    socketService.on("notification:new", handleNewNotification);
 
     return () => {
       socketService.off("session:force_logout", handleForceLogout);
       socketService.off("connect_error", handleConnectError);
+      socketService.off("notification:new", handleNewNotification);
       appStateSubscription.remove();
     };
-  }, [isAuthenticated, user?.id, logout, router]);
+  }, [
+    isAuthenticated,
+    user?.id,
+    logout,
+    prependNotification,
+    resetNotifications,
+    router,
+    setNotifications,
+  ]);
 
   if (!initialized) {
     return null;

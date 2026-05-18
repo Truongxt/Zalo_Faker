@@ -469,8 +469,12 @@ export default function GroupChatScreen() {
             conversation.groupSettings?.invite?.approvalRequired ?? true,
         },
         permissions: {
+          sendMessage:
+            conversation.groupSettings?.permissions?.sendMessage || "all",
           sendMedia:
             conversation.groupSettings?.permissions?.sendMedia || "all",
+          startCall:
+            conversation.groupSettings?.permissions?.startCall || "all",
           pinMessage:
             conversation.groupSettings?.permissions?.pinMessage ||
             "admin_deputy",

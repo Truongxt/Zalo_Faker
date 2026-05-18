@@ -330,7 +330,9 @@ export interface GroupSettings {
     }
     joinRequests: GroupJoinRequest[]
     permissions: {
+        sendMessage: GroupPermissionScope
         sendMedia: GroupPermissionScope
+        startCall: GroupPermissionScope
         pinMessage: GroupPermissionScope
         sendAnnouncement: GroupPermissionScope
     }
