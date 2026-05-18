@@ -39,6 +39,24 @@ const loginHistoryRepository = {
   },
 
   /**
+   * Get a specific login history record by userId + loginId.
+   * @param {string} userId
+   * @param {string} loginId
+   */
+  getByUserIdAndLoginId: async (userId, loginId) => {
+    const params = {
+      TableName: TABLE_NAME,
+      Key: {
+        userId,
+        loginId,
+      },
+    };
+
+    const result = await dynamodb.get(params).promise();
+    return result.Item || null;
+  },
+
+  /**
    * Delete all login history records for a user.
    */
   deleteByUserId: async (userId) => {

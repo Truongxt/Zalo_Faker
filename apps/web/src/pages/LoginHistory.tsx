@@ -4,6 +4,7 @@ import { ArrowLeft, Loader2, LogOut, RefreshCw } from 'lucide-react'
 import { useAuthStore } from '@/stores/authStore'
 import { authService, type LoginHistoryItem } from '@/services/auth'
 import { useToast } from '@/contexts/ToastContext'
+import { socketService } from '@/lib/socket'
 
 const platformLabel = (platform: string) => {
     if (platform === 'mobile') return 'Di động'
@@ -62,6 +63,7 @@ export default function LoginHistory() {
 
             if (result?.isCurrentSessionRevoked) {
                 addToast('Phiên hiện tại đã bị đăng xuất. Vui lòng đăng nhập lại.', 'error')
+                socketService.disconnect()
                 useAuthStore.getState().logout()
                 navigate('/login')
             }

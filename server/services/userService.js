@@ -11,6 +11,7 @@ const friendRepository = require("../repository/friendsRepository");
 const refreshTokenRepository = require("../repository/RefreshTokenRepository");
 const loginHistoryRepository = require("../repository/loginHistoryRepository");
 const { safeGet, safeSet, safeDel } = require("../utils/redisClient");
+const { forceLogoutSessions } = require("../utils/socketEmitter");
 const { sendOTPEmail } = require("../utils/sendEmail");
 const { validateRegistrationEmail } = require("../utils/emailValidation");
 const { uploadFile } = require("./file.service");
@@ -927,15 +928,10 @@ const UserService = {
       normalizedUserId,
       normalizedLoginId,
     );
-
-    if (!tokens.length) {
-      return {
-        message: "Session is already logged out",
-        loginId: normalizedLoginId,
-        revokedTokenCount: 0,
-        isCurrentSessionRevoked: false,
-      };
-    }
+    const loginHistoryItem = await loginHistoryRepository.getByUserIdAndLoginId(
+      normalizedUserId,
+      normalizedLoginId,
+    );
 
     for (const tokenItem of tokens) {
       if (tokenItem?.refreshToken) {
@@ -955,14 +951,46 @@ const UserService = {
       }
     }
 
-    const isCurrentSessionRevoked = tokens.some(
+    const revokedSessionIds = [...new Set([
+      ...tokens
+        .map((tokenItem) => String(tokenItem?.sessionId || "").trim())
+        .filter(Boolean),
+      String(loginHistoryItem?.sessionId || "").trim(),
+    ].filter(Boolean))];
+    const revokedPlatforms = [...new Set([
+      ...tokens
+        .map((tokenItem) => normalizePlatform(tokenItem?.platform))
+        .filter(Boolean),
+      normalizePlatform(loginHistoryItem?.platform),
+    ].filter(Boolean))];
+    const forcedSocketCount = await forceLogoutSessions({
+      userId: normalizedUserId,
+      sessionIds: revokedSessionIds,
+      platforms: revokedPlatforms,
+      reason: "Phiên đăng nhập này đã bị đăng xuất từ xa.",
+    });
+
+    const isCurrentSessionRevoked = revokedSessionIds.some(
+      (sessionId) => String(sessionId) === String(currentSessionId || ""),
+    ) || tokens.some(
       (tokenItem) => String(tokenItem?.sessionId || "") === String(currentSessionId || ""),
     );
+
+    if (!tokens.length && forcedSocketCount === 0) {
+      return {
+        message: "Session is already logged out",
+        loginId: normalizedLoginId,
+        revokedTokenCount: 0,
+        forcedSocketCount: 0,
+        isCurrentSessionRevoked,
+      };
+    }
 
     return {
       message: "Session logged out",
       loginId: normalizedLoginId,
       revokedTokenCount: tokens.length,
+      forcedSocketCount,
       isCurrentSessionRevoked,
     };
   },

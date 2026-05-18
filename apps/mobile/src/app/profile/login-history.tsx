@@ -12,6 +12,7 @@ import { useRouter } from "expo-router";
 import { useEffect, useState, useCallback } from "react";
 import { useAuthStore } from "@/stores/authStore";
 import { userService } from "@/services";
+import { socketService } from "@/lib/socket";
 import type { LoginHistoryItem } from "@/types";
 
 const platformLabel = (platform: string) => {
@@ -124,6 +125,7 @@ export default function LoginHistoryScreen() {
 
                 if (result?.isCurrentSessionRevoked) {
                   Alert.alert("Phien hien tai da bi dang xuat", "Vui long dang nhap lai.");
+                  socketService.disconnect();
                   logout();
                   router.replace("/(auth)/login");
                   return;

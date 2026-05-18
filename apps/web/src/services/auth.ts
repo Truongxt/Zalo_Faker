@@ -49,7 +49,7 @@ export const authService = {
         birthday: string;
         gender: string;
         avatarUrl?: string;
-    }): Promise<{ user: User; accessToken: string }> {
+    }): Promise<{ user: User; accessToken: string; refreshToken: string }> {
         const response = await fetch(`${baseAPI}/users/register/complete`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

@@ -17,7 +17,7 @@ const RESEND_COOLDOWN_SECONDS = 60;
 export default function Register() {
   const navigate = useNavigate();
   const { addToast } = useToast();
-  const { setUser, setAccessToken } = useAuthStore();
+  const { setUser, setAccessToken, setRefreshToken } = useAuthStore();
 
   const [step, setStep] = useState<RegisterStep>("email");
   const [otp, setOtp] = useState("");
@@ -135,7 +135,7 @@ export default function Register() {
     setLocalError("");
 
     try {
-      const { user, accessToken } = await authService.register({
+      const { user, accessToken, refreshToken } = await authService.register({
         fullName: fullName.trim(),
         email: email.trim().toLowerCase(),
         phone: phone.trim(),
@@ -145,6 +145,7 @@ export default function Register() {
       });
       setUser(user);
       setAccessToken(accessToken);
+      setRefreshToken(refreshToken);
       addToast("Đăng ký tài khoản thành công!", "success");
       navigate("/chat");
     } catch (err: any) {
