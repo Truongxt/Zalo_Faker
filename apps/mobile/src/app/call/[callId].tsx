@@ -327,8 +327,15 @@ export default function CallScreen() {
 
     (pc as any).onicecandidate = (event: any) => {
       if (event.candidate) {
+        const candidateData = typeof event.candidate.toJSON === "function"
+          ? event.candidate.toJSON()
+          : {
+              candidate: event.candidate.candidate,
+              sdpMid: event.candidate.sdpMid,
+              sdpMLineIndex: event.candidate.sdpMLineIndex,
+            };
         emitSignal("webrtc:ice-candidate", targetUserId, {
-          candidate: event.candidate,
+          candidate: candidateData,
         });
       }
     };
@@ -573,7 +580,7 @@ export default function CallScreen() {
     const socket = socketService.getSocket();
     if (!socket || !user?.id) return;
 
-    const handleAnswered = (data: any) => {
+    const handleAnswered = async (data: any) => {
       if (isGroupCall) return;
       if (!isCaller || String(data?.toUserId || "") !== String(user.id)) return;
       if (String(data?.conversationId || "") !== conversationId) return;
@@ -743,12 +750,8 @@ export default function CallScreen() {
           });
         }
       } else if (autoAccept) {
-        socket.emit("video:answer-call", {
-          toUserId: isGroupCall ? undefined : fromUserId,
-          fromUserId: String(user.id),
-          conversationId,
-          isGroupCall,
-        });
+        // Don't emit answer-call here — defer until after media is initialized
+        // The media init useEffect will emit it after getUserMedia succeeds
       }
     }
 
@@ -805,6 +808,19 @@ export default function CallScreen() {
           await joinGroupRoom(String(activeRoomId));
         } else {
           await createPeerConnection(remoteUserId, isCaller);
+          
+          if (!isCaller) {
+            // Callee: media is ready, now tell the caller we answered
+            const socket = socketService.getSocket();
+            if (socket) {
+              socket.emit("video:answer-call", {
+                toUserId: fromUserId,
+                fromUserId: String(user?.id || ""),
+                conversationId,
+                isGroupCall: false,
+              });
+            }
+          }
         }
       } catch (err: any) {
         console.error("[Mobile WebRTC] media init failed:", err);
@@ -843,12 +859,7 @@ export default function CallScreen() {
   }, [cleanupWebRTC]);
 
   const acceptCall = () => {
-    socketService.emit("video:answer-call", {
-      toUserId: isGroupCall ? undefined : fromUserId,
-      fromUserId: String(user?.id || ""),
-      conversationId,
-      isGroupCall,
-    });
+    // Don't emit answer-call here — it will be emitted after media init in the useEffect
     if (isGroupCall && roomIdParam) {
       setActiveRoomId(roomIdParam);
     }
