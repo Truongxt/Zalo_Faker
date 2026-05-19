@@ -21,6 +21,7 @@ import {
   EyeOff,
   Eye,
   Lock,
+  Bell,
 } from "lucide-react";
 import CreateGroupModal from "@/components/chat/CreateGroupModal";
 import LabelManagerModal from "@/components/chat/LabelManagerModal";
@@ -35,6 +36,7 @@ import authService from "@/services/auth";
 import { getMessagePreviewText } from "@/lib/messagePreview";
 import AddFriendModal from "@/components/friends/AddFriendModal";
 import PromptModal from "@/components/common/PromptModal";
+import { useNotificationStore } from "@/stores/notificationStore";
 
 export default function Sidebar() {
   const navigate = useNavigate();
@@ -51,6 +53,8 @@ export default function Sidebar() {
   const contactsTab =
     new URLSearchParams(location.search).get("tab") || "friends";
   const isAIView = location.pathname.startsWith("/chat/ai");
+  const isNotificationsView = location.pathname.startsWith("/chat/notifications");
+  const unreadNotificationCount = useNotificationStore((state) => state.unreadCount);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState<"all" | "unread" | "groups">(
     "all",
@@ -316,6 +320,22 @@ export default function Sidebar() {
           </h1>
           {!isContactsView && (
             <div className="flex items-center gap-1">
+              <button
+                onClick={() => navigate("/chat/notifications")}
+                className={`relative p-2 rounded-lg text-gray-600 dark:text-gray-400 ${
+                  isNotificationsView
+                    ? "bg-primary-50 text-primary-600 dark:bg-primary-900/20"
+                    : "hover:bg-gray-100 dark:hover:bg-gray-800"
+                }`}
+                title="Thong bao khoanh khac"
+              >
+                <Bell className="w-5 h-5" />
+                {unreadNotificationCount > 0 && (
+                  <span className="absolute -right-0.5 -top-0.5 inline-flex min-w-[18px] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-semibold text-white">
+                    {unreadNotificationCount > 99 ? "99+" : unreadNotificationCount}
+                  </span>
+                )}
+              </button>
               <button
                 onClick={() => setShowHiddenPin(true)}
                 className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-600 dark:text-gray-400"

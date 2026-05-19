@@ -12,6 +12,7 @@ const userRoutes = require("./routes/userRoutes");
 
 const groupRoutes = require("./routes/groupRoutes");
 const momentRoutes = require("./routes/momentRoutes");
+const notificationRoutes = require("./routes/notificationRoutes");
 
 
 const friendRoutes = require("./routes/friendRoutes");
@@ -37,6 +38,7 @@ app.use("/api/messages", messageRoutes);
 app.use("/api/friends", friendRoutes);
 app.use("/api/groups", groupRoutes); 
 app.use("/api/moments", momentRoutes);
+app.use("/api/notifications", notificationRoutes);
 app.use("/api/ai", aiRoutes);
 app.use("/api/upload", uploadRoutes);
 app.use("/api/labels", labelRoutes);

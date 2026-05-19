@@ -189,7 +189,9 @@ export interface GroupSettings {
   };
   joinRequests?: any[];
   permissions: {
+    sendMessage: GroupPermissionScope;
     sendMedia: GroupPermissionScope;
+    startCall: GroupPermissionScope;
     pinMessage: GroupPermissionScope;
     sendAnnouncement: GroupPermissionScope;
   };
@@ -375,4 +377,30 @@ export interface MomentComment {
 export interface MomentProfile {
   user: MomentAuthor | null;
   moments: Moment[];
+}
+
+export type MomentActivityNotificationType =
+  | "moment_reaction"
+  | "moment_comment"
+  | "moment_comment_reply"
+  | "moment_comment_reaction"
+  | "activity";
+
+export interface MomentActivityNotification {
+  notificationId: string;
+  recipientId: string;
+  actorId: string;
+  actorName: string;
+  actorAvatarUrl: string | null;
+  type: MomentActivityNotificationType;
+  title: string;
+  body: string;
+  momentId: string | null;
+  commentId: string | null;
+  reactionEmoji: string | null;
+  metadata: Record<string, unknown> | null;
+  isRead: boolean;
+  readAt: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
