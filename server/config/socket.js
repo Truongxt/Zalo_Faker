@@ -749,6 +749,26 @@ module.exports = (socketConfig) => {
     };
 
     socket.on("video:call-user", async (data) => {
+      if (data?.isGroupCall && data?.conversationId) {
+        try {
+          const conversation = await ensureConversationMembership(
+            data.conversationId,
+            socket.userId,
+          );
+          if (conversation?.type === "group") {
+            GroupService.ensureCanStartCall(conversation, {
+              userId: socket.userId,
+            });
+          }
+        } catch (error) {
+          socket.emit("video:call-error", {
+            conversationId: data?.conversationId,
+            error: error?.message || "Cannot start group call",
+          });
+          return;
+        }
+      }
+
       if (data.isGroupCall) {
         // For group calls, signaling is handled via group:create and group:join.
         // We don't want to emit video:incoming-call (1-1) for group calls.
@@ -850,7 +870,13 @@ module.exports = (socketConfig) => {
           return callback?.({ success: false, error: "conversationId is required" });
         }
 
-        await ensureConversationMembership(conversationId, socket.userId);
+        const conversation = await ensureConversationMembership(
+          conversationId,
+          socket.userId,
+        );
+        GroupService.ensureCanStartCall(conversation, {
+          userId: socket.userId,
+        });
 
         const room = groupCallManager.createRoom(
           conversationId,

@@ -513,7 +513,13 @@ const reviewGroupJoinRequest = async (
 
 const updateGroupPermissions = async (
     groupId: string,
-    data: { sendMedia?: string; pinMessage?: string; sendAnnouncement?: string }
+    data: {
+        sendMessage?: string
+        sendMedia?: string
+        startCall?: string
+        pinMessage?: string
+        sendAnnouncement?: string
+    }
 ) => {
     const response = await fetchWithAuth(`/groups/${groupId}/settings/permissions`, {
         method: "PATCH",

@@ -1404,6 +1404,48 @@ export default function ChatRoomScreen() {
   const pinScope = String(
     conversation?.groupSettings?.permissions?.pinMessage || "admin_deputy",
   ).toLowerCase();
+  const messageScope = String(
+    conversation?.groupSettings?.permissions?.sendMessage || "all",
+  ).toLowerCase();
+  const mediaScope = String(
+    conversation?.groupSettings?.permissions?.sendMedia || "all",
+  ).toLowerCase();
+  const canSendMessagesInGroup =
+    conversation?.type === "group"
+      ? (() => {
+        const roleRank: Record<string, number> = {
+          member: 1,
+          deputy: 2,
+          admin: 3,
+        };
+        const scopeRank: Record<string, number> = {
+          all: 1,
+          admin_deputy: 2,
+          admin: 3,
+        };
+        const currentRank = roleRank[myGroupRole] || 0;
+        const requiredRank = scopeRank[messageScope] || Number.MAX_SAFE_INTEGER;
+        return currentRank >= requiredRank;
+      })()
+      : true;
+  const canSendMediaInGroup =
+    conversation?.type === "group"
+      ? (() => {
+        const roleRank: Record<string, number> = {
+          member: 1,
+          deputy: 2,
+          admin: 3,
+        };
+        const scopeRank: Record<string, number> = {
+          all: 1,
+          admin_deputy: 2,
+          admin: 3,
+        };
+        const currentRank = roleRank[myGroupRole] || 0;
+        const requiredRank = scopeRank[mediaScope] || Number.MAX_SAFE_INTEGER;
+        return currentRank >= requiredRank;
+      })()
+      : true;
   const canPinInGroup =
     conversation?.type === "group"
       ? (() => {
@@ -1426,6 +1468,27 @@ export default function ChatRoomScreen() {
     conversation?.groupSettings?.permissions?.sendAnnouncement ||
     "admin_deputy",
   ).toLowerCase();
+  const startCallScope = String(
+    conversation?.groupSettings?.permissions?.startCall || "all",
+  ).toLowerCase();
+  const canStartCallsInGroup =
+    conversation?.type === "group"
+      ? (() => {
+        const roleRank: Record<string, number> = {
+          member: 1,
+          deputy: 2,
+          admin: 3,
+        };
+        const scopeRank: Record<string, number> = {
+          all: 1,
+          admin_deputy: 2,
+          admin: 3,
+        };
+        const currentRank = roleRank[myGroupRole] || 0;
+        const requiredRank = scopeRank[startCallScope] || Number.MAX_SAFE_INTEGER;
+        return currentRank >= requiredRank;
+      })()
+      : true;
   const canSendAnnouncementInGroup =
     conversation?.type === "group"
       ? (() => {
@@ -1449,6 +1512,9 @@ export default function ChatRoomScreen() {
     conversation?.type === "group"
       ? canPinInGroup
       : conversation?.type === "private";
+  const canComposeCurrentText =
+    !isMessagingBlocked &&
+    (announcementMode ? canSendAnnouncementInGroup : canSendMessagesInGroup);
   const pinnedMessage = conversation?.groupSettings?.pinnedMessage || null;
   const filteredMessages = useMemo(() => {
     if (!searchMessageQuery.trim()) return convMessages;
@@ -1728,6 +1794,10 @@ export default function ChatRoomScreen() {
       }
 
       const isGroup = conversation?.type === "group";
+      if (isGroup && !canStartCallsInGroup) {
+        GrayToast("Chỉ trưởng nhóm và phó nhóm có thể bắt đầu cuộc gọi trong nhóm này");
+        return;
+      }
       if (isGroup) {
         const activeInvite = groupCallInviteStore.get(String(convId));
         if (activeInvite?.roomId) {
@@ -1786,6 +1856,7 @@ export default function ChatRoomScreen() {
       user?.avatarUrl,
       user?.fullName,
       user?.id,
+      canStartCallsInGroup,
       conversation?.type,
       conversation?.name,
       conversation?.avatarUrl,
@@ -2241,6 +2312,14 @@ export default function ChatRoomScreen() {
     if (!trimmed || isSending) return;
     if (
       conversation?.type === "group" &&
+      !announcementMode &&
+      !canSendMessagesInGroup
+    ) {
+      GrayToast("Chỉ trưởng nhóm và phó nhóm có thể gửi tin nhắn trong nhóm này");
+      return;
+    }
+    if (
+      conversation?.type === "group" &&
       announcementMode &&
       !canSendAnnouncementInGroup
     ) {
@@ -2473,16 +2552,25 @@ export default function ChatRoomScreen() {
         {
           key: "create-poll",
           text: "Tạo bình chọn",
-          onPress: () =>
+          onPress: () => {
+            if (!canSendMessagesInGroup) {
+              GrayToast("Chi truong nhom va pho nhom moi co the gui tin nhan trong nhom nay");
+              return;
+            }
             router.push({
               pathname: "/(tabs)/chat/create-poll",
               params: { conversationId: String(convId) },
-            }),
+            });
+          },
         },
         {
           key: "send-file",
           text: "Gửi file",
           onPress: () => {
+            if (!canSendMediaInGroup) {
+              GrayToast("Chi truong nhom va pho nhom moi co the gui anh, video hoac tep dinh kem trong nhom nay");
+              return;
+            }
             void handlePickFile();
           },
         },
@@ -2493,7 +2581,14 @@ export default function ChatRoomScreen() {
     }
 
     void handlePickFile();
-  }, [conversation?.type, convId, handlePickFile, router]);
+  }, [
+    canSendMediaInGroup,
+    canSendMessagesInGroup,
+    conversation?.type,
+    convId,
+    handlePickFile,
+    router,
+  ]);
 
   const handleSummarizeConversationInDay = useCallback(async () => {
     if (!convId || isSummarizingConversation) return;
@@ -2535,8 +2630,12 @@ export default function ChatRoomScreen() {
             conversation.groupSettings?.invite?.approvalRequired ?? true,
         },
         permissions: {
+          sendMessage:
+            conversation.groupSettings?.permissions?.sendMessage || "all",
           sendMedia:
             conversation.groupSettings?.permissions?.sendMedia || "all",
+          startCall:
+            conversation.groupSettings?.permissions?.startCall || "all",
           pinMessage:
             conversation.groupSettings?.permissions?.pinMessage ||
             (conversation.type === "group" ? "admin_deputy" : "all"),
@@ -3066,14 +3165,14 @@ export default function ChatRoomScreen() {
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={{ padding: 4 }}
+          style={{ padding: 4, opacity: conversation?.type === "group" && !canStartCallsInGroup ? 0.45 : 1 }}
           onPress={() => startCall("audio")}
           hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
         >
           <Ionicons name="call-outline" size={22} color="#6B7280" />
         </TouchableOpacity>
         <TouchableOpacity
-          style={{ padding: 4 }}
+          style={{ padding: 4, opacity: conversation?.type === "group" && !canStartCallsInGroup ? 0.45 : 1 }}
           onPress={() => startCall("video")}
           hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
         >
@@ -3622,6 +3721,24 @@ export default function ChatRoomScreen() {
           </View>
         )}
 
+        {conversation?.type === "group" && !canSendMessagesInGroup && !announcementMode && (
+          <View
+            style={{
+              marginBottom: 10,
+              borderRadius: 14,
+              borderWidth: 1,
+              borderColor: "#FCD34D",
+              backgroundColor: "#FEF3C7",
+              paddingHorizontal: 12,
+              paddingVertical: 9,
+            }}
+          >
+            <Text style={{ color: "#92400E", fontSize: 13, fontWeight: "600" }}>
+              Chỉ trưởng nhóm và phó nhóm có thể gửi tin nhắn trong nhóm này
+            </Text>
+          </View>
+        )}
+
         <View
           style={{
             flexDirection: "row",
@@ -3638,7 +3755,7 @@ export default function ChatRoomScreen() {
         >
           <TouchableOpacity
             onPress={handleToggleStickerPicker}
-            disabled={Boolean(isMessagingBlocked)}
+            disabled={Boolean(isMessagingBlocked) || (conversation?.type === "group" && !canSendMediaInGroup)}
             style={{
               width: 40,
               height: 40,
@@ -3680,9 +3797,19 @@ export default function ChatRoomScreen() {
           <TextInput
             value={text}
             onChangeText={setText}
-            placeholder="Tin nhắn"
+            placeholder={
+              isMessagingBlocked
+                ? isBlockedByMe
+                  ? "Bạn đã chặn người dùng này"
+                  : "Bạn đã bị chặn"
+                : conversation?.type === "group" && !announcementMode && !canSendMessagesInGroup
+                  ? "Chỉ trưởng nhóm và phó nhóm có thể gửi tin nhắn"
+                  : announcementMode
+                    ? "Nhập nội dung thông báo"
+                    : "Tin nhắn"
+            }
             placeholderTextColor="#8A8F98"
-            editable={!isMessagingBlocked}
+            editable={canComposeCurrentText}
             multiline
             style={{
               flex: 1,
@@ -3709,12 +3836,12 @@ export default function ChatRoomScreen() {
           </TouchableOpacity>
 
           {!text.trim() ? (
-            <TouchableOpacity
-              onPress={handleToggleVoiceRecording}
-              disabled={Boolean(isMessagingBlocked)}
-              style={{
-                width: 40,
-                height: 40,
+          <TouchableOpacity
+            onPress={handleToggleVoiceRecording}
+            disabled={Boolean(isMessagingBlocked) || (conversation?.type === "group" && !canSendMediaInGroup)}
+            style={{
+              width: 40,
+              height: 40,
                 alignItems: "center",
                 justifyContent: "center",
               }}
@@ -3728,7 +3855,7 @@ export default function ChatRoomScreen() {
           ) : (
             <TouchableOpacity
               onPress={handleSend}
-              disabled={isSending || Boolean(isMessagingBlocked)}
+              disabled={isSending || (text.trim().length > 0 && !canComposeCurrentText)}
               style={{
                 width: 40,
                 height: 40,

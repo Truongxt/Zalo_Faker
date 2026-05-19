@@ -22,7 +22,9 @@ export interface GroupInviteSettings {
 }
 
 export interface GroupPermissionSettings {
+  sendMessage: GroupPermissionScope;
   sendMedia: GroupPermissionScope;
+  startCall: GroupPermissionScope;
   pinMessage: GroupPermissionScope;
   sendAnnouncement: GroupPermissionScope;
 }

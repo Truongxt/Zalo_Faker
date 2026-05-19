@@ -27,6 +27,7 @@ import {
     updateGroupAvatar,
     uploadMedia,
 } from '@/services/api'
+import { friendsService } from '@/services/friendsService'
 import socketService from '@/lib/socket'
 
 interface GroupManagementModalProps {
@@ -53,7 +54,9 @@ type LocalGroupSettings = {
         inviteUrl: string
     }
     permissions: {
+        sendMessage: GroupPermissionScope
         sendMedia: GroupPermissionScope
+        startCall: GroupPermissionScope
         pinMessage: GroupPermissionScope
         sendAnnouncement: GroupPermissionScope
     }
@@ -72,12 +75,23 @@ const fallbackSettings: LocalGroupSettings = {
         inviteUrl: '',
     },
     permissions: {
+        sendMessage: 'all',
         sendMedia: 'all',
+        startCall: 'all',
         pinMessage: 'admin_deputy',
         sendAnnouncement: 'admin_deputy',
     },
     pendingJoinRequests: [],
 }
+
+type MemberRelationState =
+    | 'self'
+    | 'friend'
+    | 'pending_sent'
+    | 'pending_received'
+    | 'blocked_by_me'
+    | 'blocked_by_them'
+    | 'none'
 
 const getUserId = (user: any): string => String(user?.id || user?._id || user?.userId || '')
 const pickDisplayName = (...values: Array<unknown>) => {
@@ -128,6 +142,7 @@ export default function GroupManagementModal({ isOpen, onClose, group }: GroupMa
     const [newName, setNewName] = useState('')
     const [selectedAdminTransferUserId, setSelectedAdminTransferUserId] = useState('')
     const [showAdminLeavePanel, setShowAdminLeavePanel] = useState(false)
+    const [memberRelations, setMemberRelations] = useState<Record<string, MemberRelationState>>({})
     const fileInputRef = useRef<HTMLInputElement>(null)
 
     const inviteQrValue = useMemo(() => {
@@ -176,6 +191,57 @@ export default function GroupManagementModal({ isOpen, onClose, group }: GroupMa
                     ).values()
                 )
                 setAllUsers(mergedUsers as any[])
+
+                const acceptedFriendIds = new Set(
+                    uniqueFriends
+                        .map((friend: any) => String(friend.id || friend.userId || friend._id || ''))
+                        .filter(Boolean)
+                )
+                const relationEntries = await Promise.all(
+                    participantIds
+                        .filter((participantId) => participantId && participantId !== String(user.id))
+                        .map(async (participantId) => {
+                            if (acceptedFriendIds.has(participantId)) {
+                                return [participantId, 'friend'] as const
+                            }
+
+                            const relation = await friendsService
+                                .checkFriendship(String(user.id), participantId)
+                                .catch(() => null)
+
+                            if (!relation) {
+                                return [participantId, 'none'] as const
+                            }
+
+                            const relationStatus = String((relation as any).status || '').toLowerCase()
+                            if (relationStatus === 'accepted') return [participantId, 'friend'] as const
+                            if (relationStatus === 'pending') {
+                                return [
+                                    participantId,
+                                    String((relation as any).fromUserId) === String(user.id)
+                                        ? 'pending_sent'
+                                        : 'pending_received',
+                                ] as const
+                            }
+                            if (relationStatus === 'blocked') {
+                                return [
+                                    participantId,
+                                    String((relation as any).fromUserId) === String(user.id)
+                                        ? 'blocked_by_me'
+                                        : 'blocked_by_them',
+                                ] as const
+                            }
+
+                            return [participantId, 'none'] as const
+                        })
+                )
+
+                setMemberRelations(
+                    relationEntries.reduce<Record<string, MemberRelationState>>((acc, [participantId, state]) => {
+                        acc[participantId] = state
+                        return acc
+                    }, {})
+                )
                 
                 if (latestSettings) {
                     setSettings({
@@ -185,7 +251,9 @@ export default function GroupManagementModal({ isOpen, onClose, group }: GroupMa
                             inviteUrl: latestSettings?.invite?.inviteUrl || '',
                         },
                         permissions: {
+                            sendMessage: latestSettings?.permissions?.sendMessage || 'all',
                             sendMedia: latestSettings?.permissions?.sendMedia || 'all',
+                            startCall: latestSettings?.permissions?.startCall || 'all',
                             pinMessage: latestSettings?.permissions?.pinMessage || 'admin_deputy',
                             sendAnnouncement: latestSettings?.permissions?.sendAnnouncement || 'admin_deputy',
                         },
@@ -200,7 +268,9 @@ export default function GroupManagementModal({ isOpen, onClose, group }: GroupMa
                             },
                             joinRequests: joinRequests?.requests || latestSettings?.pendingJoinRequests || [],
                             permissions: {
+                                sendMessage: latestSettings?.permissions?.sendMessage || 'all',
                                 sendMedia: latestSettings?.permissions?.sendMedia || 'all',
+                                startCall: latestSettings?.permissions?.startCall || 'all',
                                 pinMessage: latestSettings?.permissions?.pinMessage || 'admin_deputy',
                                 sendAnnouncement: latestSettings?.permissions?.sendAnnouncement || 'admin_deputy',
                             },
@@ -214,7 +284,7 @@ export default function GroupManagementModal({ isOpen, onClose, group }: GroupMa
         }
 
         loadUsersAndSettings()
-    }, [isOpen, group?.id, user?.id, updateConversation])
+    }, [isOpen, group?.id, group?.participants, user?.id, updateConversation])
 
     useEffect(() => {
         if (!isOpen) {
@@ -246,7 +316,9 @@ export default function GroupManagementModal({ isOpen, onClose, group }: GroupMa
                         inviteUrl: latestSettings?.invite?.inviteUrl || '',
                     },
                     permissions: {
+                        sendMessage: latestSettings?.permissions?.sendMessage || 'all',
                         sendMedia: latestSettings?.permissions?.sendMedia || 'all',
+                        startCall: latestSettings?.permissions?.startCall || 'all',
                         pinMessage: latestSettings?.permissions?.pinMessage || 'admin_deputy',
                         sendAnnouncement: latestSettings?.permissions?.sendAnnouncement || 'admin_deputy',
                     },
@@ -531,7 +603,10 @@ export default function GroupManagementModal({ isOpen, onClose, group }: GroupMa
         }
     }
 
-    const handleUpdatePermission = async (key: 'sendMedia' | 'pinMessage' | 'sendAnnouncement', value: GroupPermissionScope) => {
+    const handleUpdatePermission = async (
+        key: 'sendMessage' | 'sendMedia' | 'startCall' | 'pinMessage' | 'sendAnnouncement',
+        value: GroupPermissionScope
+    ) => {
         try {
             setIsLoading(true)
             const result = await updateGroupPermissions(group.id, { [key]: value })
@@ -568,6 +643,27 @@ export default function GroupManagementModal({ isOpen, onClose, group }: GroupMa
         }
     }
 
+    const handleSendFriendRequest = async (targetUserId: string) => {
+        if (!user?.id || !targetUserId || isLoading) return
+
+        try {
+            setIsLoading(true)
+            await friendsService.sendFriendRequest(
+                String(user.id),
+                String(targetUserId),
+                'Xin chào, mình muốn kết bạn với bạn trong nhóm chat.'
+            )
+            setMemberRelations((prev) => ({
+                ...prev,
+                [String(targetUserId)]: 'pending_sent',
+            }))
+        } catch (error: any) {
+            alert(error?.message || 'Không thể gửi lời mời kết bạn')
+        } finally {
+            setIsLoading(false)
+        }
+    }
+
     const getParticipantName = (participant: { userId: string; fullName?: string }) => {
         const userInfo = participantsMap.get(String(participant.userId))
         return (
@@ -581,6 +677,25 @@ export default function GroupManagementModal({ isOpen, onClose, group }: GroupMa
                 userInfo?.name
             ) || `User ${participant.userId}`
         )
+    }
+
+    const getParticipantAvatar = (participant: { userId: string; avatarUrl?: string | null }) => {
+        const userInfo = participantsMap.get(String(participant.userId))
+        return (participant as any)?.avatarUrl || userInfo?.avatarUrl || userInfo?.avartarUrl || null
+    }
+
+    const getMemberRelationState = (participantUserId: string): MemberRelationState => {
+        if (String(participantUserId) === String(user?.id)) return 'self'
+        return memberRelations[String(participantUserId)] || 'none'
+    }
+
+    const getMemberRelationLabel = (relationState: MemberRelationState) => {
+        if (relationState === 'friend') return 'Bạn bè'
+        if (relationState === 'pending_sent') return 'Đã gửi lời mời'
+        if (relationState === 'pending_received') return 'Đã nhận lời mời'
+        if (relationState === 'blocked_by_me') return 'Bạn đã chặn'
+        if (relationState === 'blocked_by_them') return 'Bị chặn'
+        return ''
     }
 
     const getRequestName = (requestUserId: string) => {
@@ -835,10 +950,12 @@ export default function GroupManagementModal({ isOpen, onClose, group }: GroupMa
 
                             <div className="px-4 py-3 space-y-3">
                                 {([
+                                    { key: 'sendMessage' as const, emoji: '💬', label: 'Gửi tin nhắn', value: settings.permissions.sendMessage },
                                     { key: 'sendMedia' as const, emoji: '🖼️', label: 'Gửi ảnh / video / file / sticker', value: settings.permissions.sendMedia },
+                                    { key: 'startCall' as const, emoji: '📞', label: 'Bắt đầu cuộc gọi nhóm', value: settings.permissions.startCall },
                                     { key: 'pinMessage' as const, icon: <Pin className="w-3.5 h-3.5 text-violet-500" />, label: 'Ghim tin nhắn', value: settings.permissions.pinMessage },
                                     { key: 'sendAnnouncement' as const, icon: <Megaphone className="w-3.5 h-3.5 text-violet-500" />, label: 'Gửi thông báo nhóm', value: settings.permissions.sendAnnouncement },
-                                ] as Array<{ key: 'sendMedia' | 'pinMessage' | 'sendAnnouncement'; emoji?: string; icon?: ReactNode; label: string; value: GroupPermissionScope }>).map(({ key, emoji, icon, label, value }) => (
+                                ] as Array<{ key: 'sendMessage' | 'sendMedia' | 'startCall' | 'pinMessage' | 'sendAnnouncement'; emoji?: string; icon?: ReactNode; label: string; value: GroupPermissionScope }>).map(({ key, emoji, icon, label, value }) => (
                                     <div key={key} className="flex items-center justify-between gap-3">
                                         <div className="flex items-center gap-2 min-w-0">
                                             <span className="flex-shrink-0 text-sm">{emoji ?? icon}</span>
@@ -992,6 +1109,9 @@ export default function GroupManagementModal({ isOpen, onClose, group }: GroupMa
                                         (currentUserParticipant?.role === 'deputy' && participant.role === 'member'))
                                 const canRemove = canManage
                                 const name = getParticipantName(participant)
+                                const avatarUrl = getParticipantAvatar(participant)
+                                const relationState = getMemberRelationState(String(participant.userId))
+                                const relationLabel = getMemberRelationLabel(relationState)
                                 const roleConfig = getRoleConfig(participant.role || 'member')
                                 const RoleIcon = roleConfig.icon
 
@@ -1002,8 +1122,17 @@ export default function GroupManagementModal({ isOpen, onClose, group }: GroupMa
                                     >
                                         <div className="flex items-center gap-3 min-w-0">
                                             {/* Avatar */}
-                                            <div className={`relative w-9 h-9 rounded-full bg-gradient-to-br ${getAvatarColor(name)} flex items-center justify-center flex-shrink-0 ring-2 ring-white dark:ring-gray-800 shadow-sm`}>
-                                                <span className="text-white text-sm font-bold">{name.charAt(0).toUpperCase()}</span>
+                                            <button
+                                                type="button"
+                                                onClick={() => navigate(`/profile/${participant.userId}`)}
+                                                className={`relative w-9 h-9 overflow-hidden rounded-full bg-gradient-to-br ${getAvatarColor(name)} flex items-center justify-center flex-shrink-0 ring-2 ring-white dark:ring-gray-800 shadow-sm`}
+                                                title={`Xem trang cá nhân của ${name}`}
+                                            >
+                                                {avatarUrl ? (
+                                                    <img src={avatarUrl} alt={name} className="h-full w-full object-cover" />
+                                                ) : (
+                                                    <span className="text-white text-sm font-bold">{name.charAt(0).toUpperCase()}</span>
+                                                )}
                                                 {participant.role === 'admin' && (
                                                     <span className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-amber-400 rounded-full flex items-center justify-center ring-2 ring-white dark:ring-gray-800">
                                                         <Crown className="w-2 h-2 text-white" />
@@ -1014,7 +1143,7 @@ export default function GroupManagementModal({ isOpen, onClose, group }: GroupMa
                                                         <Shield className="w-2 h-2 text-white" />
                                                     </span>
                                                 )}
-                                            </div>
+                                            </button>
 
                                             {/* Name & role */}
                                             <div className="min-w-0">
@@ -1026,8 +1155,23 @@ export default function GroupManagementModal({ isOpen, onClose, group }: GroupMa
                                                     <RoleIcon className={`w-3 h-3 ${roleConfig.color}`} />
                                                     <span className={`text-[11px] font-medium ${roleConfig.color}`}>{roleConfig.label}</span>
                                                 </div>
+                                                {!isMe && relationLabel && (
+                                                    <p className="mt-1 text-[11px] text-gray-400">{relationLabel}</p>
+                                                )}
                                             </div>
                                         </div>
+
+                                        {!isMe && relationState === 'none' && (
+                                            <button
+                                                type="button"
+                                                onClick={() => handleSendFriendRequest(String(participant.userId))}
+                                                disabled={isLoading}
+                                                className="mr-2 flex h-8 w-8 items-center justify-center rounded-full bg-primary-50 text-primary-600 transition-colors hover:bg-primary-100 disabled:opacity-50"
+                                                title={`Kết bạn với ${name}`}
+                                            >
+                                                <UserPlus className="h-4 w-4" />
+                                            </button>
+                                        )}
 
                                         {canManage && isAdmin && (
                                             <div className="mr-2 flex flex-col items-end gap-1.5">
