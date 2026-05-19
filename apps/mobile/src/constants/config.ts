@@ -1,7 +1,7 @@
 import { Platform } from "react-native";
 
-const PRODUCTION_API_URL = "http://13.212.107.150";
-const PRODUCTION_SOCKET_URL = "http://13.212.107.150";
+const PRODUCTION_API_URL = "https://taklo.duckdns.org";
+const PRODUCTION_SOCKET_URL = "https://taklo.duckdns.org";
 
 const DEV_API_URL =
   Platform.select({
