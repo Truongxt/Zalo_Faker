@@ -14,6 +14,32 @@ import { useCallStore } from '@/stores/callStore';
 // ICE Servers
 // ─────────────────────────────────────────────────
 
+const splitIceUrls = (value: string) =>
+  value
+    .split(',')
+    .map((url) => url.trim())
+    .filter(Boolean);
+
+const withTurnTransports = (urls: string[]) => {
+  const expanded = new Set<string>();
+
+  urls.forEach((url) => {
+    expanded.add(url);
+
+    if (!/^turn:/i.test(url) || url.includes('?')) return;
+
+    expanded.add(`${url}?transport=udp`);
+    expanded.add(`${url}?transport=tcp`);
+  });
+
+  return Array.from(expanded);
+};
+
+const parseIceTransportPolicy = (): RTCIceTransportPolicy | undefined => {
+  const policy = String(import.meta.env.VITE_ICE_TRANSPORT_POLICY || '').trim().toLowerCase();
+  return policy === 'relay' || policy === 'all' ? policy : undefined;
+};
+
 const parseIceServers = (): RTCIceServer[] => {
   const rawJson = String(import.meta.env.VITE_ICE_SERVERS || '').trim();
   if (rawJson) {
@@ -28,6 +54,7 @@ const parseIceServers = (): RTCIceServer[] => {
   }
 
   const turnUrl = String(import.meta.env.VITE_TURN_URL || '').trim();
+  const turnsUrl = String(import.meta.env.VITE_TURNS_URL || '').trim();
   const turnUsername = String(import.meta.env.VITE_TURN_USERNAME || '').trim();
   const turnCredential = String(import.meta.env.VITE_TURN_CREDENTIAL || '').trim();
 
@@ -37,9 +64,14 @@ const parseIceServers = (): RTCIceServer[] => {
     { urls: 'stun:stun2.l.google.com:19302' },
   ];
 
-  if (turnUrl) {
+  const turnUrls = withTurnTransports([
+    ...splitIceUrls(turnUrl),
+    ...splitIceUrls(turnsUrl),
+  ]);
+
+  if (turnUrls.length > 0) {
     defaultServers.push({
-      urls: turnUrl,
+      urls: turnUrls,
       username: turnUsername || undefined,
       credential: turnCredential || undefined,
     });
@@ -52,6 +84,7 @@ const ICE_SERVERS: RTCIceServer[] = parseIceServers();
 
 const RTC_CONFIG: RTCConfiguration = {
   iceServers: ICE_SERVERS,
+  iceTransportPolicy: parseIceTransportPolicy(),
   iceCandidatePoolSize: 4,
 };
 

@@ -2075,6 +2075,13 @@ export default function ChatRoomScreen() {
     }
   }, [displayMessages.length]);
 
+  const handleComposerFocus = useCallback(() => {
+    setTimeout(
+      () => flatListRef.current?.scrollToEnd({ animated: true }),
+      Platform.OS === "android" ? 250 : 100,
+    );
+  }, []);
+
   useEffect(() => {
     return () => {
       if (voiceRecordingTimerRef.current) {
@@ -3105,7 +3112,7 @@ export default function ChatRoomScreen() {
   return (
     <KeyboardAvoidingView
       style={{ flex: 1, backgroundColor: "#F9FAFB" }}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
       keyboardVerticalOffset={Platform.OS === "ios" ? insets.top : 0}
     >
       {/* Header */}
@@ -3797,6 +3804,7 @@ export default function ChatRoomScreen() {
           <TextInput
             value={text}
             onChangeText={setText}
+            onFocus={handleComposerFocus}
             placeholder={
               isMessagingBlocked
                 ? isBlockedByMe
