@@ -55,6 +55,32 @@ const loadWebRTC = (): WebRTCModule | null => {
   }
 };
 
+const splitIceUrls = (value: string) =>
+  value
+    .split(",")
+    .map((url) => url.trim())
+    .filter(Boolean);
+
+const withTurnTransports = (urls: string[]) => {
+  const expanded = new Set<string>();
+
+  urls.forEach((url) => {
+    expanded.add(url);
+
+    if (!/^turn:/i.test(url) || url.includes("?")) return;
+
+    expanded.add(`${url}?transport=udp`);
+    expanded.add(`${url}?transport=tcp`);
+  });
+
+  return Array.from(expanded);
+};
+
+const parseIceTransportPolicy = () => {
+  const policy = String(process.env.EXPO_PUBLIC_ICE_TRANSPORT_POLICY || "").trim().toLowerCase();
+  return policy === "relay" || policy === "all" ? policy : undefined;
+};
+
 const parseIceServers = () => {
   const rawJson = String(process.env.EXPO_PUBLIC_ICE_SERVERS || "").trim();
   if (rawJson) {
@@ -69,6 +95,7 @@ const parseIceServers = () => {
   }
 
   const turnUrl = String(process.env.EXPO_PUBLIC_TURN_URL || "").trim();
+  const turnsUrl = String(process.env.EXPO_PUBLIC_TURNS_URL || "").trim();
   const turnUsername = String(process.env.EXPO_PUBLIC_TURN_USERNAME || "").trim();
   const turnCredential = String(process.env.EXPO_PUBLIC_TURN_CREDENTIAL || "").trim();
 
@@ -78,9 +105,14 @@ const parseIceServers = () => {
     { urls: "stun:stun2.l.google.com:19302" },
   ];
 
-  if (turnUrl) {
+  const turnUrls = withTurnTransports([
+    ...splitIceUrls(turnUrl),
+    ...splitIceUrls(turnsUrl),
+  ]);
+
+  if (turnUrls.length > 0) {
     defaultServers.push({
-      urls: turnUrl,
+      urls: turnUrls,
       username: turnUsername || undefined,
       credential: turnCredential || undefined,
     });
@@ -91,6 +123,7 @@ const parseIceServers = () => {
 
 const RTC_CONFIG = {
   iceServers: parseIceServers(),
+  iceTransportPolicy: parseIceTransportPolicy(),
 };
 
 const getStreamUrl = (stream: MediaStream | null) => {
@@ -136,6 +169,7 @@ export default function CallScreen() {
   const [participantMedia, setParticipantMedia] = useState<Record<string, { isMuted?: boolean; isVideoOff?: boolean }>>({});
   const [isLocalMuted, setIsLocalMuted] = useState(false);
   const [isLocalVideoOff, setIsLocalVideoOff] = useState(false);
+  const [localPreviewKey, setLocalPreviewKey] = useState(0);
   const [notices, setNotices] = useState<CallNotice[]>([]);
 
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -164,6 +198,39 @@ export default function CallScreen() {
   useEffect(() => {
     localStreamRef.current = localStream;
   }, [localStream]);
+
+  useEffect(() => {
+    if (callType !== "video" || !localStream) return;
+
+    const videoTrack = localStream.getVideoTracks?.()[0];
+    if (!videoTrack) return;
+
+    setLocalPreviewKey((value) => value + 1);
+
+    const refreshPreview = () => {
+      setLocalPreviewKey((value) => value + 1);
+    };
+
+    const timers = [
+      setTimeout(refreshPreview, 250),
+      setTimeout(refreshPreview, 900),
+    ];
+
+    try {
+      videoTrack.onunmute = refreshPreview;
+    } catch {
+      // Some Android WebRTC builds expose tracks as plain native objects.
+    }
+
+    return () => {
+      timers.forEach(clearTimeout);
+      try {
+        videoTrack.onunmute = null;
+      } catch {
+        // noop
+      }
+    };
+  }, [callType, localStream]);
 
   useEffect(() => {
     activeRoomIdRef.current = activeRoomId;
@@ -899,6 +966,7 @@ export default function CallScreen() {
       track.enabled = !nextVideoOff;
     });
     setIsLocalVideoOff(nextVideoOff);
+    setLocalPreviewKey((value) => value + 1);
 
     const roomId = String(activeRoomIdRef.current || roomIdParam || "");
     if (isGroupCall && roomId) {
@@ -1003,6 +1071,7 @@ export default function CallScreen() {
               {localStream && !isLocalVideoOff && RTCVideoView && (
                 <View style={{ position: "absolute", top: insets.top + 20, right: 20, width: 100, height: 150, borderRadius: 12, overflow: "hidden", borderWidth: 2, borderColor: "#374151" }}>
                   <RTCVideoView
+                    key={`local-preview-${localPreviewKey}-${getStreamUrl(localStream)}`}
                     streamURL={getStreamUrl(localStream)}
                     objectFit="cover"
                     mirror
