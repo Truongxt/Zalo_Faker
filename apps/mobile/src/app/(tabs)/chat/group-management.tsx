@@ -35,6 +35,7 @@ import {
   updateGroupPermissions,
   renameGroup,
   updateGroupAvatar,
+  updateParticipantSetting,
 } from "@/services/groupService";
 import * as ImagePicker from "expo-image-picker";
 import { uploadFile } from "@/services/chat";
@@ -82,6 +83,9 @@ export default function GroupManagementScreen() {
   const [showAddMember, setShowAddMember] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [showRenameModal, setShowRenameModal] = useState(false);
+  const [showNicknameModal, setShowNicknameModal] = useState(false);
+  const [editingNicknameUserId, setEditingNicknameUserId] = useState("");
+  const [editingNicknameValue, setEditingNicknameValue] = useState("");
   const [groupMenuTitle, setGroupMenuTitle] = useState("Tùy chọn");
   const [groupMenuOptions, setGroupMenuOptions] = useState<MessageActionItem[]>([]);
   const [showGroupMenu, setShowGroupMenu] = useState(false);
@@ -315,6 +319,25 @@ export default function GroupManagementScreen() {
     if (!group) return;
     setShowRenameModal(true);
   }, [group]);
+
+  const handleSetNickname = async (targetUserId: string, nickname: string) => {
+    if (!targetUserId) return;
+    try {
+      setIsLoading(true);
+      const res = await updateParticipantSetting(id, targetUserId, { nickname: nickname.trim() });
+      if (res.participants) {
+        updateConversation(id, { participants: res.participants });
+      }
+      setShowNicknameModal(false);
+      setEditingNicknameUserId("");
+      setEditingNicknameValue("");
+      GrayToast("Đã cập nhật biệt danh");
+    } catch (error: any) {
+      GrayToast(error.message || "Không thể cập nhật biệt danh");
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   if (!group || !user) return null;
 
@@ -579,6 +602,40 @@ export default function GroupManagementScreen() {
       });
     }
 
+    options.push({
+      key: "set-nickname",
+      text: (participant as any).nickname ? "Đổi biệt danh" : "Đặt biệt danh",
+      onPress: () => {
+        setEditingNicknameUserId(String(participant.userId));
+        setEditingNicknameValue((participant as any).nickname || "");
+        setShowNicknameModal(true);
+      }
+    });
+
+    if ((participant as any).nickname) {
+      options.push({
+        key: "remove-nickname",
+        text: "Xóa biệt danh",
+        style: "destructive",
+        onPress: () => {
+          Alert.alert(
+            "Xóa biệt danh",
+            "Bạn có chắc chắn muốn xóa biệt danh của thành viên này?",
+            [
+              { text: "Hủy", style: "cancel" },
+              {
+                text: "Xóa",
+                style: "destructive",
+                onPress: () => {
+                  void handleSetNickname(String(participant.userId), "");
+                }
+              }
+            ]
+          );
+        }
+      });
+    }
+
     options.push({ key: "cancel", text: "Hủy", style: "cancel" });
     setGroupMenuTitle(participantName);
     setGroupMenuOptions(options);
@@ -752,6 +809,24 @@ export default function GroupManagementScreen() {
     }
   };
 
+  const handleCancelFriendRequest = async (targetUserId: string) => {
+    if (!user?.id || !targetUserId || isLoading) return;
+
+    try {
+      setIsLoading(true);
+      await friendsService.cancelFriendRequest(String(user.id), String(targetUserId));
+      setMemberRelations((prev) => ({
+        ...prev,
+        [String(targetUserId)]: "none",
+      }));
+      GrayToast("Đã hủy lời mời kết bạn");
+    } catch (error: any) {
+      GrayToast(error?.message || "Không thể hủy lời mời kết bạn");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const inviteQrValue = String(
     settings?.invite?.inviteUrl ||
     (settings?.invite?.code ? `groupInvite:${settings.invite.code}` : ""),
@@ -826,8 +901,8 @@ export default function GroupManagementScreen() {
         </View>
 
         {/* Link Mời Nhóm */}
-        <View style={{ backgroundColor: "#FFF", borderRadius: 12, padding: 16, marginBottom: 16 }}>
-          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+        <View style={{ backgroundColor: "#FFF", borderRadius: 12, padding: 16, marginBottom: 20 }}>
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
             <View style={{ flexDirection: "row", alignItems: "center" }}>
               <Ionicons name="link" size={20} color="#6366F1" />
               <Text style={{ marginLeft: 8, fontSize: 16, fontWeight: "600", color: "#1F2937" }}>
@@ -912,8 +987,8 @@ export default function GroupManagementScreen() {
 
         {/* Yêu cầu tham gia */}
         {canReviewRequests && (
-          <View style={{ backgroundColor: "#FFF", borderRadius: 12, padding: 16, marginBottom: 16 }}>
-            <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 12 }}>
+          <View style={{ backgroundColor: "#FFF", borderRadius: 12, padding: 16, marginBottom: 20 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 16 }}>
               <Ionicons name="people-circle-outline" size={20} color="#F59E0B" />
               <Text style={{ marginLeft: 8, fontSize: 16, fontWeight: "600", color: "#1F2937" }}>
                 Yêu cầu tham gia
@@ -929,7 +1004,7 @@ export default function GroupManagementScreen() {
               <Text style={{ textAlign: "center", color: "#9CA3AF", paddingVertical: 10 }}>Không có yêu cầu nào</Text>
             ) : (
               settings.pendingJoinRequests.map((req: any) => (
-                <View key={req.requestId} style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: "#F3F4F6" }}>
+                <View key={req.requestId} style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "#F3F4F6" }}>
                   <View style={{ flex: 1 }}>
                     <Text style={{ fontWeight: "600", color: "#1F2937" }}>{getParticipantName(req)}</Text>
                     <Text style={{ fontSize: 11, color: "#6B7280" }}>{new Date(req.requestedAt).toLocaleString("vi-VN")}</Text>
@@ -950,36 +1025,36 @@ export default function GroupManagementScreen() {
 
         {/* Phân quyền */}
         {isAdmin && (
-          <View style={{ backgroundColor: "#FFF", borderRadius: 12, padding: 16, marginBottom: 16 }}>
-            <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 12 }}>
+          <View style={{ backgroundColor: "#FFF", borderRadius: 12, padding: 16, marginBottom: 20 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 16 }}>
               <Ionicons name="settings-outline" size={20} color="#8B5CF6" />
               <Text style={{ marginLeft: 8, fontSize: 16, fontWeight: "600", color: "#1F2937" }}>Phân quyền nhóm</Text>
             </View>
-            <TouchableOpacity onPress={() => handleUpdatePermission("sendMedia")} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "#F3F4F6" }}>
+            <TouchableOpacity onPress={() => handleUpdatePermission("sendMedia")} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: "#F3F4F6" }}>
               <Text style={{ color: "#374151" }}>Gửi ảnh/video/file</Text>
               <Text style={{ color: "#6B7280", fontWeight: "500" }}>
                 {permissionOptions.find((o) => o.value === settings.permissions.sendMedia)?.label}
               </Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => handleUpdatePermission("sendMessage")} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "#F3F4F6" }}>
+            <TouchableOpacity onPress={() => handleUpdatePermission("sendMessage")} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: "#F3F4F6" }}>
               <Text style={{ color: "#374151" }}>Gửi tin nhắn</Text>
               <Text style={{ color: "#6B7280", fontWeight: "500" }}>
                 {permissionOptions.find((o) => o.value === settings.permissions.sendMessage)?.label}
               </Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => handleUpdatePermission("startCall")} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "#F3F4F6" }}>
+            <TouchableOpacity onPress={() => handleUpdatePermission("startCall")} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: "#F3F4F6" }}>
               <Text style={{ color: "#374151" }}>Bắt đầu cuộc gọi nhóm</Text>
               <Text style={{ color: "#6B7280", fontWeight: "500" }}>
                 {permissionOptions.find((o) => o.value === settings.permissions.startCall)?.label}
               </Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => handleUpdatePermission("pinMessage")} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "#F3F4F6" }}>
+            <TouchableOpacity onPress={() => handleUpdatePermission("pinMessage")} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: "#F3F4F6" }}>
               <Text style={{ color: "#374151" }}>Ghim tin nhắn</Text>
               <Text style={{ color: "#6B7280", fontWeight: "500" }}>
                 {permissionOptions.find((o) => o.value === settings.permissions.pinMessage)?.label}
               </Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => handleUpdatePermission("sendAnnouncement")} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 10 }}>
+            <TouchableOpacity onPress={() => handleUpdatePermission("sendAnnouncement")} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 14 }}>
               <Text style={{ color: "#374151" }}>Gửi thông báo</Text>
               <Text style={{ color: "#6B7280", fontWeight: "500" }}>
                 {permissionOptions.find((o) => o.value === settings.permissions.sendAnnouncement)?.label}
@@ -989,8 +1064,8 @@ export default function GroupManagementScreen() {
         )}
 
         {/* Thành viên */}
-        <View style={{ backgroundColor: "#FFF", borderRadius: 12, padding: 16, marginBottom: 16 }}>
-          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+        <View style={{ backgroundColor: "#FFF", borderRadius: 12, padding: 16, marginBottom: 20 }}>
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
             <View style={{ flexDirection: "row", alignItems: "center" }}>
               <Ionicons name="people" size={20} color="#10B981" />
               <Text style={{ marginLeft: 8, fontSize: 16, fontWeight: "600", color: "#1F2937" }}> Thành viên ({group.participants.length})</Text>
@@ -1023,7 +1098,7 @@ export default function GroupManagementScreen() {
                 (currentUserParticipant?.role === "deputy" && p.role === "member"));
             const relationState = getMemberRelationState(String(p.userId));
             return (
-              <View key={p.userId} style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "#F3F4F6" }}>
+              <View key={p.userId} style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: "#F3F4F6" }}>
                 <View style={{ flex: 1, flexDirection: "row", alignItems: "center" }}>
                   <TouchableOpacity onPress={() => handleOpenProfile(String(p.userId))} activeOpacity={0.8}>
                     <Avatar name={getParticipantName(p)} uri={getParticipantAvatar(p)} size={42} />
@@ -1044,6 +1119,16 @@ export default function GroupManagementScreen() {
                     style={{ marginRight: 10, width: 34, height: 34, borderRadius: 17, backgroundColor: "#EFF6FF", alignItems: "center", justifyContent: "center", opacity: isLoading ? 0.5 : 1 }}
                   >
                     <Ionicons name="person-add-outline" size={18} color="#2563EB" />
+                  </TouchableOpacity>
+                )}
+                {!isMe && relationState === "pending_sent" && (
+                  <TouchableOpacity
+                    onPress={() => void handleCancelFriendRequest(String(p.userId))}
+                    disabled={isLoading}
+                    style={{ marginRight: 10, paddingHorizontal: 10, height: 34, borderRadius: 17, backgroundColor: "#FEF2F2", alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 4, opacity: isLoading ? 0.5 : 1 }}
+                  >
+                    <Ionicons name="close-circle-outline" size={16} color="#EF4444" />
+                    <Text style={{ color: "#EF4444", fontSize: 12, fontWeight: "600" }}>Hủy lời mời</Text>
                   </TouchableOpacity>
                 )}
                 {canManage && (
@@ -1081,6 +1166,18 @@ export default function GroupManagementScreen() {
           <ActivityIndicator size="large" color="#3B82F6" />
         </View>
       )}
+      <TextPromptModal
+        visible={showNicknameModal}
+        title="Biệt danh"
+        initialValue={editingNicknameValue}
+        onConfirm={(val) => void handleSetNickname(editingNicknameUserId, val)}
+        onClose={() => {
+          setShowNicknameModal(false);
+          setEditingNicknameUserId("");
+          setEditingNicknameValue("");
+        }}
+        placeholder="Nhập biệt danh..."
+      />
       <MessageActionModal
         visible={showGroupMenu}
         title={groupMenuTitle}

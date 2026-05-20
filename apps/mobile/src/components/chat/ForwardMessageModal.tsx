@@ -77,7 +77,12 @@ export function ForwardMessageModal({
   };
 
   return (
-    <Modal visible={visible} animationType="slide" transparent>
+    <Modal
+      visible={visible}
+      animationType="slide"
+      transparent
+      onRequestClose={onClose}
+    >
       <View style={styles.overlay}>
         <View style={[styles.container, { paddingBottom: insets.bottom + 16 }]}>
           <View style={styles.header}>

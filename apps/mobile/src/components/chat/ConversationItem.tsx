@@ -24,7 +24,7 @@ const getConversationName = (conversation: Conversation, currentUserId: string) 
   const partner = conversation.participants?.find(
     (p) => String(p.userId) !== String(currentUserId),
   );
-  return partner?.fullName || "Nguoi dung";
+  return partner?.nickname || partner?.fullName || "Nguoi dung";
 };
 
 const getConversationAvatar = (conversation: Conversation, currentUserId: string) => {

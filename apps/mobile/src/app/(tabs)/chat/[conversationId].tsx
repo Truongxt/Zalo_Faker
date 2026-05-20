@@ -612,6 +612,8 @@ function MessageItem({
 }: MessageItemProps) {
   const [showVoiceTranscript, setShowVoiceTranscript] = useState(false);
   const isAnnouncement = Boolean((msg as any)?.metadata?.isAnnouncement);
+  const senderParticipant = participants.find((p) => String(p.userId) === String(msg.senderId));
+  const displayName = senderParticipant?.nickname || msg.senderName || "Người dùng";
   
   if (msg.type === 'system' || isAnnouncement) {
     const action = (msg.metadata as any)?.action;
@@ -625,6 +627,8 @@ function MessageItem({
       if (action === 'remove_member') return 'person-remove';
       if (action === 'update_permissions') return 'lock-closed';
       if (action === 'update_settings') return 'settings';
+      if (action === 'set_nickname') return 'person';
+      if (action === 'reminder' || action === 'reminder_due') return 'time';
       return 'information-circle';
     };
 
@@ -1083,7 +1087,7 @@ function MessageItem({
     >
       {showSenderMeta && (
         <Avatar
-          name={msg.senderName || "?"}
+          name={displayName}
           uri={(msg as any).senderAvatar}
           size={36}
         />
@@ -1104,7 +1108,7 @@ function MessageItem({
               marginLeft: 4,
             }}
           >
-            {msg.senderName}
+            {displayName}
           </Text>
         )}
 
@@ -1382,7 +1386,7 @@ export default function ChatRoomScreen() {
   const convName =
     conversation?.type === "group"
       ? conversation.name || "Nhóm chat"
-      : otherParticipant?.fullName || "Người dùng";
+      : otherParticipant?.nickname || otherParticipant?.fullName || "Người dùng";
   const convAvatar =
     conversation?.type === "group"
       ? conversation.avatarUrl || conversation.avatar
@@ -2866,6 +2870,32 @@ export default function ChatRoomScreen() {
     }
 
     if (!msg.isDeleted) {
+      options.push({
+        key: "delete-for-me",
+        text: "Xóa tin nhắn cho riêng bạn",
+        style: "destructive",
+        onPress: () => {
+          Alert.alert(
+            "Xóa cho riêng bạn?",
+            "Tin nhắn sẽ chỉ biến mất khỏi màn hình của bạn. Những người khác vẫn thấy tin nhắn này.",
+            [
+              { text: "Hủy", style: "cancel" },
+              {
+                text: "Xóa",
+                style: "destructive",
+                onPress: async () => {
+                  try {
+                    await chatService.deleteMessageForMe(convId, String((msg as any)._id || msg.id), msg.id);
+                    GrayToast("Đã xóa tin nhắn cho riêng bạn");
+                  } catch (error: any) {
+                    GrayToast(error?.message || "Không thể xóa tin nhắn cho riêng bạn");
+                  }
+                },
+              },
+            ],
+          );
+        },
+      });
       options.push({
         key: "reply",
         text: "Trả lời",

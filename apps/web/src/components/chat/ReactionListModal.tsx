@@ -1,4 +1,5 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { MessageReaction } from '@/types';
 
@@ -11,9 +12,12 @@ interface ReactionListModalProps {
 export const ReactionListModal: React.FC<ReactionListModalProps> = ({ isOpen, onClose, reactions }) => {
   if (!isOpen) return null;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-in fade-in duration-200">
-      <div 
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/50 p-4 animate-in fade-in duration-200"
+      onClick={onClose}
+    >
+      <div
         className="w-full max-w-sm bg-white rounded-2xl shadow-xl overflow-hidden animate-in zoom-in-95 duration-200"
         onClick={(e) => e.stopPropagation()}
       >
@@ -55,7 +59,7 @@ export const ReactionListModal: React.FC<ReactionListModalProps> = ({ isOpen, on
           )}
         </div>
       </div>
-      <div className="absolute inset-0 -z-10" onClick={onClose} />
-    </div>
+    </div>,
+    document.body,
   );
 };

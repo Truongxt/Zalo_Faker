@@ -114,6 +114,11 @@ class MomentService {
     return response.json();
   }
 
+  async getMomentReactions(momentId: string): Promise<import('../types/moment').MomentReaction[]> {
+    const response = await fetchWithAuth(`/moments/${momentId}/reactions`);
+    return response.json();
+  }
+
   async commentMoment(momentId: string, content: string): Promise<MomentComment> {
     return this.replyToComment(momentId, content, null);
   }
