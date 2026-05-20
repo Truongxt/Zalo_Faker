@@ -282,6 +282,7 @@ const normalizeMessage = (msg: any): Message => {
   return {
     ...msg,
     id: msg?.id || msg?._id || `temp-${Date.now()}`,
+    conversationId: String(msg?.conversationId || msg?.conversation?.id || msg?.conversation?._id || ""),
     type,
     content: normalizedContent,
     attachments: attachments.length ? attachments : undefined,
@@ -433,9 +434,10 @@ export const chatService = {
       useChatStore.getState().updateMessage(conversationId, normalized.id, normalized);
     });
 
-    socket.on("chat:update_conversation", ({ id, ...updates }: { id: string; [key: string]: any }) => {
-      if (!id || !updates || Object.keys(updates).length === 0) return;
-      useChatStore.getState().updateConversation(String(id), updates);
+    socket.on("chat:update_conversation", (data: any) => {
+      const convId = String(data?.id || data?._id || "").trim();
+      if (!convId || !data) return;
+      useChatStore.getState().updateConversation(convId, data);
     });
 
     const handleConversationRemoved = ({
@@ -616,6 +618,42 @@ export const chatService = {
     } catch (error) {
       console.error("Failed to delete message:", error);
       updateMessage(conversationId, messageId, { isDeleted: false });
+    }
+  },
+
+  async deleteMessageForMe(conversationId: string, messageId: string, localMessageId = messageId) {
+    const { removeMessage } = useChatStore.getState();
+
+    try {
+      await apiClient.delete(`/api/messages/${messageId}/delete-for-me`);
+      removeMessage(conversationId, localMessageId);
+      return { persisted: true };
+    } catch (deleteError: any) {
+      const status = deleteError?.response?.status;
+
+      if (status !== 404 && status !== 405) {
+        throw deleteError;
+      }
+
+      try {
+        await apiClient.post(`/api/messages/${messageId}/delete-for-me`, {});
+        removeMessage(conversationId, localMessageId);
+        return { persisted: true };
+      } catch (postError: any) {
+        const fallbackStatus = postError?.response?.status;
+
+        if (fallbackStatus !== 404 && fallbackStatus !== 405) {
+          throw postError;
+        }
+
+        console.warn("deleteMessageForMe route/message not available, removing locally only", {
+          messageId,
+          localMessageId,
+          status: fallbackStatus,
+        });
+        removeMessage(conversationId, localMessageId);
+        return { persisted: false };
+      }
     }
   },
 

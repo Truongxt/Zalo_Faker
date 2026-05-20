@@ -921,6 +921,25 @@ const MomentService = {
     }
 
     return attachMomentMeta(sortMomentsDesc(visibleMoments), userId);
+  },
+
+  async getMomentReactions(momentId, userId) {
+    if (!userId) {
+      throw createError("Unauthorized", 401);
+    }
+
+    const moment = await getMomentOrThrow(momentId);
+    await ensureMomentVisible(moment, userId);
+
+    const reactions = await momentReactionRepository.getByMomentId(momentId);
+    
+    const userIds = reactions.map(r => r.userId);
+    const userMap = await enrichUsers(userIds);
+
+    return reactions.map(reaction => ({
+      ...reaction,
+      user: userMap[reaction.userId] || null
+    })).sort((a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime()).reverse();
   }
 };
 

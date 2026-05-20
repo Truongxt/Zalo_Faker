@@ -13,6 +13,7 @@ router.get("/me", momentController.getMyProfile);
 router.get("/user/:userId", momentController.getUserProfile);
 router.get("/reacted", momentController.getReactedMoments);
 router.get("/:momentId/comments", momentController.getMomentComments);
+router.get("/:momentId/reactions", momentController.getMomentReactions);
 router.post("/:momentId/comments", momentController.commentMoment);
 router.delete("/:momentId/comments/:commentId", momentController.deleteComment);
 router.put("/:momentId/comments/:commentId/reaction", momentController.reactToComment);

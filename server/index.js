@@ -6,6 +6,7 @@ const http = require("http");
 const { connectRedis } = require("./utils/redisClient");
 const socketConfig = require("./config/socket");
 const { setSocketIO } = require("./utils/socketEmitter");
+const { startReminderScheduler } = require("./services/reminderService");
 
 
 const userRoutes = require("./routes/userRoutes");
@@ -55,6 +56,7 @@ const server = http.createServer(app);
 // ===== Socket.IO =====
 const io = socketConfig(server);
 app.set("io", io);
+startReminderScheduler(io);
 
 
 

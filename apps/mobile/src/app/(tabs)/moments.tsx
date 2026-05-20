@@ -1,4 +1,4 @@
-﻿import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   Alert,
   FlatList,
@@ -24,6 +24,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { CenterLoading, GrayToast } from "@/components/ui";
 import { Colors } from "@/constants/colors";
 import { momentService } from "@/services";
+import MomentReactionListModal from "@/components/moments/MomentReactionListModal";
 import type {
   Moment,
   MomentAuthor,
@@ -288,6 +289,7 @@ export default function MomentsScreen() {
   const [reactionPickerMomentId, setReactionPickerMomentId] = useState<
     string | null
   >(null);
+  const [reactionListMomentId, setReactionListMomentId] = useState<string | null>(null);
   const [commentsVisible, setCommentsVisible] = useState(false);
   const [commentTarget, setCommentTarget] = useState<Moment | null>(null);
   const [comments, setComments] = useState<MomentComment[]>([]);
@@ -983,9 +985,11 @@ export default function MomentsScreen() {
         ) : null}
 
         <View className="mt-4 flex-row items-center justify-between rounded-2xl bg-[#F7F9FC] px-3 py-2">
-          <Text className="text-xs font-medium text-gray-500">
-            {`${item.reactionCount} cảm xúc`}
-          </Text>
+          <TouchableOpacity onPress={() => setReactionListMomentId(item.momentId)}>
+            <Text className="text-xs font-medium text-gray-500 hover:underline">
+              {`${item.reactionCount} cảm xúc`}
+            </Text>
+          </TouchableOpacity>
           <Text className="text-xs font-medium text-gray-500">
             {`${item.commentCount} bình luận`}
           </Text>
@@ -1819,6 +1823,12 @@ export default function MomentsScreen() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      <MomentReactionListModal
+        momentId={reactionListMomentId || ""}
+        visible={!!reactionListMomentId}
+        onClose={() => setReactionListMomentId(null)}
+      />
     </View>
   );
 }

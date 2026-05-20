@@ -137,6 +137,7 @@ export interface MessageAttachment {
 
 export interface Message {
   id: string;
+  _id?: string;
   conversationId: string;
   senderId: string;
   senderName: string;
@@ -377,6 +378,14 @@ export interface MomentComment {
 export interface MomentProfile {
   user: MomentAuthor | null;
   moments: Moment[];
+}
+
+export interface MomentReaction {
+  userId: string;
+  momentId: string;
+  emoji: string;
+  updatedAt: string;
+  user: MomentAuthor | null;
 }
 
 export type MomentActivityNotificationType =

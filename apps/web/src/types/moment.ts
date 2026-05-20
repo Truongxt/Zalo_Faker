@@ -66,3 +66,11 @@ export interface MomentProfile {
   user: MomentAuthor | null;
   moments: Moment[];
 }
+
+export interface MomentReaction {
+  userId: string;
+  momentId: string;
+  emoji: string;
+  updatedAt: string;
+  user: MomentAuthor | null;
+}

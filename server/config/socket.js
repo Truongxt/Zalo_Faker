@@ -45,13 +45,16 @@ const MEDIA_FALLBACK_BY_TYPE = {
 
 const toRoomId = (conversationId) => `conv:${String(conversationId)}`;
 
-const normalizeMessage = (message) => ({
-  ...message,
-  id: message?._id || message?.id,
-  reactions: Array.isArray(message?.reactions) ? message.reactions : [],
-  readBy: Array.isArray(message?.readBy) ? message.readBy : [],
-  isDeleted: Boolean(message?.isDeleted),
-});
+const normalizeMessage = (message) => {
+  const messageObj = typeof message?.toObject === "function" ? message.toObject() : message;
+  return {
+    ...messageObj,
+    id: messageObj?._id || messageObj?.id,
+    reactions: Array.isArray(messageObj?.reactions) ? messageObj.reactions : [],
+    readBy: Array.isArray(messageObj?.readBy) ? messageObj.readBy : [],
+    isDeleted: Boolean(messageObj?.isDeleted),
+  };
+};
 
 const normalizeCallType = (value) => {
   const normalized = String(value || "").trim().toLowerCase();

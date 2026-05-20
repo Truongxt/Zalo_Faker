@@ -280,3 +280,12 @@ export const updateGroupAvatar = async (groupId: string, avatar: string) =>
     method: "PUT",
     body: { avatar },
   });
+export const updateParticipantSetting = async (
+  conversationId: string,
+  userId: string,
+  data: any
+) =>
+  apiFetch<any>(`/api/conversations/${conversationId}/setting`, {
+    method: "PATCH",
+    body: { userId, ...data },
+  });
