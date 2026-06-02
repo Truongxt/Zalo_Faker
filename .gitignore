@@ -12,3 +12,6 @@ build/
 # misc
 .DS_Store
 *.log
+*.env
+*.env
+*.env

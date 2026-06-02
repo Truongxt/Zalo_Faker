@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <title>Kế Hoạch Kiểm Thử Hệ Thống ChatR</title>
+  <style>
+    body {
+      font-family: "Times New Roman", serif;
+      font-size: 13pt;
+      line-height: 1.35;
+      color: #111;
+      max-width: 900px;
+      margin: 32px auto;
+      padding: 0 24px 48px;
+      background: #fff;
+    }
+    h1 {
+      text-align: center;
+      text-transform: uppercase;
+      font-size: 18pt;
+      margin: 0 0 18px;
+    }
+    h2 {
+      font-size: 15pt;
+      margin: 20px 0 8px;
+    }
+    h3 {
+      font-size: 13.5pt;
+      margin: 16px 0 8px;
+    }
+    p {
+      margin: 6px 0 10px;
+      text-align: justify;
+    }
+    ul {
+      margin-top: 6px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 8px 0 14px;
+      table-layout: fixed;
+    }
+    th, td {
+      border: 1px solid #333;
+      padding: 6px 8px;
+      vertical-align: top;
+      word-wrap: break-word;
+    }
+    th {
+      background: #d9eaf7;
+      text-align: center;
+      font-weight: bold;
+    }
+    .center {
+      text-align: center;
+    }
+    .note {
+      border: 1px solid #999;
+      background: #f7f7f7;
+      padding: 10px 12px;
+      margin-bottom: 16px;
+      font-family: Arial, sans-serif;
+      font-size: 11pt;
+    }
+    @media print {
+      body {
+        max-width: none;
+        margin: 0;
+        padding: 0;
+      }
+      .note {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="note">
+    Mở file này bằng Chrome/Edge, nhấn Ctrl+A rồi Ctrl+C, sau đó dán vào Word. Các bảng và tiêu đề sẽ giữ định dạng tốt hơn so với copy trực tiếp từ file Markdown.
+  </div>
+
+  <h1>Kế Hoạch Kiểm Thử Hệ Thống ChatR</h1>
+
+  <h2>1. Thông tin chung</h2>
+  <table>
+    <tr><th>Mục</th><th>Nội dung</th></tr>
+    <tr><td>Project Name</td><td>ChatR</td></tr>
+    <tr><td>Project Code</td><td>Module01</td></tr>
+    <tr><td>Số lượng chức năng kiểm thử</td><td>9</td></tr>
+    <tr><td>Môi trường kiểm thử</td><td>Sử dụng kết nối mạng</td></tr>
+    <tr><td>Hình thức kiểm thử</td><td>Kiểm thử chức năng, kiểm thử giao diện, kiểm thử tích hợp và kiểm thử real-time</td></tr>
+  </table>
+
+  <h2>2. Mục tiêu kiểm thử</h2>
+  <p>Kế hoạch này được xây dựng để kiểm thử 9 chức năng chính của hệ thống ChatR/Zalo_Faker. Mục tiêu là xác nhận các chức năng hoạt động đúng theo yêu cầu, dữ liệu được xử lý chính xác, người dùng nhận được phản hồi phù hợp và các luồng real-time như gọi video, gửi âm thanh, thu hồi tin nhắn được đồng bộ ổn định giữa các tài khoản.</p>
+  <p>Các mục tiêu cụ thể:</p>
+  <ul>
+    <li>Đảm bảo người dùng có thể thao tác đúng với 9 chức năng được chọn.</li>
+    <li>Phát hiện lỗi chức năng, lỗi giao diện và lỗi xử lý dữ liệu.</li>
+    <li>Kiểm tra các điều kiện hợp lệ, không hợp lệ và trường hợp biên.</li>
+    <li>Xác minh quyền truy cập, trạng thái đăng nhập và điều kiện tiền đề của từng chức năng.</li>
+    <li>Ghi nhận kết quả kiểm thử để phục vụ báo cáo và sửa lỗi.</li>
+  </ul>
+
+  <h2>3. Phạm vi kiểm thử</h2>
+  <h3>3.1 Chức năng trong phạm vi</h3>
+  <table>
+    <tr>
+      <th>STT</th>
+      <th>Requirement Name</th>
+      <th>Class Name</th>
+      <th>Function Name</th>
+      <th>Function Code</th>
+      <th>Sheet Name</th>
+      <th>Điều kiện tiền đề</th>
+    </tr>
+    <tr><td class="center">1</td><td>Kiểm chứng chức năng đăng ký tài khoản</td><td>Feature01</td><td>Đăng ký</td><td>F01_REGISTER</td><td>UT Lab 1</td><td>Người dùng chưa đăng nhập; SMS/OTP, API và database hoạt động</td></tr>
+    <tr><td class="center">2</td><td>Kiểm chứng chức năng gọi video</td><td>Feature02</td><td>Video call</td><td>F02_VIDEO_CALL</td><td>UT Lab 2</td><td>Hai tài khoản đã là bạn bè; thiết bị có camera, micro và mạng ổn định</td></tr>
+    <tr><td class="center">3</td><td>Kiểm chứng chức năng tạo nhóm chat</td><td>Feature03</td><td>Tạo nhóm</td><td>F03_CREATE_GROUP</td><td>UT Lab 3</td><td>Người dùng đã đăng nhập và có danh sách bạn bè</td></tr>
+    <tr><td class="center">4</td><td>Kiểm chứng chức năng tóm tắt trò chuyện</td><td>Feature04</td><td>Tóm tắt trò chuyện</td><td>F04_CHAT_SUMMARY</td><td>UT Lab 4</td><td>Người dùng có quyền xem chat; dịch vụ tóm tắt hoạt động</td></tr>
+    <tr><td class="center">5</td><td>Kiểm chứng chức năng thêm bạn bè</td><td>Feature05</td><td>Thêm bạn bè</td><td>F05_ADD_FRIEND</td><td>UT Lab 5</td><td>Người dùng đã đăng nhập</td></tr>
+    <tr><td class="center">6</td><td>Kiểm chứng chức năng tạo bình chọn</td><td>Feature06</td><td>Tạo bình chọn</td><td>F06_CREATE_POLL</td><td>UT Lab 6</td><td>Người dùng là thành viên chat/nhóm có hỗ trợ poll</td></tr>
+    <tr><td class="center">7</td><td>Kiểm chứng chức năng thu hồi tin nhắn</td><td>Feature07</td><td>Thu hồi tin nhắn</td><td>F07_RECALL_MESSAGE</td><td>UT Lab 7</td><td>Người dùng đã đăng nhập và có tin nhắn trong chat</td></tr>
+    <tr><td class="center">8</td><td>Kiểm chứng chức năng đăng tải khoảnh khắc</td><td>Feature08</td><td>Đăng tải khoảnh khắc</td><td>F08_POST_MOMENT</td><td>UT Lab 8</td><td>Người dùng đã đăng nhập</td></tr>
+    <tr><td class="center">9</td><td>Kiểm chứng chức năng gửi âm thanh</td><td>Feature09</td><td>Gửi âm thanh</td><td>F09_SEND_AUDIO</td><td>UT Lab 9</td><td>Người dùng đã đăng nhập trong trò chuyện</td></tr>
+  </table>
+
+  <h3>3.2 Chức năng ngoài phạm vi</h3>
+  <ul>
+    <li>Đăng nhập, đăng xuất, quên mật khẩu, đổi mật khẩu nếu không liên quan trực tiếp đến điều kiện tiền đề.</li>
+    <li>Quản lý hồ sơ cá nhân.</li>
+    <li>Quản lý thông báo nâng cao.</li>
+    <li>AI Assistant ngoài chức năng tóm tắt trò chuyện.</li>
+    <li>Kiểm thử tải nặng quy mô lớn.</li>
+    <li>Kiểm thử bảo mật chuyên sâu như pentest.</li>
+  </ul>
+
+  <h2>4. Chiến lược kiểm thử</h2>
+  <h3>4.1 Kiểm thử chức năng</h3>
+  <p>Mỗi chức năng sẽ được kiểm thử theo các nhóm trường hợp:</p>
+  <ul>
+    <li>Trường hợp hợp lệ: người dùng nhập đúng dữ liệu và thao tác đúng luồng.</li>
+    <li>Trường hợp không hợp lệ: thiếu dữ liệu, nhập sai định dạng hoặc không đủ quyền.</li>
+    <li>Trường hợp biên: dữ liệu quá dài, file lớn, nhiều thành viên, mạng yếu.</li>
+    <li>Trường hợp khôi phục: reload trang, mất kết nối tạm thời, thao tác lại sau khi lỗi.</li>
+  </ul>
+
+  <h3>4.2 Kiểm thử giao diện</h3>
+  <ul>
+    <li>Nút, form, modal, thông báo lỗi và toast hiển thị đúng.</li>
+    <li>Nội dung không bị tràn, không bị che khuất.</li>
+    <li>Trạng thái loading, disabled, success, error rõ ràng.</li>
+    <li>Người dùng dễ hiểu thao tác tiếp theo.</li>
+  </ul>
+
+  <h3>4.3 Kiểm thử tích hợp</h3>
+  <ul>
+    <li>Đăng ký ghi dữ liệu tài khoản vào hệ thống.</li>
+    <li>Gọi video sử dụng kết nối real-time và thiết bị camera/micro.</li>
+    <li>Tạo nhóm cập nhật danh sách thành viên.</li>
+    <li>Tạo bình chọn và thu hồi tin nhắn cập nhật đồng bộ trong cuộc trò chuyện.</li>
+    <li>Đăng khoảnh khắc và gửi âm thanh có thể cần upload media.</li>
+  </ul>
+
+  <h3>4.4 Kiểm thử real-time</h3>
+  <ul>
+    <li>Cuộc gọi video được gửi, nhận, từ chối và kết thúc đúng.</li>
+    <li>Tin nhắn bị thu hồi được cập nhật trên màn hình của các thành viên khác.</li>
+    <li>Bình chọn mới xuất hiện trong nhóm/chat.</li>
+    <li>Âm thanh gửi đi được người nhận nhìn thấy và phát lại.</li>
+  </ul>
+
+  <h2>5. Môi trường kiểm thử</h2>
+  <table>
+    <tr><th>Thành phần</th><th>Mô tả</th></tr>
+    <tr><td>Backend</td><td>Node.js/Express server đang chạy ổn định</td></tr>
+    <tr><td>Web client</td><td>Trình duyệt Chrome hoặc Edge</td></tr>
+    <tr><td>Mobile client</td><td>Android emulator hoặc thiết bị Android thật nếu có</td></tr>
+    <tr><td>Kết nối mạng</td><td>Có Internet, ưu tiên mạng ổn định khi kiểm thử video call</td></tr>
+    <tr><td>Database</td><td>Database test có dữ liệu người dùng, bạn bè, nhóm và tin nhắn</td></tr>
+    <tr><td>Storage/media</td><td>Dịch vụ upload hoạt động nếu kiểm thử ảnh, video, âm thanh</td></tr>
+  </table>
+
+  <h2>6. Dữ liệu kiểm thử đề xuất</h2>
+  <table>
+    <tr><th>Mã dữ liệu</th><th>Mô tả</th><th>Dùng cho chức năng</th></tr>
+    <tr><td>U01</td><td>Tài khoản người dùng A đã đăng nhập</td><td>Tạo nhóm, thêm bạn, bình chọn, thu hồi tin nhắn, đăng khoảnh khắc, gửi âm thanh</td></tr>
+    <tr><td>U02</td><td>Tài khoản người dùng B đã đăng nhập</td><td>Video call, thêm bạn, nhận tin nhắn, nhận âm thanh</td></tr>
+    <tr><td>U03</td><td>Tài khoản chưa là bạn bè với U01</td><td>Thêm bạn bè</td></tr>
+    <tr><td>U04</td><td>Email/số điện thoại chưa tồn tại trong hệ thống</td><td>Đăng ký</td></tr>
+    <tr><td>U05</td><td>Email/số điện thoại đã tồn tại</td><td>Đăng ký lỗi</td></tr>
+    <tr><td>G01</td><td>Nhóm chat có U01 và U02</td><td>Tạo bình chọn, thu hồi tin nhắn, gửi âm thanh</td></tr>
+    <tr><td>MSG01</td><td>Tin nhắn do U01 gửi</td><td>Thu hồi tin nhắn</td></tr>
+    <tr><td>POLL01</td><td>Nội dung bình chọn gồm từ 2 lựa chọn trở lên</td><td>Tạo bình chọn</td></tr>
+    <tr><td>MEDIA01</td><td>File ảnh/video hợp lệ</td><td>Đăng tải khoảnh khắc</td></tr>
+    <tr><td>AUDIO01</td><td>File ghi âm hợp lệ</td><td>Gửi âm thanh</td></tr>
+  </table>
+
+  <h2>7. Ma trận ưu tiên kiểm thử</h2>
+  <table>
+    <tr><th>Chức năng</th><th>Mức ưu tiên</th><th>Lý do</th></tr>
+    <tr><td>Đăng ký</td><td>P0</td><td>Là bước đầu để người dùng có tài khoản sử dụng hệ thống</td></tr>
+    <tr><td>Thêm bạn bè</td><td>P0</td><td>Là điều kiện quan trọng để chat, gọi và tạo nhóm</td></tr>
+    <tr><td>Tạo nhóm</td><td>P0</td><td>Là chức năng nền cho chat nhóm, bình chọn và gửi media</td></tr>
+    <tr><td>Thu hồi tin nhắn</td><td>P1</td><td>Ảnh hưởng trực tiếp đến dữ liệu hội thoại và real-time</td></tr>
+    <tr><td>Gửi âm thanh</td><td>P1</td><td>Chức năng chat media quan trọng</td></tr>
+    <tr><td>Video call</td><td>P1</td><td>Chức năng real-time phụ thuộc thiết bị và mạng</td></tr>
+    <tr><td>Tạo bình chọn</td><td>P1</td><td>Chức năng tương tác trong nhóm/chat</td></tr>
+    <tr><td>Đăng tải khoảnh khắc</td><td>P1</td><td>Chức năng đăng nội dung media của người dùng</td></tr>
+    <tr><td>Tóm tắt trò chuyện</td><td>P2</td><td>Có thể phụ thuộc dịch vụ AI/tóm tắt bên ngoài</td></tr>
+  </table>
+
+  <h2>8. Test case tổng quan theo chức năng</h2>
+
+  <h3>8.1 F01_REGISTER - Đăng ký tài khoản</h3>
+  <table>
+    <tr><th>Mã TC</th><th>Mục tiêu kiểm thử</th><th>Dữ liệu đầu vào</th><th>Kết quả mong đợi</th></tr>
+    <tr><td>TC-F01-001</td><td>Đăng ký thành công với dữ liệu hợp lệ</td><td>Tên, email/số điện thoại, mật khẩu, OTP hợp lệ</td><td>Tài khoản được tạo thành công và có thể đăng nhập</td></tr>
+    <tr><td>TC-F01-002</td><td>Đăng ký với email/số điện thoại đã tồn tại</td><td>Email/số điện thoại đã có trong hệ thống</td><td>Hệ thống báo lỗi trùng thông tin</td></tr>
+    <tr><td>TC-F01-003</td><td>Đăng ký khi bỏ trống trường bắt buộc</td><td>Thiếu email, số điện thoại hoặc mật khẩu</td><td>Hệ thống hiển thị lỗi bắt buộc nhập</td></tr>
+    <tr><td>TC-F01-004</td><td>Xác thực OTP sai hoặc hết hạn</td><td>OTP không đúng hoặc quá hạn</td><td>Hệ thống không cho hoàn tất đăng ký</td></tr>
+    <tr><td>TC-F01-005</td><td>Mật khẩu không đạt yêu cầu</td><td>Mật khẩu quá ngắn hoặc yếu</td><td>Hệ thống báo lỗi quy tắc mật khẩu</td></tr>
+  </table>
+
+  <h3>8.2 F02_VIDEO_CALL - Gọi video</h3>
+  <table>
+    <tr><th>Mã TC</th><th>Mục tiêu kiểm thử</th><th>Dữ liệu đầu vào</th><th>Kết quả mong đợi</th></tr>
+    <tr><td>TC-F02-001</td><td>Gọi video thành công giữa hai bạn bè</td><td>U01 gọi U02</td><td>U02 nhận lời mời, hai bên nhìn/nghe được nhau</td></tr>
+    <tr><td>TC-F02-002</td><td>Người nhận từ chối cuộc gọi</td><td>U02 chọn từ chối</td><td>U01 nhận trạng thái cuộc gọi bị từ chối</td></tr>
+    <tr><td>TC-F02-003</td><td>Người gọi hủy trước khi người nhận bắt máy</td><td>U01 hủy cuộc gọi</td><td>U02 không còn lời mời gọi đang chờ</td></tr>
+    <tr><td>TC-F02-004</td><td>Thiết bị không cấp quyền camera/micro</td><td>Từ chối quyền thiết bị</td><td>Hệ thống báo lỗi quyền truy cập thiết bị</td></tr>
+    <tr><td>TC-F02-005</td><td>Mạng yếu hoặc mất kết nối trong khi gọi</td><td>Ngắt mạng tạm thời</td><td>Cuộc gọi báo lỗi, kết thúc hoặc khôi phục theo thiết kế</td></tr>
+  </table>
+
+  <h3>8.3 F03_CREATE_GROUP - Tạo nhóm chat</h3>
+  <table>
+    <tr><th>Mã TC</th><th>Mục tiêu kiểm thử</th><th>Dữ liệu đầu vào</th><th>Kết quả mong đợi</th></tr>
+    <tr><td>TC-F03-001</td><td>Tạo nhóm thành công</td><td>Tên nhóm và danh sách thành viên hợp lệ</td><td>Nhóm mới được tạo, thành viên nhìn thấy nhóm</td></tr>
+    <tr><td>TC-F03-002</td><td>Tạo nhóm không nhập tên</td><td>Danh sách thành viên có, tên nhóm trống</td><td>Hệ thống báo lỗi tên nhóm</td></tr>
+    <tr><td>TC-F03-003</td><td>Tạo nhóm không chọn thành viên</td><td>Chỉ nhập tên nhóm</td><td>Hệ thống báo lỗi chưa chọn thành viên</td></tr>
+    <tr><td>TC-F03-004</td><td>Tạo nhóm với nhiều thành viên</td><td>Tên nhóm và nhiều bạn bè</td><td>Nhóm được tạo đủ thành viên</td></tr>
+    <tr><td>TC-F03-005</td><td>Tạo nhóm khi mất kết nối</td><td>Ngắt mạng lúc gửi yêu cầu</td><td>Hệ thống báo lỗi hoặc không tạo nhóm trùng</td></tr>
+  </table>
+
+  <h3>8.4 F04_CHAT_SUMMARY - Tóm tắt trò chuyện</h3>
+  <table>
+    <tr><th>Mã TC</th><th>Mục tiêu kiểm thử</th><th>Dữ liệu đầu vào</th><th>Kết quả mong đợi</th></tr>
+    <tr><td>TC-F04-001</td><td>Tóm tắt cuộc trò chuyện có nhiều tin nhắn</td><td>Cuộc trò chuyện có lịch sử chat</td><td>Hệ thống trả về nội dung tóm tắt chính xác, dễ hiểu</td></tr>
+    <tr><td>TC-F04-002</td><td>Tóm tắt cuộc trò chuyện ít hoặc không có tin nhắn</td><td>Chat trống hoặc rất ít tin</td><td>Hệ thống báo không đủ dữ liệu hoặc trả tóm tắt phù hợp</td></tr>
+    <tr><td>TC-F04-003</td><td>Người không có quyền xem chat yêu cầu tóm tắt</td><td>User không thuộc conversation</td><td>Hệ thống từ chối truy cập</td></tr>
+    <tr><td>TC-F04-004</td><td>Dịch vụ tóm tắt/AI lỗi</td><td>Giả lập lỗi dịch vụ</td><td>Hệ thống hiển thị lỗi, không treo giao diện</td></tr>
+    <tr><td>TC-F04-005</td><td>Tóm tắt sau khi có tin nhắn mới</td><td>Thêm tin nhắn rồi tóm tắt lại</td><td>Nội dung tóm tắt phản ánh dữ liệu mới</td></tr>
+  </table>
+
+  <h3>8.5 F05_ADD_FRIEND - Thêm bạn bè</h3>
+  <table>
+    <tr><th>Mã TC</th><th>Mục tiêu kiểm thử</th><th>Dữ liệu đầu vào</th><th>Kết quả mong đợi</th></tr>
+    <tr><td>TC-F05-001</td><td>Tìm và gửi lời mời kết bạn thành công</td><td>Số điện thoại/email của U03</td><td>Lời mời được gửi, trạng thái chuyển sang đang chờ</td></tr>
+    <tr><td>TC-F05-002</td><td>Tìm người dùng không tồn tại</td><td>Số điện thoại/email không có trong hệ thống</td><td>Hệ thống báo không tìm thấy người dùng</td></tr>
+    <tr><td>TC-F05-003</td><td>Gửi lời mời trùng lặp</td><td>Gửi lại cho user đang chờ</td><td>Hệ thống không tạo lời mời trùng</td></tr>
+    <tr><td>TC-F05-004</td><td>Chấp nhận lời mời kết bạn</td><td>U03 chấp nhận lời mời từ U01</td><td>Hai người trở thành bạn bè</td></tr>
+    <tr><td>TC-F05-005</td><td>Từ chối lời mời kết bạn</td><td>U03 từ chối lời mời</td><td>Trạng thái lời mời được cập nhật đúng</td></tr>
+  </table>
+
+  <h3>8.6 F06_CREATE_POLL - Tạo bình chọn</h3>
+  <table>
+    <tr><th>Mã TC</th><th>Mục tiêu kiểm thử</th><th>Dữ liệu đầu vào</th><th>Kết quả mong đợi</th></tr>
+    <tr><td>TC-F06-001</td><td>Tạo bình chọn thành công</td><td>Câu hỏi và ít nhất 2 lựa chọn</td><td>Bình chọn xuất hiện trong chat/nhóm</td></tr>
+    <tr><td>TC-F06-002</td><td>Tạo bình chọn thiếu câu hỏi</td><td>Chỉ nhập lựa chọn</td><td>Hệ thống báo lỗi câu hỏi</td></tr>
+    <tr><td>TC-F06-003</td><td>Tạo bình chọn thiếu lựa chọn</td><td>Chỉ nhập câu hỏi hoặc 1 lựa chọn</td><td>Hệ thống báo cần tối thiểu 2 lựa chọn</td></tr>
+    <tr><td>TC-F06-004</td><td>Thành viên chọn một phương án</td><td>User chọn option</td><td>Số phiếu được cập nhật đúng</td></tr>
+    <tr><td>TC-F06-005</td><td>Người không thuộc nhóm tạo bình chọn</td><td>User không có quyền</td><td>Hệ thống từ chối thao tác</td></tr>
+  </table>
+
+  <h3>8.7 F07_RECALL_MESSAGE - Thu hồi tin nhắn</h3>
+  <table>
+    <tr><th>Mã TC</th><th>Mục tiêu kiểm thử</th><th>Dữ liệu đầu vào</th><th>Kết quả mong đợi</th></tr>
+    <tr><td>TC-F07-001</td><td>Thu hồi tin nhắn của chính mình</td><td>MSG01 do U01 gửi</td><td>Tin nhắn chuyển sang trạng thái đã thu hồi</td></tr>
+    <tr><td>TC-F07-002</td><td>Thu hồi tin nhắn của người khác</td><td>U01 chọn tin nhắn của U02</td><td>Hệ thống từ chối nếu không có quyền</td></tr>
+    <tr><td>TC-F07-003</td><td>Thu hồi tin nhắn đã thu hồi trước đó</td><td>Chọn lại tin đã thu hồi</td><td>Hệ thống không xử lý trùng hoặc báo trạng thái hiện tại</td></tr>
+    <tr><td>TC-F07-004</td><td>Thu hồi tin nhắn và kiểm tra client khác</td><td>U01 thu hồi, U02 đang mở chat</td><td>Màn hình U02 cập nhật real-time</td></tr>
+    <tr><td>TC-F07-005</td><td>Thu hồi khi mất mạng</td><td>Ngắt mạng lúc thao tác</td><td>Hệ thống báo lỗi, dữ liệu không bị sai lệch</td></tr>
+  </table>
+
+  <h3>8.8 F08_POST_MOMENT - Đăng tải khoảnh khắc</h3>
+  <table>
+    <tr><th>Mã TC</th><th>Mục tiêu kiểm thử</th><th>Dữ liệu đầu vào</th><th>Kết quả mong đợi</th></tr>
+    <tr><td>TC-F08-001</td><td>Đăng khoảnh khắc dạng văn bản</td><td>Nội dung text hợp lệ</td><td>Bài đăng xuất hiện trên feed</td></tr>
+    <tr><td>TC-F08-002</td><td>Đăng khoảnh khắc có ảnh/video</td><td>Text kèm media hợp lệ</td><td>Media upload thành công và hiển thị đúng</td></tr>
+    <tr><td>TC-F08-003</td><td>Đăng khoảnh khắc với nội dung trống</td><td>Không nhập text, không chọn media</td><td>Hệ thống báo lỗi nội dung</td></tr>
+    <tr><td>TC-F08-004</td><td>Upload media không hợp lệ</td><td>File sai định dạng hoặc quá dung lượng</td><td>Hệ thống báo lỗi upload</td></tr>
+    <tr><td>TC-F08-005</td><td>Kiểm tra bài đăng sau khi reload</td><td>Reload feed sau khi đăng</td><td>Bài đăng vẫn hiển thị đúng dữ liệu</td></tr>
+  </table>
+
+  <h3>8.9 F09_SEND_AUDIO - Gửi âm thanh</h3>
+  <table>
+    <tr><th>Mã TC</th><th>Mục tiêu kiểm thử</th><th>Dữ liệu đầu vào</th><th>Kết quả mong đợi</th></tr>
+    <tr><td>TC-F09-001</td><td>Gửi tin nhắn âm thanh thành công</td><td>File ghi âm hợp lệ</td><td>Tin nhắn âm thanh xuất hiện trong cuộc trò chuyện</td></tr>
+    <tr><td>TC-F09-002</td><td>Người nhận phát lại âm thanh</td><td>U02 mở và phát file âm thanh</td><td>Âm thanh phát được, hiển thị đúng thời lượng nếu có</td></tr>
+    <tr><td>TC-F09-003</td><td>Gửi âm thanh khi file quá lớn</td><td>File vượt giới hạn</td><td>Hệ thống báo lỗi dung lượng</td></tr>
+    <tr><td>TC-F09-004</td><td>Gửi âm thanh khi mất mạng</td><td>Ngắt mạng lúc gửi</td><td>Hệ thống báo lỗi hoặc đưa vào hàng chờ nếu có hỗ trợ</td></tr>
+    <tr><td>TC-F09-005</td><td>Kiểm tra đồng bộ real-time</td><td>U01 gửi, U02 đang mở chat</td><td>U02 nhận tin nhắn âm thanh ngay hoặc sau khi đồng bộ</td></tr>
+  </table>
+
+  <h2>9. Tiêu chí bắt đầu kiểm thử</h2>
+  <ul>
+    <li>Backend, Web và Mobile chạy được trên môi trường test.</li>
+    <li>Có ít nhất 2 tài khoản test đã đăng nhập được.</li>
+    <li>Có dữ liệu bạn bè, nhóm chat và tin nhắn phục vụ kiểm thử.</li>
+    <li>Camera, micro và kết nối mạng sẵn sàng cho kiểm thử video call.</li>
+    <li>Dịch vụ upload và dịch vụ tóm tắt trò chuyện hoạt động.</li>
+  </ul>
+
+  <h2>10. Tiêu chí kết thúc kiểm thử</h2>
+  <ul>
+    <li>100% test case mức P0 đã được thực thi.</li>
+    <li>Ít nhất 90% test case mức P1 đã pass.</li>
+    <li>Không còn lỗi Blocker hoặc Critical đang mở.</li>
+    <li>Các lỗi Major còn lại đã có ghi chú, workaround hoặc được nhóm chấp nhận.</li>
+    <li>Có báo cáo kết quả kiểm thử gồm Pass/Fail, Bug ID và ghi chú.</li>
+  </ul>
+
+  <h2>11. Phân loại mức độ lỗi</h2>
+  <table>
+    <tr><th>Mức độ</th><th>Định nghĩa</th><th>Ví dụ</th></tr>
+    <tr><td>Blocker</td><td>Không thể tiếp tục kiểm thử hoặc không thể sử dụng hệ thống</td><td>Server không chạy, không đăng ký được tài khoản</td></tr>
+    <tr><td>Critical</td><td>Lỗi nghiêm trọng ảnh hưởng chức năng chính hoặc dữ liệu</td><td>Người dùng thu hồi được tin nhắn của người khác</td></tr>
+    <tr><td>Major</td><td>Chức năng chính hoạt động sai nhưng vẫn có thể tiếp tục kiểm thử</td><td>Gửi âm thanh thành công nhưng người nhận không thấy real-time</td></tr>
+    <tr><td>Minor</td><td>Lỗi nhỏ, chủ yếu ảnh hưởng trải nghiệm</td><td>Thông báo lỗi chưa rõ ràng</td></tr>
+    <tr><td>Trivial</td><td>Lỗi rất nhỏ, không ảnh hưởng nghiệp vụ</td><td>Khoảng cách giao diện chưa đều</td></tr>
+  </table>
+
+  <h2>12. Lịch trình kiểm thử đề xuất</h2>
+  <table>
+    <tr><th>Giai đoạn</th><th>Thời lượng</th><th>Nội dung</th></tr>
+    <tr><td>Chuẩn bị</td><td>0.5 ngày</td><td>Tạo tài khoản test, kiểm tra môi trường, chuẩn bị dữ liệu</td></tr>
+    <tr><td>Smoke test</td><td>0.5 ngày</td><td>Kiểm tra nhanh đăng ký, thêm bạn, tạo nhóm, gửi âm thanh</td></tr>
+    <tr><td>Functional test</td><td>1.5 ngày</td><td>Chạy test case cho đủ 9 chức năng</td></tr>
+    <tr><td>Real-time/integration test</td><td>1 ngày</td><td>Kiểm tra video call, thu hồi tin nhắn, bình chọn, gửi âm thanh trên nhiều client</td></tr>
+    <tr><td>Regression test</td><td>0.5-1 ngày</td><td>Kiểm thử lại sau khi sửa lỗi</td></tr>
+    <tr><td>Tổng hợp báo cáo</td><td>0.5 ngày</td><td>Tổng hợp Pass/Fail, bug và kết luận</td></tr>
+  </table>
+
+  <h2>13. Mẫu báo cáo kết quả kiểm thử</h2>
+  <table>
+    <tr><th>Mã TC</th><th>Chức năng</th><th>Tên test case</th><th>Ưu tiên</th><th>Kết quả</th><th>Bug ID</th><th>Ghi chú</th></tr>
+    <tr><td>TC-F01-001</td><td>Đăng ký</td><td>Đăng ký thành công với dữ liệu hợp lệ</td><td>P0</td><td>Pass/Fail</td><td></td><td></td></tr>
+    <tr><td>TC-F02-001</td><td>Video call</td><td>Gọi video thành công giữa hai bạn bè</td><td>P1</td><td>Pass/Fail</td><td></td><td></td></tr>
+    <tr><td>TC-F03-001</td><td>Tạo nhóm</td><td>Tạo nhóm thành công</td><td>P0</td><td>Pass/Fail</td><td></td><td></td></tr>
+    <tr><td>TC-F04-001</td><td>Tóm tắt trò chuyện</td><td>Tóm tắt cuộc trò chuyện có nhiều tin nhắn</td><td>P2</td><td>Pass/Fail</td><td></td><td></td></tr>
+    <tr><td>TC-F05-001</td><td>Thêm bạn bè</td><td>Gửi lời mời kết bạn thành công</td><td>P0</td><td>Pass/Fail</td><td></td><td></td></tr>
+    <tr><td>TC-F06-001</td><td>Tạo bình chọn</td><td>Tạo bình chọn thành công</td><td>P1</td><td>Pass/Fail</td><td></td><td></td></tr>
+    <tr><td>TC-F07-001</td><td>Thu hồi tin nhắn</td><td>Thu hồi tin nhắn của chính mình</td><td>P1</td><td>Pass/Fail</td><td></td><td></td></tr>
+    <tr><td>TC-F08-001</td><td>Đăng khoảnh khắc</td><td>Đăng khoảnh khắc dạng văn bản</td><td>P1</td><td>Pass/Fail</td><td></td><td></td></tr>
+    <tr><td>TC-F09-001</td><td>Gửi âm thanh</td><td>Gửi tin nhắn âm thanh thành công</td><td>P1</td><td>Pass/Fail</td><td></td><td></td></tr>
+  </table>
+
+  <h2>14. Rủi ro và biện pháp giảm thiểu</h2>
+  <table>
+    <tr><th>Rủi ro</th><th>Ảnh hưởng</th><th>Biện pháp giảm thiểu</th></tr>
+    <tr><td>Mạng yếu khi kiểm thử video call</td><td>Cuộc gọi không ổn định, khó xác định lỗi</td><td>Kiểm thử trên mạng ổn định trước, sau đó mới kiểm thử mạng yếu</td></tr>
+    <tr><td>Dữ liệu test bị thay đổi</td><td>Khó tái hiện lỗi</td><td>Chuẩn bị sẵn tài khoản và dữ liệu test cố định</td></tr>
+    <tr><td>Dịch vụ upload hoặc tóm tắt bị lỗi</td><td>Không kiểm thử được chức năng media/summary</td><td>Ghi nhận trạng thái dịch vụ và kiểm thử lại khi dịch vụ hoạt động</td></tr>
+    <tr><td>Thiết bị không có camera/micro</td><td>Không kiểm thử được video call</td><td>Dùng thiết bị khác hoặc emulator có cấu hình phù hợp</td></tr>
+    <tr><td>Chức năng real-time không đồng bộ</td><td>Người dùng thấy dữ liệu khác nhau</td><td>Kiểm thử song song trên hai client và ghi lại thời điểm thao tác</td></tr>
+  </table>
+</body>
+</html>
