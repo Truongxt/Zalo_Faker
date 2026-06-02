@@ -6,12 +6,14 @@ const http = require("http");
 const { connectRedis } = require("./utils/redisClient");
 const socketConfig = require("./config/socket");
 const { setSocketIO } = require("./utils/socketEmitter");
+const { startReminderScheduler } = require("./services/reminderService");
 
 
 const userRoutes = require("./routes/userRoutes");
 
 const groupRoutes = require("./routes/groupRoutes");
 const momentRoutes = require("./routes/momentRoutes");
+const notificationRoutes = require("./routes/notificationRoutes");
 
 
 const friendRoutes = require("./routes/friendRoutes");
@@ -37,6 +39,7 @@ app.use("/api/messages", messageRoutes);
 app.use("/api/friends", friendRoutes);
 app.use("/api/groups", groupRoutes); 
 app.use("/api/moments", momentRoutes);
+app.use("/api/notifications", notificationRoutes);
 app.use("/api/ai", aiRoutes);
 app.use("/api/upload", uploadRoutes);
 app.use("/api/labels", labelRoutes);
@@ -53,6 +56,7 @@ const server = http.createServer(app);
 // ===== Socket.IO =====
 const io = socketConfig(server);
 app.set("io", io);
+startReminderScheduler(io);
 
 
 

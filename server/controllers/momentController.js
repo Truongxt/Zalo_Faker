@@ -244,6 +244,15 @@ const MomentController = {
     } catch (error) {
       return handleError(res, error);
     }
+  },
+
+  getMomentReactions: async (req, res) => {
+    try {
+      const reactions = await momentService.getMomentReactions(req.params.momentId, getRequesterId(req));
+      return res.json(reactions);
+    } catch (error) {
+      return handleError(res, error);
+    }
   }
 };
 

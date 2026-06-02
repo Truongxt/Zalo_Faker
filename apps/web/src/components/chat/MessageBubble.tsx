@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+﻿import { useState, useRef, useEffect } from "react";
 import { Message, PollContent, MessageAttachment } from "@/stores/chatStore";
 import { formatDistanceToNow } from "date-fns";
 import { vi } from "date-fns/locale";
@@ -8,6 +8,7 @@ import {
   Reply,
   SmilePlus,
   Trash2,
+  Undo2,
   Share,
   Pin,
   Phone,
@@ -15,6 +16,7 @@ import {
   Info,
   Users,
   X,
+  Clock3,
 } from "lucide-react";
 import { ReactionListModal } from "./ReactionListModal";
 import VoicePlayer from "./VoicePlayer";
@@ -30,6 +32,7 @@ interface MessageBubbleProps {
   replySenderName?: string;
   onReply?: () => void;
   onRecall?: () => void;
+  onDeleteForMe?: () => void;
   onReact?: (emoji: string) => void;
   onForward?: () => void;
   onPin?: () => void;
@@ -42,7 +45,7 @@ interface MessageBubbleProps {
   onRemovePollOption?: (messageId: string, optionId: string) => Promise<void>;
 }
 
-const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "😡"];
+const QUICK_REACTIONS = ["??", "??", "??", "??", "??", "??"];
 
 const ImageGrid = ({
   attachments,
@@ -98,7 +101,10 @@ const ImageGrid = ({
   return (
     <div className="grid grid-cols-2 gap-1 rounded-xl overflow-hidden max-w-[400px] border border-gray-100 dark:border-gray-800 shadow-sm">
       {attachments.slice(0, 4).map((att, i) => (
-        <div key={i} className="relative aspect-square overflow-hidden bg-gray-100 dark:bg-dark-300">
+        <div
+          key={i}
+          className="relative aspect-square overflow-hidden bg-gray-100 dark:bg-dark-300"
+        >
           <img
             src={att.url}
             alt={`Attachment ${i + 1}`}
@@ -106,12 +112,14 @@ const ImageGrid = ({
             onClick={() => onImageClick(att.url)}
           />
           {i === 3 && count > 4 && (
-            <div 
+            <div
               className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center text-white cursor-pointer hover:bg-black/50 transition-colors"
               onClick={() => onImageClick(att.url)}
             >
               <span className="text-2xl font-bold">+{count - 4}</span>
-              <span className="text-[10px] font-medium uppercase tracking-wider opacity-80">Hình ảnh</span>
+              <span className="text-[10px] font-medium uppercase tracking-wider opacity-80">
+                HA�nh ảnh
+              </span>
             </div>
           )}
         </div>
@@ -212,7 +220,8 @@ const normalizeContent = (rawContent: any): NormalizedContent => {
   const pollContent =
     rawContent.poll && typeof rawContent.poll === "object"
       ? rawContent.poll
-      : typeof rawContent.question === "string" && Array.isArray(rawContent.options)
+      : typeof rawContent.question === "string" &&
+          Array.isArray(rawContent.options)
         ? rawContent
         : undefined;
 
@@ -417,6 +426,7 @@ export default function MessageBubble({
   replySenderName,
   onReply,
   onRecall,
+  onDeleteForMe,
   onReact,
   onForward,
   onPin,
@@ -470,7 +480,6 @@ export default function MessageBubble({
           : transcriptStatus === "empty"
             ? "Không nhận diện được nội dung từ file ghi âm này."
             : "Đang xử lý tách text cho đoạn ghi âm...");
-
   const formatCallDuration = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
@@ -483,7 +492,7 @@ export default function MessageBubble({
       return isSent ? `Cuộc gọi đến${suffix}` : `Cuộc gọi đến${suffix}`;
     }
     if (status === "missed") {
-      return isSent ? "Thue bao khong nhac may" : `Cuoc goi nho${suffix}`;
+      return isSent ? "Thuê bao không nhấc máy" : `Cuộc gọi nhỡ${suffix}`;
     }
     if (status === "rejected") return "Cuộc gọi bị từ chối";
     if (status === "cancelled") return "Cuộc gọi đã hủy";
@@ -495,7 +504,7 @@ export default function MessageBubble({
     if (!payload) {
       return (
         <p className="whitespace-pre-wrap [overflow-wrap:anywhere] [word-break:break-word]">
-          {content.text || "Cuoc goi"}
+          {content.text || "Cuộc gọi"}
         </p>
       );
     }
@@ -577,13 +586,13 @@ export default function MessageBubble({
         .join("\n");
 
     if (readUsers.length > 3) {
-      tooltip += `\n...và ${readUsers.length - 3} người khác`;
+      tooltip += `\n...vA� ${readUsers.length - 3} người khác`;
     }
 
     return tooltip;
   };
 
-  // Click outside → đóng reaction picker
+  // Click outside → đA�ng reaction picker
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (
@@ -700,9 +709,9 @@ export default function MessageBubble({
         if (message.attachments && message.attachments.length >= 2) {
           return (
             <div className="flex flex-col gap-2">
-              <ImageGrid 
-                attachments={message.attachments} 
-                onImageClick={(url) => window.open(url, "_blank")} 
+              <ImageGrid
+                attachments={message.attachments}
+                onImageClick={(url) => window.open(url, "_blank")}
               />
               {content.text && (
                 <p className="whitespace-pre-wrap [overflow-wrap:anywhere] [word-break:break-word] text-sm px-1">
@@ -748,7 +757,9 @@ export default function MessageBubble({
             />
             {/* Duration Badge */}
             <div className="absolute top-2 left-2 px-1.5 py-0.5 bg-black/60 text-white text-[10px] font-bold rounded flex items-center gap-1 backdrop-blur-sm z-10">
-              {content.duration ? formatCallDuration(content.duration) : "Video"}
+              {content.duration
+                ? formatCallDuration(content.duration)
+                : "Video"}
             </div>
             {/* Play Overlay */}
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity">
@@ -787,7 +798,9 @@ export default function MessageBubble({
               />
               {/* Duration Badge */}
               <div className="absolute top-2 left-2 px-1.5 py-0.5 bg-black/60 text-white text-[10px] font-bold rounded flex items-center gap-1 backdrop-blur-sm z-10">
-                {content.duration ? formatCallDuration(content.duration) : "Video"}
+                {content.duration
+                  ? formatCallDuration(content.duration)
+                  : "Video"}
               </div>
               {/* Play Overlay */}
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity">
@@ -916,54 +929,60 @@ export default function MessageBubble({
     );
   }
 
-  if (message.type === 'system' || (message.metadata as any)?.isAnnouncement) {
+  if (message.type === "system" || (message.metadata as any)?.isAnnouncement) {
     const action = (message.metadata as any)?.action;
-    const isPinAction = action === 'pin' || action === 'unpin';
+    const isPinAction = action === "pin" || action === "unpin";
 
     const getIcon = () => {
       if (isPinAction) return <Pin className="w-3 h-3" />;
-      if (action === 'rename_group') return <Users className="w-3 h-3" />;
-      if (action === 'add_member') return <Users className="w-3 h-3" />;
-      if (action === 'remove_member') return <X className="w-3 h-3" />;
+      if (action === "rename_group") return <Users className="w-3 h-3" />;
+      if (action === "add_member") return <Users className="w-3 h-3" />;
+      if (action === "remove_member") return <X className="w-3 h-3" />;
+      if (action === "reminder" || action === "reminder_due")
+        return <Clock3 className="w-3 h-3" />;
       return <Info className="w-3 h-3" />;
     };
 
     return (
       <div className="flex justify-center my-3 w-full group relative">
         <div className="max-w-[92%] flex items-center gap-2 px-3 py-1.5 text-[12.5px] rounded-full border border-slate-200 dark:border-gray-800 bg-white dark:bg-dark-300 shadow-sm animate-fade-in transition-all group-hover:shadow-md">
-          <span className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 ${isPinAction ? 'bg-orange-50 text-orange-500 dark:bg-orange-900/30' : 'bg-blue-50 text-blue-500 dark:bg-blue-900/30'}`}>
+          <span
+            className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 ${isPinAction ? "bg-orange-50 text-orange-500 dark:bg-orange-900/30" : "bg-blue-50 text-blue-500 dark:bg-blue-900/30"}`}
+          >
             {getIcon()}
           </span>
-          <p className="text-slate-500 dark:text-gray-400 font-medium whitespace-pre-wrap">
-            {typeof content?.text === 'string' ? content.text : typeof message.content === 'object' ? (message.content as any)?.text || '' : String(message.content || '')}
+          <p className="text-slate-500 dark:text-gray-400 font-medium whitespace-pre-wrap min-w-0">
+            {typeof content?.text === "string"
+              ? content.text
+              : typeof message.content === "object"
+                ? (message.content as any)?.text || ""
+                : String(message.content || "")}
           </p>
-        </div>
 
-        {/* System Message Actions */}
-        <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 absolute left-[calc(50%+150px)] top-1/2 -translate-y-1/2 ml-2">
-          {!message.isDeleted && (
-            <button
-              onClick={onForward}
-              className="p-1 px-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-[11px] text-gray-500 flex items-center gap-1 border border-transparent hover:border-gray-200 dark:hover:border-gray-700"
-              title="Chuyển tiếp"
-            >
-              <Share className="w-3 h-3" />
-            </button>
-          )}
-          {!message.isDeleted && canPin && (
-            <button
-              onClick={onPin}
-              className="p-1 px-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-[11px] text-gray-500 flex items-center gap-1 border border-transparent hover:border-gray-200 dark:hover:border-gray-700"
-              title="Ghim"
-            >
-              <Pin className="w-3 h-3" />
-            </button>
-          )}
+          <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 flex-shrink-0">
+            {!message.isDeleted && (
+              <button
+                onClick={onForward}
+                className="p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-500 border border-transparent hover:border-gray-200 dark:hover:border-gray-700"
+                title="Chuy?n ti?p"
+              >
+                <Share className="w-3 h-3" />
+              </button>
+            )}
+            {!message.isDeleted && canPin && (
+              <button
+                onClick={onPin}
+                className="p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-500 border border-transparent hover:border-gray-200 dark:hover:border-gray-700"
+                title="Ghim"
+              >
+                <Pin className="w-3 h-3" />
+              </button>
+            )}
+          </div>
         </div>
       </div>
     );
   }
-
   return (
     <>
       <div
@@ -993,6 +1012,11 @@ export default function MessageBubble({
           <div
             className={`flex flex-col relative ${isSent ? "items-end" : "items-start"} max-w-full`}
           >
+            {isGroupChat && !isSent && showAvatar && senderName && (
+              <span className="text-[11px] font-semibold text-slate-500 dark:text-gray-400 mb-1 ml-1 select-none">
+                {senderName}
+              </span>
+            )}
             {/* Reply reference */}
             {replyMessage && (
               <div
@@ -1038,13 +1062,17 @@ export default function MessageBubble({
                         >
                           <span className="text-sm">{reaction.emoji}</span>
                           <span className="text-[10px] font-medium text-gray-500 dark:text-gray-400">
-                            {reaction.userId === currentUserId ? "Bạn" : (reaction.userName || "...")}
+                            {reaction.userId === currentUserId
+                              ? "Bạn"
+                              : reaction.userName || "..."}
                           </span>
                         </div>
                       ))}
                       {reactions.length > 2 && (
                         <div className="flex items-center justify-center bg-gray-50 dark:bg-dark-400 rounded-full px-2 py-0.5 shadow-sm border border-gray-100 dark:border-gray-700">
-                          <span className="text-[10px] font-bold text-gray-500">+{reactions.length - 2}</span>
+                          <span className="text-[10px] font-bold text-gray-500">
+                            +{reactions.length - 2}
+                          </span>
                         </div>
                       )}
                     </>
@@ -1066,7 +1094,7 @@ export default function MessageBubble({
                   )}
                 </div>
 
-                <ReactionListModal 
+                <ReactionListModal
                   isOpen={showReactionList}
                   onClose={() => setShowReactionList(false)}
                   reactions={reactions}
@@ -1100,11 +1128,12 @@ export default function MessageBubble({
                               <span>
                                 {readBy.length === 1
                                   ? `1 người đã đọc`
-                                  : `Tất cả ${readBy.length} người đã đọc`}
+                                  : `Tất cả ${readBy.length} người đA� đọc`}
                               </span>
                             ) : (
                               <span>
-                                {readBy.length}/{participants.length} người đã đọc
+                                {readBy.length}/{participants.length} người đã
+                                đọc
                               </span>
                             )
                           ) : (
@@ -1233,7 +1262,7 @@ export default function MessageBubble({
               </div>
             </div>
 
-            {/* Recall button — chỉ hiện với tin nhắn của mình */}
+            {/* Recall button — chỉ hiện với tin nhắn của mA�nh */}
             {isSent && !message.isDeleted && (
               <div className="relative" ref={confirmRef}>
                 <button
@@ -1241,7 +1270,7 @@ export default function MessageBubble({
                   className="p-1.5 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-full transition-colors"
                   title="Thu hồi tin nhắn"
                 >
-                  <Trash2 className="w-4 h-4 text-red-500" />
+                  <Undo2 className="w-4 h-4 text-red-500" />
                 </button>
 
                 {/* Confirm recall dialog */}
@@ -1251,7 +1280,7 @@ export default function MessageBubble({
                   >
                     <div className="bg-white dark:bg-dark-300 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-3 min-w-[200px] animate-scale-in">
                       <p className="text-sm text-gray-700 dark:text-gray-300 mb-3">
-                        Thu hồi tin nhắn này?
+                        Thu hồi tin nhắn nA�y?
                       </p>
                       <div className="flex gap-2 justify-end">
                         <button
@@ -1275,6 +1304,16 @@ export default function MessageBubble({
                 )}
               </div>
             )}
+
+            {!message.isDeleted && (
+              <button
+                onClick={onDeleteForMe}
+                className="p-1.5 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-full transition-colors"
+                title="Xóa tin nhắn cho riêng bạn"
+              >
+                <Trash2 className="w-4 h-4 text-red-500" />
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -1294,7 +1333,7 @@ export default function MessageBubble({
                   {activeFilePreview.name}
                 </p>
                 <p className="text-xs text-gray-500 dark:text-gray-400">
-                  Xem truoc tep dinh kem
+                  Xem tr??c t?p ??nh k?m
                 </p>
               </div>
 

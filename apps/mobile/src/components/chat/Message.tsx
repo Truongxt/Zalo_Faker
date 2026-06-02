@@ -274,6 +274,7 @@ export function Message({
       if (action === 'remove_member') return 'person-remove';
       if (action === 'update_permissions') return 'lock-closed';
       if (action === 'update_settings') return 'settings';
+      if (action === 'set_nickname') return 'person';
       return 'information-circle';
     };
 
@@ -402,18 +403,7 @@ export function Message({
               })()
             ) : (
               <>
-                {message.type === "file" ? (
-                  (() => {
-                    const fileAttachment = attachments.find(
-                      (attachment) => attachment.type === "file",
-                    );
-                    const mediaUrl =
-                      fileAttachment?.url || String(message.content || "");
-                    const fileName =
-                      fileAttachment?.name ||
-                      getFileNameFromUrl(mediaUrl) ||
-                      "File dinh kem";
-                    const previewKind = getPreviewKind(fileName, mediaUrl);
+                {/* Removed redundant message type label for cleaner UI */}
 
                 <Text
                   className={`text-[15px] leading-5 ${message.isDeleted ? "italic text-gray-500" : ""}`}

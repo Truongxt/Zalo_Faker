@@ -97,7 +97,9 @@ const generateInviteCode = (length = 8) => {
 };
 
 const defaultPermissions = () => ({
+  sendMessage: GROUP_PERMISSION_SCOPES.ALL,
   sendMedia: GROUP_PERMISSION_SCOPES.ALL,
+  startCall: GROUP_PERMISSION_SCOPES.ALL,
   pinMessage: GROUP_PERMISSION_SCOPES.ALL,
   sendAnnouncement: GROUP_PERMISSION_SCOPES.ADMIN_DEPUTY
 });
@@ -130,9 +132,17 @@ const normalizeGroupSettings = (groupSettings = {}) => {
       ? groupSettings.joinRequests
       : [],
     permissions: {
+      sendMessage: normalizePermissionScope(
+        groupSettings?.permissions?.sendMessage,
+        defaults.permissions.sendMessage
+      ),
       sendMedia: normalizePermissionScope(
         groupSettings?.permissions?.sendMedia,
         defaults.permissions.sendMedia
+      ),
+      startCall: normalizePermissionScope(
+        groupSettings?.permissions?.startCall,
+        defaults.permissions.startCall
       ),
       pinMessage: normalizePermissionScope(
         groupSettings?.permissions?.pinMessage,
@@ -457,7 +467,7 @@ const GroupService = {
     const nextPermissions = { ...settings.permissions };
     let hasChanges = false;
 
-    ["sendMedia", "pinMessage", "sendAnnouncement"].forEach((key) => {
+    ["sendMessage", "sendMedia", "startCall", "pinMessage", "sendAnnouncement"].forEach((key) => {
       if (permissions[key] !== undefined) {
         if (!VALID_PERMISSION_SCOPES.includes(permissions[key])) {
           throw createError(`Invalid permission scope for ${key}`, 400);
@@ -490,6 +500,20 @@ const GroupService = {
     const participant = requireGroupMember(group, userId);
     const settings = normalizeGroupSettings(group.groupSettings);
     const isMediaMessage = ["image", "video", "file", "voice", "sticker"].includes(type);
+    const isAnnouncementMessage = Boolean(metadata?.isAnnouncement);
+    const isTextScopedMessage =
+      !isMediaMessage &&
+      !isAnnouncementMessage &&
+      ["text", "poll"].includes(String(type || "").toLowerCase());
+
+    if (isTextScopedMessage) {
+      const scope = settings.permissions.sendMessage;
+      requireScopedPermission(
+        participant,
+        scope,
+        `Only ${groupRoleLabel(scope)} can send messages in this group`
+      );
+    }
 
     if (isMediaMessage) {
       const scope = settings.permissions.sendMedia;
@@ -508,6 +532,22 @@ const GroupService = {
         `Only ${groupRoleLabel(scope)} can send announcements in this group`
       );
     }
+  },
+
+  ensureCanStartCall(group, { userId }) {
+    if (!group || group.type !== "group") {
+      return;
+    }
+
+    const participant = requireGroupMember(group, userId);
+    const settings = normalizeGroupSettings(group.groupSettings);
+    const scope = settings.permissions.startCall;
+
+    requireScopedPermission(
+      participant,
+      scope,
+      `Only ${groupRoleLabel(scope)} can start calls in this group`
+    );
   },
 
   async pinMessage(id, { messageId, userId }) {

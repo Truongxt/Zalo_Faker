@@ -1,5 +1,5 @@
 import { apiFetch } from "./fetchClient";
-import type { Moment, MomentComment, MomentProfile } from "@/types";
+import type { Moment, MomentComment, MomentProfile, MomentReaction } from "@/types";
 
 export interface MomentMediaFile {
   uri: string;
@@ -113,6 +113,10 @@ class MomentService {
 
   async getReactedMoments(): Promise<Moment[]> {
     return apiFetch<Moment[]>("/api/moments/reacted");
+  }
+
+  async getMomentReactions(momentId: string): Promise<MomentReaction[]> {
+    return apiFetch<MomentReaction[]>(`/api/moments/${momentId}/reactions`);
   }
 
   async reactToMoment(momentId: string, emoji: string) {

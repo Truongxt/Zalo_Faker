@@ -35,6 +35,7 @@ import {
   updateGroupPermissions,
   renameGroup,
   updateGroupAvatar,
+  updateParticipantSetting,
 } from "@/services/groupService";
 import * as ImagePicker from "expo-image-picker";
 import { uploadFile } from "@/services/chat";
@@ -47,6 +48,23 @@ const permissionOptions: Array<{ value: GroupPermissionScope; label: string }> =
   { value: "admin_deputy", label: "Admin + Phó nhóm" },
   { value: "admin", label: "Chỉ Admin" },
 ];
+
+const pickDisplayName = (...values: Array<unknown>) => {
+  for (const value of values) {
+    const text = String(value ?? "").trim();
+    if (text) return text;
+  }
+  return "";
+};
+
+type MemberRelationState =
+  | "self"
+  | "friend"
+  | "pending_sent"
+  | "pending_received"
+  | "blocked_by_me"
+  | "blocked_by_them"
+  | "none";
 
 export default function GroupManagementScreen() {
   const router = useRouter();
@@ -61,15 +79,25 @@ export default function GroupManagementScreen() {
 
   const [allUsers, setAllUsers] = useState<any[]>([]);
   const [friendIds, setFriendIds] = useState<string[]>([]);
+  const [memberRelations, setMemberRelations] = useState<Record<string, MemberRelationState>>({});
   const [showAddMember, setShowAddMember] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [showRenameModal, setShowRenameModal] = useState(false);
+  const [showNicknameModal, setShowNicknameModal] = useState(false);
+  const [editingNicknameUserId, setEditingNicknameUserId] = useState("");
+  const [editingNicknameValue, setEditingNicknameValue] = useState("");
   const [groupMenuTitle, setGroupMenuTitle] = useState("Tùy chọn");
   const [groupMenuOptions, setGroupMenuOptions] = useState<MessageActionItem[]>([]);
   const [showGroupMenu, setShowGroupMenu] = useState(false);
   const [settings, setSettings] = useState<any>({
     invite: { code: "", approvalRequired: true, inviteUrl: "" },
-    permissions: { sendMedia: "all", pinMessage: "admin_deputy", sendAnnouncement: "admin_deputy" },
+    permissions: {
+      sendMessage: "all",
+      sendMedia: "all",
+      startCall: "all",
+      pinMessage: "admin_deputy",
+      sendAnnouncement: "admin_deputy",
+    },
     pendingJoinRequests: [],
   });
 
@@ -79,7 +107,7 @@ export default function GroupManagementScreen() {
   );
 
   useEffect(() => {
-    if (!id || !user) return;
+    if (!id || !user || !group) return;
 
     const loadUsersAndSettings = async () => {
       try {
@@ -100,14 +128,60 @@ export default function GroupManagementScreen() {
 
         const participantIds = group.participants.map((p: any) => String(p.userId));
         const requesterIds = (joinRequests as any)?.requests?.map((r: any) => String(r.userId)) || [];
-        
+
         const allNeededIds = [...new Set([...uniqueFriendIds, ...participantIds, ...requesterIds])];
-        
+
         const users = await Promise.all(
           allNeededIds.map((uId) => userService.getUserById(uId).catch(() => null)),
         );
 
         setAllUsers(users.filter(Boolean) as any[]);
+
+        const relationEntries = await Promise.all(
+          participantIds
+            .filter((participantId) => participantId && participantId !== String(user.id))
+            .map(async (participantId) => {
+              if (uniqueFriendIds.includes(participantId)) {
+                return [participantId, "friend"] as const;
+              }
+
+              const relation = await friendsService
+                .getExitingFriend(String(user.id), participantId)
+                .catch(() => null);
+
+              if (!relation) {
+                return [participantId, "none"] as const;
+              }
+
+              const relationStatus = String((relation as any).status || "").toLowerCase();
+              if (relationStatus === "accepted") return [participantId, "friend"] as const;
+              if (relationStatus === "pending") {
+                return [
+                  participantId,
+                  String((relation as any).fromUserId) === String(user.id)
+                    ? "pending_sent"
+                    : "pending_received",
+                ] as const;
+              }
+              if (relationStatus === "blocked") {
+                return [
+                  participantId,
+                  String((relation as any).fromUserId) === String(user.id)
+                    ? "blocked_by_me"
+                    : "blocked_by_them",
+                ] as const;
+              }
+
+              return [participantId, "none"] as const;
+            }),
+        );
+
+        setMemberRelations(
+          relationEntries.reduce<Record<string, MemberRelationState>>((acc, [participantId, state]) => {
+            acc[participantId] = state;
+            return acc;
+          }, {}),
+        );
 
         if (latestSettings) {
           setSettings({
@@ -117,7 +191,9 @@ export default function GroupManagementScreen() {
               inviteUrl: latestSettings?.invite?.inviteUrl || "",
             },
             permissions: {
+              sendMessage: latestSettings?.permissions?.sendMessage || "all",
               sendMedia: latestSettings?.permissions?.sendMedia || "all",
+              startCall: latestSettings?.permissions?.startCall || "all",
               pinMessage: latestSettings?.permissions?.pinMessage || "admin_deputy",
               sendAnnouncement: latestSettings?.permissions?.sendAnnouncement || "admin_deputy",
             },
@@ -131,7 +207,7 @@ export default function GroupManagementScreen() {
     };
 
     loadUsersAndSettings();
-  }, [id, user]);
+  }, [id, user, group, group?.participants]);
 
   useEffect(() => {
     if (!id || !user || !group) return;
@@ -147,6 +223,20 @@ export default function GroupManagementScreen() {
       [key: string]: any;
     }) => {
       if (String(incomingId) !== String(id)) return;
+
+      // Handle basic updates (name, avatar) immediately
+      if (updates.name || updates.avatar || updates.avatarUrl) {
+        const basicUpdates: any = {};
+        if (updates.name) basicUpdates.name = updates.name;
+        if (updates.avatar) {
+          basicUpdates.avatar = updates.avatar;
+          basicUpdates.avatarUrl = updates.avatar;
+        }
+        if (updates.avatarUrl) basicUpdates.avatarUrl = updates.avatarUrl;
+        updateConversation(id, basicUpdates);
+      }
+
+      // If settings or participants changed, perform refresh
       if (!updates?.groupSettings && !updates?.participants) return;
 
       try {
@@ -171,7 +261,9 @@ export default function GroupManagementScreen() {
             inviteUrl: latestSettings?.invite?.inviteUrl || "",
           },
           permissions: {
+            sendMessage: latestSettings?.permissions?.sendMessage || "all",
             sendMedia: latestSettings?.permissions?.sendMedia || "all",
+            startCall: latestSettings?.permissions?.startCall || "all",
             pinMessage: latestSettings?.permissions?.pinMessage || "admin_deputy",
             sendAnnouncement:
               latestSettings?.permissions?.sendAnnouncement || "admin_deputy",
@@ -204,9 +296,9 @@ export default function GroupManagementScreen() {
       }
     };
 
-    socket.on("chat:update_conversation", onUpdateConversation);
+    socketService.on("chat:update_conversation", onUpdateConversation);
     return () => {
-      socket.off("chat:update_conversation", onUpdateConversation);
+      socketService.off("chat:update_conversation", onUpdateConversation);
     };
   }, [id, user, group, updateConversation]);
 
@@ -218,6 +310,34 @@ export default function GroupManagementScreen() {
     });
     return map;
   }, [allUsers]);
+
+
+
+
+
+  const handleRename = useCallback(() => {
+    if (!group) return;
+    setShowRenameModal(true);
+  }, [group]);
+
+  const handleSetNickname = async (targetUserId: string, nickname: string) => {
+    if (!targetUserId) return;
+    try {
+      setIsLoading(true);
+      const res = await updateParticipantSetting(id, targetUserId, { nickname: nickname.trim() });
+      if (res.participants) {
+        updateConversation(id, { participants: res.participants });
+      }
+      setShowNicknameModal(false);
+      setEditingNicknameUserId("");
+      setEditingNicknameValue("");
+      GrayToast("Đã cập nhật biệt danh");
+    } catch (error: any) {
+      GrayToast(error.message || "Không thể cập nhật biệt danh");
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   if (!group || !user) return null;
 
@@ -243,10 +363,10 @@ export default function GroupManagementScreen() {
     }
   };
 
-  const handleRename = useCallback(() => {
-    if (!group) return;
-    setShowRenameModal(true);
-  }, [group]);
+
+
+
+
 
   const handleAvatarChange = async () => {
     if (!group) return;
@@ -413,13 +533,13 @@ export default function GroupManagementScreen() {
       setIsLoading(true);
       const res = isDeputy
         ? await revokeDeputy(id, {
-            userId: String(user.id),
-            deputyUserId: String(participant.userId),
-          })
+          userId: String(user.id),
+          deputyUserId: String(participant.userId),
+        })
         : await appointDeputy(id, {
-            userId: String(user.id),
-            deputyUserId: String(participant.userId),
-          });
+          userId: String(user.id),
+          deputyUserId: String(participant.userId),
+        });
       syncParticipants(res.group?.participants);
       GrayToast(isDeputy ? "Đã thu hồi quyền phó nhóm" : "Đã cấp quyền phó nhóm");
     } catch (error: any) {
@@ -433,7 +553,7 @@ export default function GroupManagementScreen() {
     const isMe = String(participant.userId) === String(user.id);
     if (isMe) return;
 
-    const participantName = getParticipantName(participant.userId, participant.nickname);
+    const participantName = getParticipantName(participant);
     const options: MessageActionItem[] = [];
 
     if (isAdmin) {
@@ -482,6 +602,40 @@ export default function GroupManagementScreen() {
       });
     }
 
+    options.push({
+      key: "set-nickname",
+      text: (participant as any).nickname ? "Đổi biệt danh" : "Đặt biệt danh",
+      onPress: () => {
+        setEditingNicknameUserId(String(participant.userId));
+        setEditingNicknameValue((participant as any).nickname || "");
+        setShowNicknameModal(true);
+      }
+    });
+
+    if ((participant as any).nickname) {
+      options.push({
+        key: "remove-nickname",
+        text: "Xóa biệt danh",
+        style: "destructive",
+        onPress: () => {
+          Alert.alert(
+            "Xóa biệt danh",
+            "Bạn có chắc chắn muốn xóa biệt danh của thành viên này?",
+            [
+              { text: "Hủy", style: "cancel" },
+              {
+                text: "Xóa",
+                style: "destructive",
+                onPress: () => {
+                  void handleSetNickname(String(participant.userId), "");
+                }
+              }
+            ]
+          );
+        }
+      });
+    }
+
     options.push({ key: "cancel", text: "Hủy", style: "cancel" });
     setGroupMenuTitle(participantName);
     setGroupMenuOptions(options);
@@ -505,7 +659,7 @@ export default function GroupManagementScreen() {
       setGroupMenuOptions([
         ...transferCandidates.map((participant) => ({
           key: `transfer-${participant.userId}`,
-          text: getParticipantName(participant.userId, participant.nickname),
+          text: getParticipantName(participant),
           onPress: async () => {
             try {
               setIsLoading(true);
@@ -570,7 +724,9 @@ export default function GroupManagementScreen() {
     ]);
   };
 
-  const handleUpdatePermission = async (key: string) => {
+  const handleUpdatePermission = async (
+    key: "sendMessage" | "sendMedia" | "startCall" | "pinMessage" | "sendAnnouncement",
+  ) => {
     setGroupMenuTitle("Chọn quyền");
     setGroupMenuOptions([
       ...permissionOptions.map((opt) => ({
@@ -597,14 +753,83 @@ export default function GroupManagementScreen() {
     setShowGroupMenu(true);
   };
 
-  const getParticipantName = (pId: string, fallback?: string) => {
-    const userInfo = participantsMap.get(String(pId));
-    return userInfo?.fullName || userInfo?.userName || fallback || `User ${pId}`;
+  const getParticipantName = (participant: any) => {
+    const pId = String(participant?.userId || "");
+    const userInfo = participantsMap.get(pId);
+    return (
+      pickDisplayName(
+        participant?.nickname,
+        participant?.fullName,
+        participant?.userName,
+        participant?.name,
+        userInfo?.fullName,
+        userInfo?.userName,
+        userInfo?.name,
+      ) || `User ${pId}`
+    );
+  };
+
+  const getParticipantAvatar = (participant: any) => {
+    const pId = String(participant?.userId || "");
+    const userInfo = participantsMap.get(pId);
+    return participant?.avatarUrl || userInfo?.avatarUrl || userInfo?.avartarUrl || null;
+  };
+
+  const getMemberRelationState = (participantUserId: string): MemberRelationState => {
+    if (String(participantUserId) === String(user?.id)) return "self";
+    return memberRelations[String(participantUserId)] || "none";
+  };
+
+  const handleOpenProfile = (participantUserId: string) => {
+    router.push({
+      pathname: "/profile/[userId]",
+      params: { userId: String(participantUserId) },
+    });
+  };
+
+  const handleSendFriendRequest = async (targetUserId: string) => {
+    if (!user?.id || !targetUserId || isLoading) return;
+
+    try {
+      setIsLoading(true);
+      await friendsService.sendFriendRequests(
+        String(user.id),
+        String(targetUserId),
+        "Xin chào, mình muốn kết bạn với bạn trong nhóm chat.",
+      );
+      setMemberRelations((prev) => ({
+        ...prev,
+        [String(targetUserId)]: "pending_sent",
+      }));
+      GrayToast("Đã gửi lời mời kết bạn");
+    } catch (error: any) {
+      GrayToast(error?.message || "Không thể gửi lời mời kết bạn");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleCancelFriendRequest = async (targetUserId: string) => {
+    if (!user?.id || !targetUserId || isLoading) return;
+
+    try {
+      setIsLoading(true);
+      await friendsService.cancelFriendRequest(String(user.id), String(targetUserId));
+      setMemberRelations((prev) => ({
+        ...prev,
+        [String(targetUserId)]: "none",
+      }));
+      GrayToast("Đã hủy lời mời kết bạn");
+    } catch (error: any) {
+      GrayToast(error?.message || "Không thể hủy lời mời kết bạn");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const inviteQrValue = String(
     settings?.invite?.inviteUrl ||
-      (settings?.invite?.code ? `groupInvite:${settings.invite.code}` : ""),
+    (settings?.invite?.code ? `groupInvite:${settings.invite.code}` : ""),
   ).trim();
 
   return (
@@ -630,11 +855,11 @@ export default function GroupManagementScreen() {
         <View style={{ flex: 1, marginLeft: 4, flexDirection: "row", alignItems: "center" }}>
           <TouchableOpacity onPress={handleAvatarChange} style={{ marginRight: 12 }}>
             <View>
-                <Avatar
-                  uri={group?.avatarUrl || group?.avatar}
-                  name={group?.name}
-                  size={40}
-                />
+              <Avatar
+                uri={group?.avatarUrl || group?.avatar}
+                name={group?.name}
+                size={40}
+              />
               <View style={{ position: "absolute", bottom: -2, right: -2, backgroundColor: "#FFF", borderRadius: 10, padding: 2 }}>
                 <Ionicons name="camera" size={10} color="#3B82F6" />
               </View>
@@ -657,17 +882,17 @@ export default function GroupManagementScreen() {
         <View style={{ backgroundColor: "#FFF", borderRadius: 12, padding: 16, marginBottom: 16, alignItems: "center" }}>
           <TouchableOpacity onPress={handleAvatarChange} style={{ marginBottom: 12 }}>
             <View>
-          <Avatar
-            uri={group?.avatarUrl || group?.avatar}
-            name={group?.name}
-            size={80}
-          />
+              <Avatar
+                uri={group?.avatarUrl || group?.avatar}
+                name={group?.name}
+                size={80}
+              />
               <View style={{ position: "absolute", bottom: 0, right: 0, backgroundColor: "#3B82F6", borderRadius: 15, padding: 6, borderWidth: 2, borderColor: "#FFF" }}>
                 <Ionicons name="camera" size={18} color="#FFF" />
               </View>
             </View>
           </TouchableOpacity>
-          
+
           <TouchableOpacity onPress={handleRename} style={{ flexDirection: "row", alignItems: "center", marginBottom: 4 }}>
             <Text style={{ fontSize: 20, fontWeight: "700", color: "#1F2937", textAlign: "center" }}>{group?.name}</Text>
             <Ionicons name="create-outline" size={20} color="#3B82F6" style={{ marginLeft: 8 }} />
@@ -676,8 +901,8 @@ export default function GroupManagementScreen() {
         </View>
 
         {/* Link Mời Nhóm */}
-        <View style={{ backgroundColor: "#FFF", borderRadius: 12, padding: 16, marginBottom: 16 }}>
-          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+        <View style={{ backgroundColor: "#FFF", borderRadius: 12, padding: 16, marginBottom: 20 }}>
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
             <View style={{ flexDirection: "row", alignItems: "center" }}>
               <Ionicons name="link" size={20} color="#6366F1" />
               <Text style={{ marginLeft: 8, fontSize: 16, fontWeight: "600", color: "#1F2937" }}>
@@ -762,8 +987,8 @@ export default function GroupManagementScreen() {
 
         {/* Yêu cầu tham gia */}
         {canReviewRequests && (
-          <View style={{ backgroundColor: "#FFF", borderRadius: 12, padding: 16, marginBottom: 16 }}>
-            <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 12 }}>
+          <View style={{ backgroundColor: "#FFF", borderRadius: 12, padding: 16, marginBottom: 20 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 16 }}>
               <Ionicons name="people-circle-outline" size={20} color="#F59E0B" />
               <Text style={{ marginLeft: 8, fontSize: 16, fontWeight: "600", color: "#1F2937" }}>
                 Yêu cầu tham gia
@@ -779,9 +1004,9 @@ export default function GroupManagementScreen() {
               <Text style={{ textAlign: "center", color: "#9CA3AF", paddingVertical: 10 }}>Không có yêu cầu nào</Text>
             ) : (
               settings.pendingJoinRequests.map((req: any) => (
-                <View key={req.requestId} style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: "#F3F4F6" }}>
+                <View key={req.requestId} style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "#F3F4F6" }}>
                   <View style={{ flex: 1 }}>
-                    <Text style={{ fontWeight: "600", color: "#1F2937" }}>{getParticipantName(req.userId)}</Text>
+                    <Text style={{ fontWeight: "600", color: "#1F2937" }}>{getParticipantName(req)}</Text>
                     <Text style={{ fontSize: 11, color: "#6B7280" }}>{new Date(req.requestedAt).toLocaleString("vi-VN")}</Text>
                   </View>
                   <View style={{ flexDirection: "row", gap: 8 }}>
@@ -800,24 +1025,36 @@ export default function GroupManagementScreen() {
 
         {/* Phân quyền */}
         {isAdmin && (
-          <View style={{ backgroundColor: "#FFF", borderRadius: 12, padding: 16, marginBottom: 16 }}>
-            <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 12 }}>
+          <View style={{ backgroundColor: "#FFF", borderRadius: 12, padding: 16, marginBottom: 20 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 16 }}>
               <Ionicons name="settings-outline" size={20} color="#8B5CF6" />
               <Text style={{ marginLeft: 8, fontSize: 16, fontWeight: "600", color: "#1F2937" }}>Phân quyền nhóm</Text>
             </View>
-            <TouchableOpacity onPress={() => handleUpdatePermission("sendMedia")} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "#F3F4F6" }}>
+            <TouchableOpacity onPress={() => handleUpdatePermission("sendMedia")} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: "#F3F4F6" }}>
               <Text style={{ color: "#374151" }}>Gửi ảnh/video/file</Text>
               <Text style={{ color: "#6B7280", fontWeight: "500" }}>
                 {permissionOptions.find((o) => o.value === settings.permissions.sendMedia)?.label}
               </Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => handleUpdatePermission("pinMessage")} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "#F3F4F6" }}>
+            <TouchableOpacity onPress={() => handleUpdatePermission("sendMessage")} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: "#F3F4F6" }}>
+              <Text style={{ color: "#374151" }}>Gửi tin nhắn</Text>
+              <Text style={{ color: "#6B7280", fontWeight: "500" }}>
+                {permissionOptions.find((o) => o.value === settings.permissions.sendMessage)?.label}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => handleUpdatePermission("startCall")} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: "#F3F4F6" }}>
+              <Text style={{ color: "#374151" }}>Bắt đầu cuộc gọi nhóm</Text>
+              <Text style={{ color: "#6B7280", fontWeight: "500" }}>
+                {permissionOptions.find((o) => o.value === settings.permissions.startCall)?.label}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => handleUpdatePermission("pinMessage")} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: "#F3F4F6" }}>
               <Text style={{ color: "#374151" }}>Ghim tin nhắn</Text>
               <Text style={{ color: "#6B7280", fontWeight: "500" }}>
                 {permissionOptions.find((o) => o.value === settings.permissions.pinMessage)?.label}
               </Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => handleUpdatePermission("sendAnnouncement")} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 10 }}>
+            <TouchableOpacity onPress={() => handleUpdatePermission("sendAnnouncement")} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 14 }}>
               <Text style={{ color: "#374151" }}>Gửi thông báo</Text>
               <Text style={{ color: "#6B7280", fontWeight: "500" }}>
                 {permissionOptions.find((o) => o.value === settings.permissions.sendAnnouncement)?.label}
@@ -827,8 +1064,8 @@ export default function GroupManagementScreen() {
         )}
 
         {/* Thành viên */}
-        <View style={{ backgroundColor: "#FFF", borderRadius: 12, padding: 16, marginBottom: 16 }}>
-          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+        <View style={{ backgroundColor: "#FFF", borderRadius: 12, padding: 16, marginBottom: 20 }}>
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
             <View style={{ flexDirection: "row", alignItems: "center" }}>
               <Ionicons name="people" size={20} color="#10B981" />
               <Text style={{ marginLeft: 8, fontSize: 16, fontWeight: "600", color: "#1F2937" }}> Thành viên ({group.participants.length})</Text>
@@ -859,16 +1096,41 @@ export default function GroupManagementScreen() {
               !isMe &&
               (isAdmin ||
                 (currentUserParticipant?.role === "deputy" && p.role === "member"));
+            const relationState = getMemberRelationState(String(p.userId));
             return (
-              <View key={p.userId} style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "#F3F4F6" }}>
-                <View>
+              <View key={p.userId} style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: "#F3F4F6" }}>
+                <View style={{ flex: 1, flexDirection: "row", alignItems: "center" }}>
+                  <TouchableOpacity onPress={() => handleOpenProfile(String(p.userId))} activeOpacity={0.8}>
+                    <Avatar name={getParticipantName(p)} uri={getParticipantAvatar(p)} size={42} />
+                  </TouchableOpacity>
+                  <View style={{ marginLeft: 12, flex: 1 }}>
                   <Text style={{ fontWeight: "600", color: "#1F2937", fontSize: 15 }}>
-                    {getParticipantName(p.userId, p.nickname)} {isMe && "(Bạn)"}
+                    {getParticipantName(p)} {isMe && "(Bạn)"}
                   </Text>
                   <Text style={{ fontSize: 12, color: p.role === "admin" ? "#F59E0B" : p.role === "deputy" ? "#3B82F6" : "#9CA3AF" }}>
                     {p.role === "admin" ? "Trưởng nhóm" : p.role === "deputy" ? "Phó nhóm" : "Thành viên"}
                   </Text>
                 </View>
+                  </View>
+                {!isMe && relationState === "none" && (
+                  <TouchableOpacity
+                    onPress={() => void handleSendFriendRequest(String(p.userId))}
+                    disabled={isLoading}
+                    style={{ marginRight: 10, width: 34, height: 34, borderRadius: 17, backgroundColor: "#EFF6FF", alignItems: "center", justifyContent: "center", opacity: isLoading ? 0.5 : 1 }}
+                  >
+                    <Ionicons name="person-add-outline" size={18} color="#2563EB" />
+                  </TouchableOpacity>
+                )}
+                {!isMe && relationState === "pending_sent" && (
+                  <TouchableOpacity
+                    onPress={() => void handleCancelFriendRequest(String(p.userId))}
+                    disabled={isLoading}
+                    style={{ marginRight: 10, paddingHorizontal: 10, height: 34, borderRadius: 17, backgroundColor: "#FEF2F2", alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 4, opacity: isLoading ? 0.5 : 1 }}
+                  >
+                    <Ionicons name="close-circle-outline" size={16} color="#EF4444" />
+                    <Text style={{ color: "#EF4444", fontSize: 12, fontWeight: "600" }}>Hủy lời mời</Text>
+                  </TouchableOpacity>
+                )}
                 {canManage && (
                   <TouchableOpacity onPress={() => handleMemberActions(p)} style={{ padding: 4 }}>
                     <Ionicons name="ellipsis-horizontal" size={20} color="#6B7280" />
@@ -904,6 +1166,18 @@ export default function GroupManagementScreen() {
           <ActivityIndicator size="large" color="#3B82F6" />
         </View>
       )}
+      <TextPromptModal
+        visible={showNicknameModal}
+        title="Biệt danh"
+        initialValue={editingNicknameValue}
+        onConfirm={(val) => void handleSetNickname(editingNicknameUserId, val)}
+        onClose={() => {
+          setShowNicknameModal(false);
+          setEditingNicknameUserId("");
+          setEditingNicknameValue("");
+        }}
+        placeholder="Nhập biệt danh..."
+      />
       <MessageActionModal
         visible={showGroupMenu}
         title={groupMenuTitle}

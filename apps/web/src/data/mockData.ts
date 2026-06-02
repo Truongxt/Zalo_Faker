@@ -197,7 +197,7 @@ export const mockConversations: Conversation[] = [
     {
         id: 'conv-5',
         type: 'group',
-        name: 'Dự án Zalo Faker',
+        name: 'Dự án taklo',
         avatar: 'https://ui-avatars.com/api/?name=ZF&background=4caf50&color=fff&size=128',
         participants: [
             me,
@@ -328,7 +328,7 @@ export const mockMessages: Record<string, Message[]> = {
             type: 'file',
             content: {
                 text: 'Em gửi file postman collection luôn nha',
-                fileName: 'ZaloFaker_API.postman_collection.json',
+                fileName: 'taklo_API.postman_collection.json',
                 fileSize: 45056,
                 mediaUrl: '#',
             },
@@ -375,8 +375,8 @@ export const mockMessages: Record<string, Message[]> = {
             type: 'image',
             content: {
                 text: 'Đây, mình gửi preview nè',
-                mediaUrl: 'https://placehold.co/600x400/0068ff/white?text=Zalo+Faker+Mockup',
-                thumbnail: 'https://placehold.co/300x200/0068ff/white?text=Zalo+Faker+Mockup',
+                mediaUrl: 'https://placehold.co/600x400/0068ff/white?text=taklo+Mockup',
+                thumbnail: 'https://placehold.co/300x200/0068ff/white?text=taklo+Mockup',
             },
             reactions: [{ userId: 'user-me', emoji: '😍' }],
             readBy: [{ userId: 'user-me', readAt: '2026-03-05T13:00:00.000Z' }],
@@ -391,7 +391,7 @@ export const mockMessages: Record<string, Message[]> = {
             type: 'file',
             content: {
                 text: 'Mình gửi file thiết kế nha',
-                fileName: 'ZaloFaker_UI_Design.fig',
+                fileName: 'taklo_UI_Design.fig',
                 fileSize: 2048000,
                 mediaUrl: '#',
             },
@@ -402,7 +402,7 @@ export const mockMessages: Record<string, Message[]> = {
         },
     ],
 
-    // ====== conv-5: Group Dự án Zalo Faker ======
+    // ====== conv-5: Group Dự án taklo ======
     'conv-5': [
         makeMessage('m5-1', 'conv-5', 'user-4', 'Mọi người ơi, sprint review chiều nay nhé', '2026-03-04T09:00:00.000Z'),
         makeMessage('m5-2', 'conv-5', 'user-6', 'OK anh, em đang fix bug phần mobile', '2026-03-04T09:15:00.000Z'),

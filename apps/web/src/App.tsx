@@ -2,8 +2,12 @@ import { useEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { useAuthStore } from "@/stores/authStore";
 import { useChatStore } from "@/stores/chatStore";
+import { useNotificationStore } from "@/stores/notificationStore";
 import { ToastProvider } from "@/contexts/ToastContext";
 import { socketService } from "@/lib/socket";
+import { notificationService } from "@/services/notificationService";
+import { notificationsApi } from "@/services/notificationsApi";
+import type { AppNotification as RealtimeNotification } from "@/types/notification";
 
 // Pages
 import {
@@ -24,6 +28,7 @@ import {
   LockAccount,
   DeleteAccount,
   UnlockAccount,
+  Notifications,
 } from "@/pages";
 
 // Loading component
@@ -72,6 +77,11 @@ export default function App() {
   const initializeCacheForUser = useChatStore(
     (state) => state.initializeCacheForUser,
   );
+  const {
+    setNotifications,
+    prependNotification,
+    reset: resetNotifications,
+  } = useNotificationStore();
 
   useEffect(() => {
     if (!user?.id) return;
@@ -80,11 +90,23 @@ export default function App() {
 
   useEffect(() => {
     if (!user?.id) {
+      resetNotifications();
       socketService.disconnect();
       return;
     }
 
     socketService.connect(user.id);
+
+    const loadNotifications = async () => {
+      try {
+        const result = await notificationsApi.getNotifications();
+        setNotifications(result.notifications || [], result.unreadCount || 0);
+      } catch (error) {
+        console.error("Failed to preload notifications:", error);
+      }
+    };
+
+    void loadNotifications();
 
     const forceLogout = (reason?: string) => {
       if (!useAuthStore.getState().user) return;
@@ -104,14 +126,25 @@ export default function App() {
       forceLogout("Phien dang nhap da het hieu luc. Vui long dang nhap lai.");
     };
 
+    const handleNewNotification = (notification: RealtimeNotification) => {
+      prependNotification(notification);
+      void notificationService.showNotification(
+        notification.title,
+        notification.body || "Co cap nhat moi tu khoanh khac cua ban.",
+        notification.actorAvatarUrl || undefined,
+      );
+    };
+
     socketService.on("session:force_logout", handleForceLogout);
     socketService.on("connect_error", handleConnectError);
+    socketService.on("notification:new", handleNewNotification);
 
     return () => {
       socketService.off("session:force_logout", handleForceLogout);
       socketService.off("connect_error", handleConnectError);
+      socketService.off("notification:new", handleNewNotification);
     };
-  }, [user?.id, logout]);
+  }, [user?.id, logout, prependNotification, resetNotifications, setNotifications]);
 
   // NOTE: Supabase auth listener disabled for mock mode.
   // Uncomment and restore when backend is ready:
@@ -193,7 +226,7 @@ export default function App() {
                       </svg>
                     </div>
                     <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">
-                      Chào mừng đến Zalo Faker
+                      Chào mừng đến taklo
                     </h2>
                     <p className="text-gray-600 dark:text-gray-400">
                       Chọn một cuộc trò chuyện để bắt đầu
@@ -203,6 +236,7 @@ export default function App() {
               }
             />
             <Route path="moments" element={<Moments />} />
+            <Route path="notifications" element={<Notifications />} />
             <Route path="contacts" element={<Contacts />} />
             <Route path="ai" element={<AIAssistant />} />
             <Route path=":conversationId" element={<ChatRoom />} />

@@ -22,7 +22,9 @@ export interface GroupInviteSettings {
 }
 
 export interface GroupPermissionSettings {
+  sendMessage: GroupPermissionScope;
   sendMedia: GroupPermissionScope;
+  startCall: GroupPermissionScope;
   pinMessage: GroupPermissionScope;
   sendAnnouncement: GroupPermissionScope;
 }
@@ -277,4 +279,13 @@ export const updateGroupAvatar = async (groupId: string, avatar: string) =>
   }>(`/api/groups/${groupId}/avatar`, {
     method: "PUT",
     body: { avatar },
+  });
+export const updateParticipantSetting = async (
+  conversationId: string,
+  userId: string,
+  data: any
+) =>
+  apiFetch<any>(`/api/conversations/${conversationId}/setting`, {
+    method: "PATCH",
+    body: { userId, ...data },
   });

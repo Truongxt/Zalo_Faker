@@ -1,0 +1,221 @@
+﻿classDiagram
+direction LR
+
+namespace Server {
+  class UserModel {
+    +constructor(data)
+    +normalizeAccountStatus(value)$
+    +normalizePresenceStatus(value)$
+    +getPresenceLabel(referenceDate)
+  }
+
+  class FriendsModel {
+    +constructor(fromUserId, toUserId, status, createdAt)
+  }
+
+  class LoginHistory {
+    +constructor(userId, loginId, loginAt, platform, deviceInfo, ipAddress)
+  }
+
+  class RefreshToken {
+    +constructor(refreshToken, userId, platform, createdAt)
+  }
+
+  class AIChatHistory {
+    +constructor(userId, chatId, conversationId, question, answer, askedAt)
+  }
+
+  class UserRepository {
+    <<module>>
+    +register(user)
+    +getAll()
+    +getByEmail(email)
+    +getByPhone(phone)
+    +getById(userId)
+    +update(params)
+    +updateUser(userId, userData)
+  }
+
+  class FriendsRepository {
+    <<module>>
+    +createFriendRequest(fromUserId, toUserId, message)
+    +getFriends(userId)
+    +getPendingRequests(userId)
+    +acceptRequest(fromUserId, toUserId)
+    +rejectRequest(fromUserId, toUserId)
+    +upsertBlock(fromUserId, toUserId, message)
+  }
+
+  class LoginHistoryRepository {
+    <<module>>
+    +create(record)
+    +getByUserId(userId, limit)
+    +deleteByUserId(userId)
+  }
+
+  class RefreshTokenRepository {
+    <<module>>
+    +create(token)
+    +findByToken(refreshToken)
+    +delete(refreshToken)
+    +deleteByUserId(userId)
+    +deleteByUserIdAndPlatform(userId, platform)
+  }
+
+  class AIChatHistoryRepository {
+    <<module>>
+    +upsertConversation(userId, conversationId, title, askedAt)
+    +create(record)
+    +getByUserId(userId, limit, conversationId)
+    +deleteByConversationId(userId, conversationId)
+    +deleteConversationMeta(userId, conversationId)
+  }
+}
+
+UserRepository ..> UserModel : creates
+
+namespace Mobile_App {
+  class MobileUserService["UserService"] {
+    +login(identifier, password)
+    +register(data)
+    +logout(refreshToken)
+    +getUsers()
+    +updateUser(userId, data, avatarFileUri)
+    +getUserById(id)
+    +changePassword(userId, oldPassword, newPassword)
+  }
+
+  class MobileFriendsService["FriendsService"] {
+    +sendFriendRequests(fromUserId, toUserId, message)
+    +acceptFriendRequest(fromUserId, toUserId)
+    +getFriend(userId)
+    +getPendingRequests(userId)
+    +blockUser(targetUserId, message)
+    +suggestFriendsByPhones(phones)
+  }
+
+  class MobileMessageService["MessageService"] {
+    +createMessage(data)
+    +getMessage(id)
+    +getMessagesByConversationId(conversationId)
+    +updateMessage(id, data)
+    +deleteMessage(id)
+  }
+
+  class MobileMomentService["MomentService"] {
+    +createMoment(payload)
+    +getFriendMoments()
+    +updateMoment(momentId, payload)
+    +reactToMoment(momentId, emoji)
+    +getMomentComments(momentId)
+    +deleteMoment(momentId)
+  }
+
+  class MobileConversationService["ConversationService"] {
+    +getConversations()
+    +createConversation(data)
+    +updateConversation(id, data)
+    +togglePin(conversationId, userId, isPinned)
+    +getDailySummary(conversationId, options)
+    +deleteHistory(conversationId)
+  }
+
+  class MobileAIService["AIService"] {
+    +ask(question, conversationId)
+    +getHistory(limit, conversationId)
+    +deleteConversationHistory(conversationId)
+    +generateResponse(prompt)
+  }
+
+  class FetchApiError {
+    +status
+    +data
+    +constructor(message, status, data)
+  }
+
+  class MobileSocketService["SocketService"] {
+    +connect()
+    +disconnect()
+    +joinRoom(conversationId)
+    +leaveRoom(conversationId)
+    +on(event, callback)
+    +off(event, callback)
+    +emit(event, ...args)
+  }
+}
+
+Error <|-- FetchApiError
+MobileUserService ..> apiClient : uses
+MobileUserService ..> useAuthStore : reads token
+MobileUserService ..> AsyncStorage : fallback token
+MobileFriendsService ..> apiFetch : uses
+MobileMessageService ..> apiClient : uses
+MobileMomentService ..> apiFetch : uses
+MobileConversationService ..> apiClient : uses
+MobileAIService ..> apiClient : uses
+MobileSocketService ..> useAuthStore : reads token
+
+namespace Web_App {
+  class WebSocketService["SocketService"] {
+    +connect(userId)
+    +disconnect()
+    +joinRoom(conversationId)
+    +joinRooms(conversationIds)
+    +sendMessage(data, callback)
+    +on(event, callback)
+    +off(event, callback)
+    +recallMessage(data, callback)
+    +reactToMessage(data, callback)
+  }
+
+  class WebMomentService["MomentService"] {
+    +createMoment(payload)
+    +updateMoment(momentId, payload)
+    +getFriendMoments()
+    +getMyProfile()
+    +getMomentComments(momentId)
+    +deleteMoment(momentId)
+  }
+
+  class OfflineMessagesDB {
+    +addMessage(message)
+    +updateMessage(id, updates)
+    +getPendingByConversation(conversationId)
+    +getAllPending()
+    +removeMessage(id)
+    +clearAll()
+    +getStats()
+  }
+
+  class WebRTCMeshManager {
+    +initLocalStream(callType)
+    +createPeerConnection(remoteUserId, createOffer)
+    +handleOffer(fromUserId, offer)
+    +handleAnswer(fromUserId, answer)
+    +handleIceCandidate(fromUserId, candidate)
+    +toggleMute()
+    +toggleVideo()
+    +startScreenShare()
+    +stopScreenShare()
+    +closePeer(userId)
+    +closeAll()
+  }
+}
+
+WebMomentService ..> fetchWithAuth : uses
+WebSocketService ..> useAuthStore : reads token
+OfflineMessagesDB ..> indexedDB : persists
+WebRTCMeshManager ..> WebSocketService : signaling
+WebRTCMeshManager ..> useCallStore : call state
+
+namespace Android_Entry {
+  class MainActivity
+  class MainApplication
+  class ReactActivity
+  class Application
+  class ReactApplication
+}
+
+ReactActivity <|-- MainActivity
+Application <|-- MainApplication
+ReactApplication <|.. MainApplication

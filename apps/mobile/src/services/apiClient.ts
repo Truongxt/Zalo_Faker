@@ -10,17 +10,22 @@ const apiClient = axios.create({
 
 console.log("[apiClient] baseURL:", API_URL);
 
-const isAuthEndpoint = (rawUrl: string) => {
+const normalizePath = (rawUrl: string) => {
   const cleanUrl = (rawUrl || "").split("?")[0];
+  return cleanUrl.replace(/^https?:\/\/[^/]+/i, "");
+};
+
+const isAuthEndpoint = (rawUrl: string) => {
+  const path = normalizePath(rawUrl);
 
   return (
-    cleanUrl.endsWith("/login") ||
-    cleanUrl.endsWith("/register") ||
-    cleanUrl.endsWith("/refresh-token") ||
-    cleanUrl.endsWith("/logout") ||
-    cleanUrl.endsWith("/unlock-account") ||
-    cleanUrl.includes("/forgot-password/") ||
-    cleanUrl.includes("/register/")
+    path.endsWith("/api/users/login") ||
+    path.endsWith("/api/users/register") ||
+    path.endsWith("/api/users/refresh-token") ||
+    path.endsWith("/api/users/logout") ||
+    path.endsWith("/api/users/unlock-account") ||
+    path.includes("/api/users/forgot-password/") ||
+    path.includes("/api/users/register/")
   );
 };
 

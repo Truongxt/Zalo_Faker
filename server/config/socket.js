@@ -53,13 +53,16 @@ const MEDIA_FALLBACK_BY_TYPE = {
 
 const toRoomId = (conversationId) => `conv:${String(conversationId)}`;
 
-const normalizeMessage = (message) => ({
-  ...message,
-  id: message?._id || message?.id,
-  reactions: Array.isArray(message?.reactions) ? message.reactions : [],
-  readBy: Array.isArray(message?.readBy) ? message.readBy : [],
-  isDeleted: Boolean(message?.isDeleted),
-});
+const normalizeMessage = (message) => {
+  const messageObj = typeof message?.toObject === "function" ? message.toObject() : message;
+  return {
+    ...messageObj,
+    id: messageObj?._id || messageObj?.id,
+    reactions: Array.isArray(messageObj?.reactions) ? messageObj.reactions : [],
+    readBy: Array.isArray(messageObj?.readBy) ? messageObj.readBy : [],
+    isDeleted: Boolean(messageObj?.isDeleted),
+  };
+};
 
 const normalizeCallType = (value) => {
   const normalized = String(value || "").trim().toLowerCase();
@@ -120,6 +123,21 @@ const getCallPreviewText = (callPayload) => {
   if (callPayload.status === "rejected") return "Cuộc gọi đã từ chối";
   if (callPayload.status === "cancelled") return "Cuộc gọi đã hủy";
   return callPayload.callType === "video" ? "Cuộc gọi video" : "Cuộc gọi";
+};
+
+const resolveUserDisplayName = (user, fallback = "Nguoi dung") => {
+  if (!user || typeof user !== "object") return fallback;
+  return (
+    String(user.fullName || "").trim()
+    || String(user.userName || "").trim()
+    || String(user.name || "").trim()
+    || fallback
+  );
+};
+
+const resolveUserAvatar = (user) => {
+  if (!user || typeof user !== "object") return null;
+  return user.avatarUrl || user.avartarUrl || null;
 };
 
 const resolveCallStatus = (status, fallback = "finished") => {
@@ -225,8 +243,17 @@ module.exports = (socketConfig) => {
     }
   });
 
-  const isUserOnline = async (userId) => {
+  const isUserOnline = async (userId, excludeSocketId = null) => {
     try {
+      const room = io.sockets.adapter.rooms.get(`user:${String(userId)}`);
+      if (room) {
+        for (const socketId of room) {
+          if (socketId !== excludeSocketId && io.sockets.sockets.has(socketId)) {
+            return true;
+          }
+        }
+      }
+
       if (!getIsRedisReady()) return false;
 
       const normalizedUserId = normalizeUserIdValue(userId);
@@ -237,7 +264,7 @@ module.exports = (socketConfig) => {
         COUNT: 10,
       })) {
         const socketId = await redisClient.get(String(key));
-        if (socketId && io.sockets.sockets.has(socketId)) {
+        if (socketId && socketId !== excludeSocketId && io.sockets.sockets.has(socketId)) {
           return true;
         }
 
@@ -344,7 +371,7 @@ module.exports = (socketConfig) => {
     try {
       forceLogoutOlderSessions(socket);
 
-      const wasOnlineBefore = await isUserOnline(userId);
+      const wasOnlineBefore = await isUserOnline(userId, socket.id);
 
       if (getIsRedisReady()) {
         await touchPresence(userId, platform, socket.id);
@@ -736,6 +763,26 @@ module.exports = (socketConfig) => {
     };
 
     socket.on("video:call-user", async (data) => {
+      if (data?.isGroupCall && data?.conversationId) {
+        try {
+          const conversation = await ensureConversationMembership(
+            data.conversationId,
+            socket.userId,
+          );
+          if (conversation?.type === "group") {
+            GroupService.ensureCanStartCall(conversation, {
+              userId: socket.userId,
+            });
+          }
+        } catch (error) {
+          socket.emit("video:call-error", {
+            conversationId: data?.conversationId,
+            error: error?.message || "Cannot start group call",
+          });
+          return;
+        }
+      }
+
       if (data.isGroupCall) {
         // For group calls, signaling is handled via group:create and group:join.
         // We don't want to emit video:incoming-call (1-1) for group calls.
@@ -837,7 +884,13 @@ module.exports = (socketConfig) => {
           return callback?.({ success: false, error: "conversationId is required" });
         }
 
-        await ensureConversationMembership(conversationId, socket.userId);
+        const conversation = await ensureConversationMembership(
+          conversationId,
+          socket.userId,
+        );
+        GroupService.ensureCanStartCall(conversation, {
+          userId: socket.userId,
+        });
 
         const room = groupCallManager.createRoom(
           conversationId,
@@ -868,8 +921,8 @@ module.exports = (socketConfig) => {
                 conversationId: room.conversationId,
                 callType: room.callType,
                 hostUserId: room.hostUserId,
-                callerName: callerInfo?.fullName || "Nguoi dung",
-                callerAvatar: callerInfo?.avatarUrl || null,
+                callerName: resolveUserDisplayName(callerInfo, "Nguoi dung"),
+                callerAvatar: resolveUserAvatar(callerInfo),
                 participantCount: room.participants.size,
                 isGroupCall: true,
               };
@@ -919,8 +972,8 @@ module.exports = (socketConfig) => {
           conversationId: room.conversationId,
           callType: room.callType,
           hostUserId: room.hostUserId,
-          callerName: callerInfo?.fullName || "Nguoi dung",
-          callerAvatar: callerInfo?.avatarUrl || null,
+          callerName: resolveUserDisplayName(callerInfo, "Nguoi dung"),
+          callerAvatar: resolveUserAvatar(callerInfo),
           participantCount: room.participants.size,
           isGroupCall: true,
         };
@@ -957,15 +1010,36 @@ module.exports = (socketConfig) => {
         await ensureConversationMembership(room.conversationId, socket.userId);
 
         // Get current participants BEFORE joining (for signaling)
-        const existingParticipants = groupCallManager.getParticipantsArray(roomId)
+        const existingParticipantsRaw = groupCallManager.getParticipantsArray(roomId)
           .filter((p) => p.userId !== socket.userId);
 
-        const { isNew } = groupCallManager.joinRoom(roomId, socket.userId, socket.id);
+        const existingParticipants = await Promise.all(
+          existingParticipantsRaw.map(async (participant) => {
+            let participantInfo = null;
+            try {
+              participantInfo = await userRepository.getById(participant.userId);
+            } catch (e) {
+              participantInfo = null;
+            }
+
+            return {
+              ...participant,
+              name: resolveUserDisplayName(participantInfo, String(participant.userId)),
+              avatar: resolveUserAvatar(participantInfo),
+            };
+          }),
+        );
+
+        const { isNew, socketChanged } = groupCallManager.joinRoom(
+          roomId,
+          socket.userId,
+          socket.id,
+        );
 
         // Get user info
         let userInfo = null;
         try {
-          userInfo = await userRepository.findUserById(socket.userId);
+          userInfo = await userRepository.getById(socket.userId);
         } catch (e) {
           // fallback
         }
@@ -977,21 +1051,24 @@ module.exports = (socketConfig) => {
           existingParticipants,
         });
 
-        if (isNew) {
+        if (isNew || socketChanged) {
           // Notify all other participants that a new user joined
           const joinPayload = {
             roomId,
             userId: socket.userId,
-            userName: userInfo?.fullName || "Nguoi dung",
-            userAvatar: userInfo?.avatarUrl || null,
+            userName: resolveUserDisplayName(userInfo, "Nguoi dung"),
+            userAvatar: resolveUserAvatar(userInfo),
             participantCount: room.participants.size,
+            reconnected: Boolean(socketChanged),
           };
 
           for (const participant of existingParticipants) {
             emitToUserRoom(participant.userId, "group:user-joined", joinPayload);
           }
 
-          console.log(`[GroupCall] User ${socket.userId} joined room ${roomId} (${room.participants.size} total)`);
+          console.log(
+            `[GroupCall] User ${socket.userId} joined room ${roomId} (${room.participants.size} total)`,
+          );
         }
       } catch (err) {
         console.error("group:join error:", err);
@@ -1179,13 +1256,20 @@ module.exports = (socketConfig) => {
             ? Object.values(userIds)
             : [];
 
+        const lastSeenStatuses = {};
         for (const uid of targetIds) {
           const normalizedUid = normalizeUserIdValue(uid);
           if (!normalizedUid) continue;
-          onlineStatuses[normalizedUid] = await isUserOnline(normalizedUid);
+          const online = await isUserOnline(normalizedUid);
+          onlineStatuses[uid] = online;
+
+          if (!online) {
+            const user = await userRepository.getById(normalizedUid).catch(() => null);
+            lastSeenStatuses[uid] = user?.lastActiveAt || null;
+          }
         }
 
-        callback?.({ success: true, onlineStatuses });
+        callback?.({ success: true, onlineStatuses, lastSeenStatuses });
       } catch (err) {
         console.error("presence:get_online_users error:", err);
         callback?.({ success: false, error: err.message });
@@ -1241,16 +1325,17 @@ module.exports = (socketConfig) => {
           }
         }
 
-        const stillOnline = await isUserOnline(socket.userId);
+        const stillOnline = await isUserOnline(socket.userId, socket.id);
         if (!stillOnline) {
+          const lastActiveAt = new Date().toISOString();
           await userRepository
             .updateUser(String(socket.userId), {
               presenceStatus: "offline",
-              lastActiveAt: new Date().toISOString(),
+              lastActiveAt,
             })
             .catch((err) => console.warn("Failed to update presenceStatus to offline:", err?.message));
 
-          socket.broadcast.emit("presence:offline", { userId: socket.userId });
+          socket.broadcast.emit("presence:offline", { userId: socket.userId, lastActiveAt });
         }
       } catch (err) {
         console.error("disconnect presence cleanup error:", err);

@@ -65,10 +65,12 @@ const getMimeTypeFromUri = (fileUri: string) => {
 
 // Map server user shape to mobile User type
 const mapServerUser = (u: ServerUser): User => ({
-  id: u.userId,
+  id: (u as any).userId || (u as any).id || "",
   email: u.email,
   phone: u.phone,
-  fullName: u.userName,
+  fullName:
+    String((u as any).userName || (u as any).fullName || (u as any).name || "").trim() ||
+    `User ${String((u as any).userId || (u as any).id || "").trim()}`,
   avatarUrl: u.avartarUrl,
   birthday: u.birthday,
   gender: u.gender,
@@ -327,6 +329,16 @@ class UserService {
   async getLoginHistory(userId: string, limit = 20): Promise<LoginHistoryItem[]> {
     const response = await apiClient.get<LoginHistoryItem[]>(
       `/api/users/${userId}/login-history?limit=${limit}`,
+    );
+    return response.data;
+  }
+
+  async logoutLoginSession(
+    userId: string,
+    loginId: string,
+  ): Promise<{ message: string; isCurrentSessionRevoked?: boolean }> {
+    const response = await apiClient.post<{ message: string; isCurrentSessionRevoked?: boolean }>(
+      `/api/users/${userId}/login-history/${loginId}/logout`,
     );
     return response.data;
   }

@@ -2,6 +2,7 @@ import { View, Text, ScrollView, TouchableOpacity, Alert } from "react-native";
 import { useRef } from "react";
 import { useRouter } from "expo-router";
 import { useAuthStore } from "@/stores/authStore";
+import { useNotificationStore } from "@/stores/notificationStore";
 import { userService } from "@/services";
 import { Avatar } from "@/components/ui/Avatar";
 import { useState } from "react";
@@ -18,6 +19,7 @@ export default function ProfileScreen() {
   const [isChangingPin, setIsChangingPin] = useState(false);
   const [isResetMode, setIsResetMode] = useState(false);
   const [loginPassword, setLoginPassword] = useState("");
+  const unreadNotificationCount = useNotificationStore((state) => state.unreadCount);
 
   const handleUpdatePin = async () => {
     if (!user?.id) return;
@@ -150,7 +152,16 @@ export default function ProfileScreen() {
             activeOpacity={0.7}
           >
             <Text className="text-xl">{item.icon}</Text>
-            <Text className="flex-1 text-gray-900">{item.title}</Text>
+            <View className="flex-1 flex-row items-center justify-between">
+              <Text className="text-gray-900">{item.title}</Text>
+              {index === 0 && unreadNotificationCount > 0 ? (
+                <View className="min-w-[22px] rounded-full bg-red-500 px-2 py-0.5 items-center">
+                  <Text className="text-[11px] font-semibold text-white">
+                    {unreadNotificationCount > 99 ? "99+" : unreadNotificationCount}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
             <Text className="text-gray-400">›</Text>
           </TouchableOpacity>
         ))}
@@ -166,7 +177,18 @@ export default function ProfileScreen() {
       </TouchableOpacity>
 
       {/* Pin Change Modal */}
-      <Modal visible={showPinChange} transparent animationType="fade">
+      <Modal
+        visible={showPinChange}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          setShowPinChange(false);
+          setOldPin("");
+          setNewPin("");
+          setIsResetMode(false);
+          setLoginPassword("");
+        }}
+      >
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
           <View style={{ backgroundColor: 'white', borderRadius: 20, width: '100%', padding: 24, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 4, elevation: 5 }}>
             <Text style={{ fontSize: 20, fontWeight: 'bold', color: '#111827', marginBottom: 8, textAlign: 'center' }}>

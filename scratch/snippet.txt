@@ -1,0 +1,36 @@
+    return (
+      <div className="flex justify-center my-3 w-full group relative">
+        <div className="max-w-[92%] flex items-center gap-2 px-3 py-1.5 text-[12.5px] rounded-full border border-slate-200 dark:border-gray-800 bg-white dark:bg-dark-300 shadow-sm animate-fade-in transition-all group-hover:shadow-md">
+          <span className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 ${isPinAction ? 'bg-orange-50 text-orange-500 dark:bg-orange-900/30' : 'bg-blue-50 text-blue-500 dark:bg-blue-900/30'}`}>
+            {getIcon()}
+          </span>
+          <p className="text-slate-500 dark:text-gray-400 font-medium whitespace-pre-wrap">
+            {typeof content?.text === 'string' ? content.text : typeof message.content === 'object' ? (message.content as any)?.text || '' : String(message.content || '')}
+          </p>
+        </div>
+
+        {/* System Message Actions */}
+        <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 absolute left-[calc(50%+150px)] top-1/2 -translate-y-1/2 ml-2">
+          {!message.isDeleted && (
+            <button
+              onClick={onForward}
+              className="p-1 px-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-[11px] text-gray-500 flex items-center gap-1 border border-transparent hover:border-gray-200 dark:hover:border-gray-700"
+              title="Chuyển tiếp"
+            >
+              <Share className="w-3 h-3" />
+            </button>
+          )}
+          {!message.isDeleted && canPin && (
+            <button
+              onClick={onPin}
+              className="p-1 px-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-[11px] text-gray-500 flex items-center gap-1 border border-transparent hover:border-gray-200 dark:hover:border-gray-700"
+              title="Ghim"
+            >
+              <Pin className="w-3 h-3" />
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+

@@ -14,14 +14,77 @@ import { useCallStore } from '@/stores/callStore';
 // ICE Servers
 // ─────────────────────────────────────────────────
 
-const ICE_SERVERS: RTCIceServer[] = [
-  { urls: 'stun:stun.l.google.com:19302' },
-  { urls: 'stun:stun1.l.google.com:19302' },
-  { urls: 'stun:stun2.l.google.com:19302' },
-];
+const splitIceUrls = (value: string) =>
+  value
+    .split(',')
+    .map((url) => url.trim())
+    .filter(Boolean);
+
+const withTurnTransports = (urls: string[]) => {
+  const expanded = new Set<string>();
+
+  urls.forEach((url) => {
+    expanded.add(url);
+
+    if (!/^turn:/i.test(url) || url.includes('?')) return;
+
+    expanded.add(`${url}?transport=udp`);
+    expanded.add(`${url}?transport=tcp`);
+  });
+
+  return Array.from(expanded);
+};
+
+const parseIceTransportPolicy = (): RTCIceTransportPolicy | undefined => {
+  const policy = String(import.meta.env.VITE_ICE_TRANSPORT_POLICY || '').trim().toLowerCase();
+  return policy === 'relay' || policy === 'all' ? policy : undefined;
+};
+
+const parseIceServers = (): RTCIceServer[] => {
+  const rawJson = String(import.meta.env.VITE_ICE_SERVERS || '').trim();
+  if (rawJson) {
+    try {
+      const parsed = JSON.parse(rawJson);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed as RTCIceServer[];
+      }
+    } catch (error) {
+      console.warn('[WebRTC] VITE_ICE_SERVERS is invalid JSON:', error);
+    }
+  }
+
+  const turnUrl = String(import.meta.env.VITE_TURN_URL || '').trim();
+  const turnsUrl = String(import.meta.env.VITE_TURNS_URL || '').trim();
+  const turnUsername = String(import.meta.env.VITE_TURN_USERNAME || '').trim();
+  const turnCredential = String(import.meta.env.VITE_TURN_CREDENTIAL || '').trim();
+
+  const defaultServers: RTCIceServer[] = [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+  ];
+
+  const turnUrls = withTurnTransports([
+    ...splitIceUrls(turnUrl),
+    ...splitIceUrls(turnsUrl),
+  ]);
+
+  if (turnUrls.length > 0) {
+    defaultServers.push({
+      urls: turnUrls,
+      username: turnUsername || undefined,
+      credential: turnCredential || undefined,
+    });
+  }
+
+  return defaultServers;
+};
+
+const ICE_SERVERS: RTCIceServer[] = parseIceServers();
 
 const RTC_CONFIG: RTCConfiguration = {
   iceServers: ICE_SERVERS,
+  iceTransportPolicy: parseIceTransportPolicy(),
   iceCandidatePoolSize: 4,
 };
 
@@ -118,22 +181,9 @@ export class WebRTCMeshManager {
       }
     };
 
-    // Negotiation needed (renegotiation)
-    pc.onnegotiationneeded = async () => {
-      try {
-        peerState.makingOffer = true;
-        await pc.setLocalDescription();
-        socketService.getSocket()?.emit('webrtc:offer', {
-          toUserId: remoteUserId,
-          offer: pc.localDescription,
-          roomId: this.roomId,
-        });
-      } catch (err) {
-        console.error(`[WebRTC] Negotiation error with ${remoteUserId}:`, err);
-      } finally {
-        peerState.makingOffer = false;
-      }
-    };
+    // Offers are created explicitly by the joining peer. Letting this handler
+    // auto-send offers can make both sides send offers at the same time.
+    pc.onnegotiationneeded = null;
 
     // Connection state monitoring
     pc.onconnectionstatechange = () => {

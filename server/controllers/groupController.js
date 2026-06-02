@@ -1,5 +1,6 @@
 const GroupService = require("../services/groupService");
 const { uploadFile } = require("../services/file.service");
+const { emitToUser } = require("../utils/socketEmitter");
 
 const getRequesterId = (req) => req.user?.userId;
 
@@ -30,7 +31,8 @@ const createSystemMessage = async (req, conversationId, actionText, extraMetadat
         metadata: { isAnnouncement: true, ...extraMetadata }
     };
     const message = await messageService.createMessage(payload);
-    const normalizedMessage = { ...message, id: message._id };
+    const messageObj = typeof message.toObject === "function" ? message.toObject() : message;
+    const normalizedMessage = { ...messageObj, id: messageObj._id || messageObj.id };
     
     await conversationModel.updateConversation(conversationId, {
         lastMessage: {
@@ -51,10 +53,66 @@ const createSystemMessage = async (req, conversationId, actionText, extraMetadat
   }
 };
 
-const emitGroupConversationUpdate = (req, conversationId, updates = {}) => {
+const populateParticipants = async (obj) => {
+  if (!obj) return obj;
+  
+  let target = obj;
+  if (obj.participants) {
+    target = obj;
+  } else if (obj.group && obj.group.participants) {
+    target = obj.group;
+  } else if (obj.conversation && obj.conversation.participants) {
+    target = obj.conversation;
+  } else {
+    return obj;
+  }
+
+  const userIds = new Set();
+  target.participants.forEach((participant) => {
+    if (participant?.userId) {
+      userIds.add(String(participant.userId));
+    }
+  });
+
+  const userRepository = require("../repository/userRepository");
+  const userMap = {};
+  await Promise.all(
+    Array.from(userIds).map(async (uid) => {
+      try {
+        const user = await userRepository.getById(uid);
+        if (user) {
+          userMap[uid] = {
+            fullName: user.fullName || user.userName || "Người dùng",
+            avatarUrl: user.avatarUrl || user.avartarUrl || null,
+            status: user.presenceStatus || "offline",
+            lastActiveAt: user.lastActiveAt || null,
+            userId: String(uid)
+          };
+        }
+      } catch (err) {
+        console.error("populateParticipants error for uid", uid, err);
+      }
+    })
+  );
+
+  target.participants = target.participants.map((participant) => ({
+    ...participant,
+    ...(userMap[String(participant.userId)] || {})
+  }));
+
+  return obj;
+};
+
+const emitGroupConversationUpdate = async (req, conversationId, updates = {}) => {
   try {
     const io = req.app.get("io");
     if (!io || !conversationId) return;
+
+    if (updates.participants) {
+      const tempConv = { participants: updates.participants };
+      await populateParticipants(tempConv);
+      updates.participants = tempConv.participants;
+    }
 
     const payload = {
       id: String(conversationId),
@@ -148,6 +206,7 @@ const GroupController = {
         newUserId: req.body.newUserId,
         userId: getRequesterId(req)
       });
+      await populateParticipants(group);
       emitGroupConversationUpdate(req, req.params.id, buildGroupConversationUpdates(group));
       const targetName = await getUsername(req.body.newUserId);
       await createSystemMessage(req, req.params.id, `đã thêm ${targetName} vào nhóm`, { action: 'add_member' });
@@ -211,6 +270,7 @@ const GroupController = {
         result?.group?._id || result?.group?.id || result?.groupId || ""
       );
       if (targetGroupId && result?.group) {
+        await populateParticipants(result);
         emitGroupConversationUpdate(req, targetGroupId, {
           participants: result.group.participants,
           groupSettings: result.group.groupSettings,
@@ -243,6 +303,7 @@ const GroupController = {
         action: req.body.action,
         userId: getRequesterId(req)
       });
+      await populateParticipants(result);
       emitGroupConversationUpdate(req, req.params.id, {
         participants: result.group?.participants,
         groupSettings: result.group?.groupSettings,
@@ -260,6 +321,7 @@ const GroupController = {
         userId: getRequesterId(req),
         permissions: req.body
       });
+      await populateParticipants(result);
       emitGroupConversationUpdate(req, req.params.id, buildGroupConversationUpdates(result.group));
       await createSystemMessage(req, req.params.id, "đã cập nhật quyền trong nhóm", { action: 'update_permissions' });
       return res.json(result);
@@ -337,6 +399,7 @@ const GroupController = {
         removeUserId: req.body.removeUserId,
         userId: getRequesterId(req)
       });
+      await populateParticipants(result);
       emitGroupConversationUpdate(req, req.params.id, buildGroupConversationUpdates(result.group));
       const targetName = await getUsername(req.body.removeUserId);
       await createSystemMessage(req, req.params.id, `đã xóa ${targetName} khỏi nhóm`);
@@ -352,6 +415,7 @@ const GroupController = {
         newAdminUserId: req.body.newAdminUserId,
         userId: getRequesterId(req)
       });
+      await populateParticipants(result);
       emitGroupConversationUpdate(req, req.params.id, buildGroupConversationUpdates(result.group));
       const targetName = await getUsername(req.body.newAdminUserId);
       await createSystemMessage(req, req.params.id, `đã chuyển quyền trưởng nhóm cho ${targetName}`);
@@ -367,6 +431,7 @@ const GroupController = {
         deputyUserId: req.body.deputyUserId,
         userId: getRequesterId(req)
       });
+      await populateParticipants(result);
       emitGroupConversationUpdate(req, req.params.id, buildGroupConversationUpdates(result.group));
       const targetName = await getUsername(req.body.deputyUserId);
       await createSystemMessage(req, req.params.id, `đã bổ nhiệm ${targetName} làm phó nhóm`);
@@ -382,6 +447,7 @@ const GroupController = {
         deputyUserId: req.body.deputyUserId,
         userId: getRequesterId(req)
       });
+      await populateParticipants(result);
       emitGroupConversationUpdate(req, req.params.id, buildGroupConversationUpdates(result.group));
       const targetName = await getUsername(req.body.deputyUserId);
       await createSystemMessage(req, req.params.id, `đã tước quyền phó nhóm của ${targetName}`);
@@ -410,6 +476,7 @@ const GroupController = {
         userId: getRequesterId(req),
         newAdminUserId: req.body.newAdminUserId
       });
+      await populateParticipants(result);
       emitGroupConversationUpdate(req, req.params.id, buildGroupConversationUpdates(result.group));
       await createSystemMessage(req, req.params.id, "đã rời nhóm");
       return res.json(result);
@@ -420,9 +487,39 @@ const GroupController = {
 
   dissolveGroup: async (req, res) => {
     try {
-      const result = await GroupService.dissolveGroup(req.params.id, {
-        userId: getRequesterId(req)
+      const groupId = String(req.params.id || "");
+      const requesterId = getRequesterId(req);
+      const memberSnapshot = await GroupService.getGroupMembers(groupId, {
+        userId: requesterId
       });
+      const memberIds = Array.from(
+        new Set(
+          (memberSnapshot?.members || [])
+            .map((member) => String(member?.userId || ""))
+            .filter(Boolean)
+        )
+      );
+
+      const result = await GroupService.dissolveGroup(req.params.id, {
+        userId: requesterId
+      });
+
+      const payload = {
+        conversationId: groupId,
+        groupId,
+        dissolvedBy: String(requesterId || ""),
+        dissolvedAt: new Date().toISOString(),
+      };
+
+      await Promise.all(
+        memberIds.map(async (memberId) => {
+          await emitToUser(memberId, "group:dissolved", payload);
+          await emitToUser(memberId, "chat:conversation_removed", {
+            ...payload,
+            reason: "group_dissolved",
+          });
+        })
+      );
 
       return res.json(result);
     } catch (error) {

@@ -28,7 +28,8 @@ const createSystemMessage = async (req, conversationId, actionText, extraMetadat
             metadata: { isAnnouncement: true, ...extraMetadata }
         };
         const message = await messageService.createMessage(payload);
-        const normalizedMessage = { ...message, id: message._id };
+        const messageObj = typeof message.toObject === "function" ? message.toObject() : message;
+        const normalizedMessage = { ...messageObj, id: messageObj._id || messageObj.id };
 
         await conversationService.updateConversation(conversationId, {
             lastMessage: {
@@ -136,6 +137,7 @@ const populateParticipants = async (conversations) => {
                     fullName: user.fullName || user.userName || "Người dùng",
                     avatarUrl: user.avatarUrl || user.avartarUrl || null,
                     status: user.presenceStatus || "offline",
+                    lastActiveAt: user.lastActiveAt || null,
                     userId: String(uid)
                 };
             }
@@ -331,9 +333,15 @@ const updateParticipantSetting = async (req, res) => {
         }
 
         if (isPinned !== undefined) participants[participantIndex].isPinned = isPinned;
-        if (nickname !== undefined) participants[participantIndex].nickname = nickname;
         if (labelIds !== undefined) participants[participantIndex].labelIds = labelIds;
         if (isHidden !== undefined) participants[participantIndex].isHidden = isHidden;
+
+        let nicknameChanged = false;
+        let oldNickname = participants[participantIndex].nickname;
+        if (nickname !== undefined && oldNickname !== nickname) {
+            participants[participantIndex].nickname = nickname;
+            nicknameChanged = true;
+        }
 
         if (isMuted !== undefined || muteUntil !== undefined) {
             const nextIsMuted = Boolean(isMuted);
@@ -361,7 +369,26 @@ const updateParticipantSetting = async (req, res) => {
         }
 
         const updated = await conversationService.updateConversation(id, { participants });
-        res.json(updated);
+        const populatedUpdated = await populateParticipants(updated);
+        
+        if (nicknameChanged) {
+            try {
+                const targetName = await getUsername(userId);
+                let textAction = nickname 
+                    ? `đã đặt biệt danh cho ${targetName} là "${nickname}"`
+                    : `đã xóa biệt danh của ${targetName}`;
+                await createSystemMessage(req, id, textAction, { action: "set_nickname", targetUserId: userId, nickname });
+            } catch (err) {
+                console.error("Failed to send nickname system message", err);
+            }
+        }
+
+        const io = req.app.get("io");
+        if (io) {
+            io.to(`conv:${id}`).emit("chat:update_conversation", populatedUpdated);
+            io.to(String(id)).emit("chat:update_conversation", populatedUpdated);
+        }
+        res.json(populatedUpdated);
     } catch (error) {
         res.status(500).json({ message: error.message });
     }

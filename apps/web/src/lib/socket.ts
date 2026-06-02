@@ -1,7 +1,22 @@
 import { io, Socket } from 'socket.io-client'
 import { useAuthStore } from '@/stores/authStore'
 
-const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3000'
+const LOCAL_BACKEND_ORIGIN = 'http://localhost:3000'
+const fallbackOrigin = typeof window !== 'undefined' ? window.location.origin : ''
+const configuredSocketUrl = String(import.meta.env.VITE_SOCKET_URL || '').trim()
+const configuredApiBase = String(import.meta.env.VITE_API_URL || '').trim()
+const apiOriginFromEnv = configuredApiBase.replace(/\/api\/?$/i, '')
+const isRunningOnLocalhost =
+    typeof window !== 'undefined'
+    && /^(localhost|127\.0\.0\.1)$/i.test(window.location.hostname)
+const fallbackSocketUrl = isRunningOnLocalhost
+    ? LOCAL_BACKEND_ORIGIN
+    : (fallbackOrigin || LOCAL_BACKEND_ORIGIN)
+
+const SOCKET_URL =
+    configuredSocketUrl
+    || apiOriginFromEnv
+    || fallbackSocketUrl
 
 class SocketService {
     private socket: Socket | null = null
@@ -10,10 +25,23 @@ class SocketService {
     /** Phòng đã join — reconnect sẽ join lại toàn bộ */
     private joinedRooms = new Set<string>()
     private listeners = new Map<string, Set<Function>>()
+    private hasWarnedNoToken = false
 
     connect(userId: string) {
         this.currentUserId = userId
-        const latestToken = useAuthStore.getState().accessToken
+        const latestToken = String(useAuthStore.getState().accessToken || '').trim()
+
+        if (!latestToken) {
+            if (!this.hasWarnedNoToken) {
+                console.warn('Socket connect skipped: missing access token')
+                this.hasWarnedNoToken = true
+            }
+            if (this.socket?.connected) {
+                this.socket.disconnect()
+            }
+            return this.socket
+        }
+        this.hasWarnedNoToken = false
 
         const refreshPresenceAndRooms = () => {
             if (!this.socket) return
@@ -57,7 +85,12 @@ class SocketService {
                 console.error('Socket connection error:', error.message)
                 // Ensure reconnect always uses latest access token
                 if (this.socket) {
-                    this.socket.auth = { token: useAuthStore.getState().accessToken, platform: 'web' }
+                    const token = String(useAuthStore.getState().accessToken || '').trim()
+                    if (!token) {
+                        this.socket.disconnect()
+                        return
+                    }
+                    this.socket.auth = { token, platform: 'web' }
                 }
             })
         } else {
@@ -110,7 +143,21 @@ class SocketService {
         senderId?: string
         type: string
         content: { text?: string; mediaUrl?: string; fileName?: string; fileSize?: number; duration?: number }
-        metadata?: { isAnnouncement?: boolean; isImportant?: boolean }
+        attachments?: Array<{
+            url: string
+            type: 'image' | 'video' | 'file' | 'voice'
+            name?: string
+            size?: number
+            duration?: number
+            thumbnailUrl?: string
+        }>
+        metadata?: {
+            isAnnouncement?: boolean
+            isImportant?: boolean
+            folderId?: string
+            folder?: string
+            subfolder?: string
+        }
         replyTo?: string
         clientTempId?: string
     }, callback?: (res: { success: boolean; message?: any; error?: string }) => void) {

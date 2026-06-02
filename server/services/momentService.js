@@ -6,6 +6,7 @@ const momentCommentRepository = require("../repository/momentCommentRepository")
 const momentReactionRepository = require("../repository/momentReactionRepository");
 const friendRepository = require("../repository/friendsRepository");
 const userRepository = require("../repository/userRepository");
+const notificationService = require("./notificationService");
 const conversationService = require("./conversationService");
 const {
   deleteFiles,
@@ -260,6 +261,235 @@ const incrementMomentField = async (moment, field, delta) => {
   });
 };
 
+const resolveUserDisplayName = (user, fallback = "Nguoi dung") => {
+  if (!user || typeof user !== "object") {
+    return fallback;
+  }
+
+  return (
+    String(user.userName || "").trim()
+    || String(user.fullName || "").trim()
+    || String(user.name || "").trim()
+    || fallback
+  );
+};
+
+const resolveUserAvatar = (user) => {
+  if (!user || typeof user !== "object") {
+    return null;
+  }
+
+  return user.avartarUrl || user.avatarUrl || null;
+};
+
+const truncateText = (value, maxLength = 120) => {
+  const normalized = String(value || "").trim().replace(/\s+/g, " ");
+  if (!normalized) {
+    return "";
+  }
+
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, maxLength - 1).trim()}…`;
+};
+
+const getMomentPreviewText = (moment) => {
+  const contentPreview = truncateText(moment?.content, 100);
+  if (contentPreview) {
+    return contentPreview;
+  }
+
+  if (Array.isArray(moment?.mediaUrls) && moment.mediaUrls.length > 0) {
+    return "Khoanh khac co media";
+  }
+
+  return "Khoanh khac cua ban";
+};
+
+const getCommentPreviewText = (comment) => {
+  const contentPreview = truncateText(comment?.content, 100);
+  return contentPreview || "Binh luan cua ban";
+};
+
+const REACTION_LABELS = {
+  like: "thich",
+  love: "yeu thich",
+  haha: "haha",
+  wow: "wow",
+  sad: "buon",
+  angry: "gian du",
+};
+
+const getReactionLabel = (emoji) => {
+  const normalized = String(emoji || "").trim().toLowerCase();
+  return REACTION_LABELS[normalized] || normalized || "bay to cam xuc";
+};
+
+const createMomentNotification = async ({
+  recipientId,
+  actor,
+  actorId,
+  type,
+  title,
+  body = "",
+  moment,
+  comment = null,
+  reactionEmoji = null,
+  metadata = null,
+}) => {
+  if (!recipientId || String(recipientId) === String(actorId)) {
+    return null;
+  }
+
+  return notificationService.createNotification({
+    recipientId,
+    actorId,
+    actorName: resolveUserDisplayName(actor),
+    actorAvatarUrl: resolveUserAvatar(actor),
+    type,
+    title,
+    body,
+    momentId: moment?.momentId || null,
+    commentId: comment?.commentId || null,
+    reactionEmoji,
+    metadata,
+  });
+};
+
+const notifyMomentReaction = async ({ actorId, actor, moment, emoji }) => {
+  return createMomentNotification({
+    recipientId: moment.authorId,
+    actor,
+    actorId,
+    type: "moment_reaction",
+    title: `${resolveUserDisplayName(actor)} da tha cam xuc vao khoanh khac cua ban`,
+    body: `${getReactionLabel(emoji)} · ${getMomentPreviewText(moment)}`,
+    moment,
+    reactionEmoji: emoji,
+    metadata: {
+      scope: "moment_owner",
+    },
+  });
+};
+
+const notifyMomentComment = async ({ actorId, actor, moment, comment }) => {
+  return createMomentNotification({
+    recipientId: moment.authorId,
+    actor,
+    actorId,
+    type: "moment_comment",
+    title: `${resolveUserDisplayName(actor)} da binh luan ve khoanh khac cua ban`,
+    body: getCommentPreviewText(comment),
+    moment,
+    comment,
+    metadata: {
+      scope: "moment_owner",
+    },
+  });
+};
+
+const notifyMomentCommentReply = async ({
+  actorId,
+  actor,
+  moment,
+  comment,
+  targetComment,
+}) => {
+  const notifications = [];
+
+  const commentOwnerNotification = await createMomentNotification({
+    recipientId: targetComment?.userId,
+    actor,
+    actorId,
+    type: "moment_comment_reply",
+    title: `${resolveUserDisplayName(actor)} da tra loi binh luan cua ban`,
+    body: getCommentPreviewText(comment),
+    moment,
+    comment,
+    metadata: {
+      scope: "comment_owner",
+      replyToCommentId: targetComment?.commentId || null,
+    },
+  });
+  if (commentOwnerNotification) {
+    notifications.push(commentOwnerNotification);
+  }
+
+  if (String(moment.authorId) !== String(targetComment?.userId || "")) {
+    const momentOwnerNotification = await createMomentNotification({
+      recipientId: moment.authorId,
+      actor,
+      actorId,
+      type: "moment_comment_reply",
+      title: `${resolveUserDisplayName(actor)} da tra loi trong khoanh khac cua ban`,
+      body: getCommentPreviewText(comment),
+      moment,
+      comment,
+      metadata: {
+        scope: "moment_owner",
+        replyToCommentId: targetComment?.commentId || null,
+      },
+    });
+    if (momentOwnerNotification) {
+      notifications.push(momentOwnerNotification);
+    }
+  }
+
+  return notifications;
+};
+
+const notifyMomentCommentReaction = async ({
+  actorId,
+  actor,
+  moment,
+  comment,
+  emoji,
+}) => {
+  const notifications = [];
+
+  const commentOwnerNotification = await createMomentNotification({
+    recipientId: comment.userId,
+    actor,
+    actorId,
+    type: "moment_comment_reaction",
+    title: `${resolveUserDisplayName(actor)} da tha cam xuc vao binh luan cua ban`,
+    body: `${getReactionLabel(emoji)} · ${getCommentPreviewText(comment)}`,
+    moment,
+    comment,
+    reactionEmoji: emoji,
+    metadata: {
+      scope: "comment_owner",
+    },
+  });
+  if (commentOwnerNotification) {
+    notifications.push(commentOwnerNotification);
+  }
+
+  if (String(moment.authorId) !== String(comment.userId)) {
+    const momentOwnerNotification = await createMomentNotification({
+      recipientId: moment.authorId,
+      actor,
+      actorId,
+      type: "moment_comment_reaction",
+      title: `${resolveUserDisplayName(actor)} da tha cam xuc vao mot binh luan trong khoanh khac cua ban`,
+      body: `${getReactionLabel(emoji)} · ${getCommentPreviewText(comment)}`,
+      moment,
+      comment,
+      reactionEmoji: emoji,
+      metadata: {
+        scope: "moment_owner",
+      },
+    });
+    if (momentOwnerNotification) {
+      notifications.push(momentOwnerNotification);
+    }
+  }
+
+  return notifications;
+};
+
 const MomentService = {
   async createMoment({ userId, content, mediaUrls = [] }) {
     if (!userId) {
@@ -479,6 +709,13 @@ const MomentService = {
 
     if (!existingReaction) {
       await incrementMomentField(moment, "reactionCount", 1);
+      const actor = await userRepository.getById(userId);
+      await notifyMomentReaction({
+        actorId: userId,
+        actor,
+        moment,
+        emoji,
+      });
     }
 
     return {
@@ -500,9 +737,10 @@ const MomentService = {
     await ensureMomentVisible(moment, userId);
 
     let replyTo = null;
+    let targetComment = null;
 
     if (replyToCommentId) {
-      const targetComment = await getMomentCommentOrThrow(momentId, replyToCommentId);
+      targetComment = await getMomentCommentOrThrow(momentId, replyToCommentId);
       replyTo = {
         commentId: targetComment.commentId,
         userId: targetComment.userId,
@@ -519,6 +757,25 @@ const MomentService = {
 
     await momentCommentRepository.create(comment);
     await incrementMomentField(moment, "commentCount", 1);
+    const actor = await userRepository.getById(userId);
+
+    if (targetComment) {
+      await notifyMomentCommentReply({
+        actorId: userId,
+        actor,
+        moment,
+        comment,
+        targetComment,
+      });
+    } else {
+      await notifyMomentComment({
+        actorId: userId,
+        actor,
+        moment,
+        comment,
+      });
+    }
+
     const [enriched] = await attachCommentMeta([comment], userId, moment.authorId);
     return enriched;
   },
@@ -552,6 +809,8 @@ const MomentService = {
       (reaction) => reaction.userId === String(userId)
     );
 
+    let shouldNotify = false;
+
     if (existingReactionIndex >= 0 && comment.reactions[existingReactionIndex].emoji === emoji) {
       comment.reactions.splice(existingReactionIndex, 1);
     } else if (existingReactionIndex >= 0) {
@@ -561,6 +820,7 @@ const MomentService = {
         updatedAt: new Date().toISOString()
       });
     } else {
+      shouldNotify = true;
       comment.reactions.push(
         normalizeCommentReaction({
           userId,
@@ -572,6 +832,18 @@ const MomentService = {
 
     comment.updatedAt = new Date().toISOString();
     const updated = await momentCommentRepository.update(comment);
+
+    if (shouldNotify) {
+      const actor = await userRepository.getById(userId);
+      await notifyMomentCommentReaction({
+        actorId: userId,
+        actor,
+        moment,
+        comment: updated,
+        emoji,
+      });
+    }
+
     const [enriched] = await attachCommentMeta([updated], userId, moment.authorId);
     return enriched;
   },
@@ -649,6 +921,25 @@ const MomentService = {
     }
 
     return attachMomentMeta(sortMomentsDesc(visibleMoments), userId);
+  },
+
+  async getMomentReactions(momentId, userId) {
+    if (!userId) {
+      throw createError("Unauthorized", 401);
+    }
+
+    const moment = await getMomentOrThrow(momentId);
+    await ensureMomentVisible(moment, userId);
+
+    const reactions = await momentReactionRepository.getByMomentId(momentId);
+    
+    const userIds = reactions.map(r => r.userId);
+    const userMap = await enrichUsers(userIds);
+
+    return reactions.map(reaction => ({
+      ...reaction,
+      user: userMap[reaction.userId] || null
+    })).sort((a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime()).reverse();
   }
 };
 

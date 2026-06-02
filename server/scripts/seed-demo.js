@@ -18,9 +18,9 @@ async function seedDemoData() {
         
         // 1. Users
         const users = [
-            { id: "10001", email: "demo1@zalo-faker.com", name: "Demo User 1" },
-            { id: "10002", email: "demo2@zalo-faker.com", name: "Demo User 2" },
-            { id: "10003", email: "demo3@zalo-faker.com", name: "Demo User 3" }
+            { id: "10001", email: "demo1@taklo.com", name: "Demo User 1" },
+            { id: "10002", email: "demo2@taklo.com", name: "Demo User 2" },
+            { id: "10003", email: "demo3@taklo.com", name: "Demo User 3" }
         ];
 
         for (const u of users) {

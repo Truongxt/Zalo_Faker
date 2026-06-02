@@ -1,4 +1,4 @@
-# 📚 Hướng Dẫn Cài Đặt Zalo Faker
+# 📚 Hướng Dẫn Cài Đặt taklo
 
 ## 📋 Yêu Cầu Hệ Thống
 
@@ -25,7 +25,7 @@
 4. Thêm IP `0.0.0.0/0` vào whitelist (hoặc IP cụ thể)
 5. Lấy connection string:
    ```
-   mongodb+srv://<username>:<password>@cluster.mongodb.net/zalo-faker
+   mongodb+srv://<username>:<password>@cluster.mongodb.net/taklo
    ```
 
 ### 3. Cloudinary (Media Storage)
@@ -47,8 +47,8 @@
 ### Bước 1: Clone repository
 
 ```bash
-git clone https://github.com/your-team/zalo-faker.git
-cd zalo-faker
+git clone https://github.com/your-team/taklo.git
+cd taklo
 ```
 
 ### Bước 2: Cài đặt pnpm (nếu chưa có)
@@ -83,7 +83,7 @@ SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIs...
 SUPABASE_SERVICE_KEY=eyJhbGciOiJIUzI1NiIs...
 
 # MongoDB Atlas
-MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/zalo-faker
+MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/taklo
 
 # Cloudinary
 CLOUDINARY_CLOUD_NAME=your-cloud-name

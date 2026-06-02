@@ -16,6 +16,7 @@ import {
     revokeDeputy,
     dissolveGroup,
     getFriends,
+    getUserById,
     getGroupSettings,
     rotateGroupInviteCode,
     updateGroupInviteSettings,
@@ -25,7 +26,9 @@ import {
     renameGroup,
     updateGroupAvatar,
     uploadMedia,
+    updateParticipantSetting,
 } from '@/services/api'
+import { friendsService } from '@/services/friendsService'
 import socketService from '@/lib/socket'
 
 interface GroupManagementModalProps {
@@ -52,7 +55,9 @@ type LocalGroupSettings = {
         inviteUrl: string
     }
     permissions: {
+        sendMessage: GroupPermissionScope
         sendMedia: GroupPermissionScope
+        startCall: GroupPermissionScope
         pinMessage: GroupPermissionScope
         sendAnnouncement: GroupPermissionScope
     }
@@ -71,14 +76,32 @@ const fallbackSettings: LocalGroupSettings = {
         inviteUrl: '',
     },
     permissions: {
+        sendMessage: 'all',
         sendMedia: 'all',
+        startCall: 'all',
         pinMessage: 'admin_deputy',
         sendAnnouncement: 'admin_deputy',
     },
     pendingJoinRequests: [],
 }
 
+type MemberRelationState =
+    | 'self'
+    | 'friend'
+    | 'pending_sent'
+    | 'pending_received'
+    | 'blocked_by_me'
+    | 'blocked_by_them'
+    | 'none'
+
 const getUserId = (user: any): string => String(user?.id || user?._id || user?.userId || '')
+const pickDisplayName = (...values: Array<unknown>) => {
+    for (const value of values) {
+        const text = String(value ?? '').trim()
+        if (text) return text
+    }
+    return ''
+}
 
 const AVATAR_COLORS = [
     'from-violet-500 to-purple-600',
@@ -120,6 +143,11 @@ export default function GroupManagementModal({ isOpen, onClose, group }: GroupMa
     const [newName, setNewName] = useState('')
     const [selectedAdminTransferUserId, setSelectedAdminTransferUserId] = useState('')
     const [showAdminLeavePanel, setShowAdminLeavePanel] = useState(false)
+    const [memberRelations, setMemberRelations] = useState<Record<string, MemberRelationState>>({})
+    const [editingNicknameUserId, setEditingNicknameUserId] = useState<string | null>(null)
+    const [editingNicknameValue, setEditingNicknameValue] = useState('')
+    const [activeTab, setActiveTab] = useState<'members' | 'invite' | 'permissions' | 'danger'>('members')
+    const [searchMemberQuery, setSearchMemberQuery] = useState('')
     const fileInputRef = useRef<HTMLInputElement>(null)
 
     const inviteQrValue = useMemo(() => {
@@ -137,6 +165,14 @@ export default function GroupManagementModal({ isOpen, onClose, group }: GroupMa
         return `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(inviteQrValue)}`
     }, [inviteQrValue])
 
+    const filteredParticipants = useMemo(() => {
+        if (!searchMemberQuery.trim()) return group?.participants || []
+        return (group?.participants || []).filter((p) => {
+            const name = getParticipantName(p).toLowerCase()
+            return name.includes(searchMemberQuery.toLowerCase())
+        })
+    }, [group?.participants, searchMemberQuery])
+
     useEffect(() => {
         if (!isOpen || !group || !user) return
 
@@ -151,7 +187,74 @@ export default function GroupManagementModal({ isOpen, onClose, group }: GroupMa
                 const uniqueFriends = Array.from(
                     new Map((friendsData || []).map((f: any) => [String(f.id || f.userId || f._id), f])).values()
                 )
-                setAllUsers(uniqueFriends as any[])
+
+                const participantIds = (group.participants || []).map((participant) => String(participant.userId))
+                const requesterIds = (joinRequests?.requests || []).map((request: any) => String(request.userId))
+                const existingIds = new Set((uniqueFriends as any[]).map((friend) => getUserId(friend)))
+                const neededIds = Array.from(new Set([...participantIds, ...requesterIds]))
+                    .filter((uid) => uid && !existingIds.has(uid))
+
+                const fetchedUsers = await Promise.all(
+                    neededIds.map((uid) => getUserById(uid).catch(() => null))
+                )
+
+                const mergedUsers = Array.from(
+                    new Map(
+                        [...uniqueFriends, ...fetchedUsers.filter(Boolean)].map((u: any) => [getUserId(u), u])
+                    ).values()
+                )
+                setAllUsers(mergedUsers as any[])
+
+                const acceptedFriendIds = new Set(
+                    uniqueFriends
+                        .map((friend: any) => String(friend.id || friend.userId || friend._id || ''))
+                        .filter(Boolean)
+                )
+                const relationEntries = await Promise.all(
+                    participantIds
+                        .filter((participantId) => participantId && participantId !== String(user.id))
+                        .map(async (participantId) => {
+                            if (acceptedFriendIds.has(participantId)) {
+                                return [participantId, 'friend'] as const
+                            }
+
+                            const relation = await friendsService
+                                .checkFriendship(String(user.id), participantId)
+                                .catch(() => null)
+
+                            if (!relation) {
+                                return [participantId, 'none'] as const
+                            }
+
+                            const relationStatus = String((relation as any).status || '').toLowerCase()
+                            if (relationStatus === 'accepted') return [participantId, 'friend'] as const
+                            if (relationStatus === 'pending') {
+                                return [
+                                    participantId,
+                                    String((relation as any).fromUserId) === String(user.id)
+                                        ? 'pending_sent'
+                                        : 'pending_received',
+                                ] as const
+                            }
+                            if (relationStatus === 'blocked') {
+                                return [
+                                    participantId,
+                                    String((relation as any).fromUserId) === String(user.id)
+                                        ? 'blocked_by_me'
+                                        : 'blocked_by_them',
+                                ] as const
+                            }
+
+                            return [participantId, 'none'] as const
+                        })
+                )
+
+                setMemberRelations(
+                    relationEntries.reduce<Record<string, MemberRelationState>>((acc, [participantId, state]) => {
+                        acc[participantId] = state
+                        return acc
+                    }, {})
+                )
                 
                 if (latestSettings) {
                     setSettings({
@@ -161,7 +264,9 @@ export default function GroupManagementModal({ isOpen, onClose, group }: GroupMa
                             inviteUrl: latestSettings?.invite?.inviteUrl || '',
                         },
                         permissions: {
+                            sendMessage: latestSettings?.permissions?.sendMessage || 'all',
                             sendMedia: latestSettings?.permissions?.sendMedia || 'all',
+                            startCall: latestSettings?.permissions?.startCall || 'all',
                             pinMessage: latestSettings?.permissions?.pinMessage || 'admin_deputy',
                             sendAnnouncement: latestSettings?.permissions?.sendAnnouncement || 'admin_deputy',
                         },
@@ -176,7 +281,9 @@ export default function GroupManagementModal({ isOpen, onClose, group }: GroupMa
                             },
                             joinRequests: joinRequests?.requests || latestSettings?.pendingJoinRequests || [],
                             permissions: {
+                                sendMessage: latestSettings?.permissions?.sendMessage || 'all',
                                 sendMedia: latestSettings?.permissions?.sendMedia || 'all',
+                                startCall: latestSettings?.permissions?.startCall || 'all',
                                 pinMessage: latestSettings?.permissions?.pinMessage || 'admin_deputy',
                                 sendAnnouncement: latestSettings?.permissions?.sendAnnouncement || 'admin_deputy',
                             },
@@ -190,7 +297,7 @@ export default function GroupManagementModal({ isOpen, onClose, group }: GroupMa
         }
 
         loadUsersAndSettings()
-    }, [isOpen, group?.id, user?.id, updateConversation])
+    }, [isOpen, group?.id, group?.participants, user?.id, updateConversation])
 
     useEffect(() => {
         if (!isOpen) {
@@ -222,7 +329,9 @@ export default function GroupManagementModal({ isOpen, onClose, group }: GroupMa
                         inviteUrl: latestSettings?.invite?.inviteUrl || '',
                     },
                     permissions: {
+                        sendMessage: latestSettings?.permissions?.sendMessage || 'all',
                         sendMedia: latestSettings?.permissions?.sendMedia || 'all',
+                        startCall: latestSettings?.permissions?.startCall || 'all',
                         pinMessage: latestSettings?.permissions?.pinMessage || 'admin_deputy',
                         sendAnnouncement: latestSettings?.permissions?.sendAnnouncement || 'admin_deputy',
                     },
@@ -507,7 +616,10 @@ export default function GroupManagementModal({ isOpen, onClose, group }: GroupMa
         }
     }
 
-    const handleUpdatePermission = async (key: 'sendMedia' | 'pinMessage' | 'sendAnnouncement', value: GroupPermissionScope) => {
+    const handleUpdatePermission = async (
+        key: 'sendMessage' | 'sendMedia' | 'startCall' | 'pinMessage' | 'sendAnnouncement',
+        value: GroupPermissionScope
+    ) => {
         try {
             setIsLoading(true)
             const result = await updateGroupPermissions(group.id, { [key]: value })
@@ -544,15 +656,109 @@ export default function GroupManagementModal({ isOpen, onClose, group }: GroupMa
         }
     }
 
+    const handleSendFriendRequest = async (targetUserId: string) => {
+        if (!user?.id || !targetUserId || isLoading) return
+
+        try {
+            setIsLoading(true)
+            await friendsService.sendFriendRequest(
+                String(user.id),
+                String(targetUserId),
+                'Xin chào, mình muốn kết bạn với bạn trong nhóm chat.'
+            )
+            setMemberRelations((prev) => ({
+                ...prev,
+                [String(targetUserId)]: 'pending_sent',
+            }))
+        } catch (error: any) {
+            alert(error?.message || 'Không thể gửi lời mời kết bạn')
+        } finally {
+            setIsLoading(false)
+        }
+    }
+
+    const handleCancelFriendRequest = async (targetUserId: string) => {
+        if (!user?.id || !targetUserId || isLoading) return
+
+        try {
+            setIsLoading(true)
+            await friendsService.cancelFriendRequest(String(user.id), String(targetUserId))
+            setMemberRelations((prev) => ({
+                ...prev,
+                [String(targetUserId)]: 'none',
+            }))
+        } catch (error: any) {
+            alert(error?.message || 'Không thể hủy lời mời kết bạn')
+        } finally {
+            setIsLoading(false)
+        }
+    }
+
+    const handleSetNickname = async (targetUserId: string, newNickname: string) => {
+        try {
+            setIsLoading(true);
+            const res = await updateParticipantSetting(group.id, targetUserId, { nickname: newNickname.trim() });
+            if (res.participants) {
+                updateConversation(group.id, { participants: res.participants });
+            }
+            setEditingNicknameUserId(null);
+            setEditingNicknameValue('');
+        } catch (error: any) {
+            alert(error.message || 'Không thể cập nhật biệt danh');
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
     const getParticipantName = (participant: { userId: string; fullName?: string }) => {
-        if (participant.fullName) return participant.fullName
-        const userInfo = participantsMap.get(participant.userId)
-        return userInfo?.fullName || userInfo?.userName || `User ${participant.userId}`
+        const userInfo = participantsMap.get(String(participant.userId))
+        return (
+            pickDisplayName(
+                (participant as any).nickname,
+                participant.fullName,
+                (participant as any).userName,
+                (participant as any).name,
+                userInfo?.fullName,
+                userInfo?.userName,
+                userInfo?.name
+            ) || `User ${participant.userId}`
+        )
+    }
+
+    const getParticipantAvatar = (participant: { userId: string; avatarUrl?: string | null }) => {
+        const userInfo = participantsMap.get(String(participant.userId))
+        return (participant as any)?.avatarUrl || userInfo?.avatarUrl || userInfo?.avartarUrl || null
+    }
+
+    const getMemberRelationState = (participantUserId: string): MemberRelationState => {
+        if (String(participantUserId) === String(user?.id)) return 'self'
+        return memberRelations[String(participantUserId)] || 'none'
+    }
+
+    const getMemberRelationLabel = (relationState: MemberRelationState) => {
+        if (relationState === 'friend') return 'Bạn bè'
+        if (relationState === 'pending_sent') return 'Đã gửi lời mời'
+        if (relationState === 'pending_received') return 'Đã nhận lời mời'
+        if (relationState === 'blocked_by_me') return 'Bạn đã chặn'
+        if (relationState === 'blocked_by_them') return 'Bị chặn'
+        return ''
     }
 
     const getRequestName = (requestUserId: string) => {
-        const userInfo = participantsMap.get(requestUserId)
-        return userInfo?.fullName || userInfo?.userName || `User ${requestUserId}`
+        const userInfo = participantsMap.get(String(requestUserId))
+        const participant = (group?.participants || []).find(
+            (item) => String(item.userId) === String(requestUserId)
+        )
+        return (
+            pickDisplayName(
+                (participant as any)?.nickname,
+                participant?.fullName,
+                (participant as any)?.userName,
+                userInfo?.fullName,
+                userInfo?.userName,
+                userInfo?.name
+            ) || `User ${requestUserId}`
+        )
     }
 
     const handleStartEditingName = () => {
@@ -603,11 +809,11 @@ export default function GroupManagementModal({ isOpen, onClose, group }: GroupMa
             style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(6px)' }}
         >
             <div
-                className="bg-white dark:bg-gray-900 rounded-2xl w-full max-w-lg overflow-hidden flex flex-col"
-                style={{ maxHeight: '90vh', boxShadow: '0 30px 80px rgba(0,0,0,0.35)' }}
+                className="bg-white dark:bg-gray-900 rounded-2xl w-full max-w-4xl h-[650px] overflow-hidden flex flex-col"
+                style={{ boxShadow: '0 30px 80px rgba(0,0,0,0.35)' }}
             >
                 {/* Header */}
-                <div className="relative flex items-center justify-between px-5 py-4 bg-gradient-to-r from-primary-600 to-primary-500 flex-shrink-0">
+                <div className="relative flex items-center justify-between px-6 py-4 bg-gradient-to-r from-primary-600 to-primary-500 flex-shrink-0">
                     <div className="flex items-center gap-3">
                         <input
                             type="file"
@@ -618,7 +824,7 @@ export default function GroupManagementModal({ isOpen, onClose, group }: GroupMa
                         />
                         <button
                             onClick={() => fileInputRef.current?.click()}
-                            className="group relative w-10 h-10 rounded-xl overflow-hidden bg-white/20 backdrop-blur-sm flex items-center justify-center border border-white/30 hover:border-white/60 transition-all shadow-lg"
+                            className="group relative w-12 h-12 rounded-xl overflow-hidden bg-white/20 backdrop-blur-sm flex items-center justify-center border border-white/30 hover:border-white/60 transition-all shadow-lg flex-shrink-0"
                         >
                             {group.avatar ? (
                                 <img src={group.avatar} alt="" className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300" />
@@ -629,12 +835,12 @@ export default function GroupManagementModal({ isOpen, onClose, group }: GroupMa
                                 <Camera className="w-4 h-4 text-white" />
                             </div>
                         </button>
-                        <div className="flex-1">
+                        <div className="min-w-0">
                             {isEditingName ? (
                                 <div className="flex items-center gap-2">
                                     <input
                                         type="text"
-                                        className="flex-1 bg-white/20 text-white placeholder-white/60 border-none rounded-lg px-2 py-1 text-sm focus:ring-2 focus:ring-white/30 focus:outline-none"
+                                        className="bg-white/20 text-white placeholder-white/60 border-none rounded-lg px-2 py-1 text-sm focus:ring-2 focus:ring-white/30 focus:outline-none"
                                         value={newName}
                                         onChange={(e) => setNewName(e.target.value)}
                                         autoFocus
@@ -650,14 +856,14 @@ export default function GroupManagementModal({ isOpen, onClose, group }: GroupMa
                             ) : (
                                 <div className="flex items-center gap-2">
                                     <div className="min-w-0">
-                                        <h2 className="text-base font-bold text-white leading-tight">Quản trị nhóm</h2>
-                                        <p className="text-xs text-primary-100 truncate max-w-[200px]">{group.name || 'Nhóm của bạn'}</p>
+                                        <h2 className="text-lg font-bold text-white leading-tight">Quản trị nhóm</h2>
+                                        <p className="text-xs text-primary-100 truncate max-w-[300px]">{group.name || 'Nhóm của bạn'}</p>
                                     </div>
                                     <button
                                         onClick={handleStartEditingName}
                                         className="p-1 hover:bg-white/20 rounded opacity-70 hover:opacity-100"
                                     >
-                                        <Edit2 className="w-3 h-3 text-white" />
+                                        <Edit2 className="w-3.5 h-3.5 text-white" />
                                     </button>
                                 </div>
                             )}
@@ -665,429 +871,634 @@ export default function GroupManagementModal({ isOpen, onClose, group }: GroupMa
                     </div>
                     <button
                         onClick={onClose}
-                        className="w-8 h-8 flex items-center justify-center rounded-full bg-white/20 hover:bg-white/30 transition-colors"
+                        className="w-9 h-9 flex items-center justify-center rounded-full bg-white/20 hover:bg-white/30 transition-colors"
                     >
-                        <X className="w-4 h-4 text-white" />
+                        <X className="w-5 h-5 text-white" />
                     </button>
                 </div>
 
-                {/* Body */}
-                <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-gray-50 dark:bg-gray-950">
+                {/* 2-Column Body */}
+                <div className="flex-1 flex overflow-hidden bg-gray-50 dark:bg-gray-950">
+                    {/* Sidebar Tabs */}
+                    <div className="w-60 border-r border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 flex flex-col justify-between flex-shrink-0">
+                        <div className="space-y-3">
+                            <button
+                                onClick={() => setActiveTab('members')}
+                                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+                                    activeTab === 'members'
+                                        ? 'bg-primary-50 text-primary-600 dark:bg-primary-950/40 dark:text-primary-400'
+                                        : 'text-gray-600 hover:bg-gray-50 dark:text-gray-400 dark:hover:bg-gray-800/50'
+                                }`}
+                            >
+                                <Users className="w-4 h-4" />
+                                <span>Thành viên</span>
+                                <span className="ml-auto px-2 py-0.5 text-xs font-bold bg-gray-100 dark:bg-gray-800 text-gray-500 rounded-full">
+                                    {group.participants.length}
+                                </span>
+                            </button>
 
-                    {/* ── Invite Link Card ── */}
-                    <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 overflow-hidden shadow-sm">
-                        <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                                <div className="w-7 h-7 rounded-lg bg-indigo-100 dark:bg-indigo-900/40 flex items-center justify-center">
-                                    <Link2 className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                                </div>
-                                <span className="text-sm font-semibold text-gray-800 dark:text-gray-100">Link mời nhóm</span>
-                            </div>
-                            {(isAdmin || canReviewRequests) && (
-                                <button
-                                    onClick={handleRotateInvite}
-                                    disabled={isLoading}
-                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors disabled:opacity-50"
-                                >
-                                    <RefreshCw className="w-3 h-3" />
-                                    Tạo lại mã
-                                </button>
-                            )}
-                        </div>
-
-                        <div className="px-4 py-3 space-y-2.5">
-                            {/* Code row */}
-                            <div className="flex items-center justify-between gap-2 bg-gray-50 dark:bg-gray-700/50 rounded-xl px-3 py-2.5">
-                                <div className="min-w-0">
-                                    <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-0.5">Mã mời</p>
-                                    <p className="text-sm font-bold text-gray-800 dark:text-gray-100 font-mono tracking-widest">
-                                        {settings.invite.code || '–––––'}
-                                    </p>
-                                </div>
-                                <button
-                                    onClick={() => copyToClipboard(settings.invite.code, 'code')}
-                                    className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                                        copiedField === 'code'
-                                            ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400'
-                                            : 'bg-white dark:bg-gray-600 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-500 hover:bg-gray-50'
-                                    }`}
-                                >
-                                    {copiedField === 'code' ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                                    {copiedField === 'code' ? 'Đã copy!' : 'Copy'}
-                                </button>
-                            </div>
-
-                            {/* Link row */}
-                            <div className="flex items-center justify-between gap-2 bg-gray-50 dark:bg-gray-700/50 rounded-xl px-3 py-2.5">
-                                <div className="min-w-0 flex-1">
-                                    <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-0.5">Link tham gia</p>
-                                    <p className="text-xs text-gray-600 dark:text-gray-300 truncate">
-                                        {settings.invite.inviteUrl || '(đang tải...)'}
-                                    </p>
-                                </div>
-                                <button
-                                    onClick={() => copyToClipboard(settings.invite.inviteUrl, 'link')}
-                                    className={`flex-shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                                        copiedField === 'link'
-                                            ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400'
-                                            : 'bg-white dark:bg-gray-600 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-500 hover:bg-gray-50'
-                                    }`}
-                                >
-                                    {copiedField === 'link' ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                                    {copiedField === 'link' ? 'Đã copy!' : 'Copy'}
-                                </button>
-                            </div>
-
-                            {inviteQrSrc && (
-                                <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl px-3 py-3">
-                                    <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">Mã QR tham gia</p>
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-28 h-28 rounded-lg border border-gray-200 dark:border-gray-600 bg-white p-1 flex items-center justify-center overflow-hidden">
-                                            <img
-                                                src={inviteQrSrc}
-                                                alt="QR mời tham gia nhóm"
-                                                className="w-full h-full object-contain"
-                                            />
-                                        </div>
-                                        <p className="text-xs text-gray-500 dark:text-gray-300 leading-5">
-                                            Quét mã để xin tham gia nhóm.
-                                        </p>
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Approval toggle */}
-                            {canReviewRequests && (
-                                <div className="flex items-center justify-between px-1 pt-1">
-                                    <span className="text-sm text-gray-600 dark:text-gray-300">Bắt buộc duyệt thành viên mới</span>
-                                    <button
-                                        onClick={() => handleToggleInviteApproval(!settings.invite.approvalRequired)}
-                                        disabled={isLoading}
-                                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 focus:outline-none disabled:opacity-50 ${
-                                            settings.invite.approvalRequired ? 'bg-primary-500' : 'bg-gray-300 dark:bg-gray-600'
-                                        }`}
-                                    >
-                                        <span
-                                            className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-md transition-transform duration-200 ${
-                                                settings.invite.approvalRequired ? 'translate-x-6' : 'translate-x-1'
-                                            }`}
-                                        />
-                                    </button>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-
-                    {/* ── Permissions Card ── */}
-                    {isAdmin && (
-                        <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 overflow-hidden shadow-sm">
-                            <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700 flex items-center gap-2">
-                                <div className="w-7 h-7 rounded-lg bg-violet-100 dark:bg-violet-900/40 flex items-center justify-center">
-                                    <Settings2 className="w-3.5 h-3.5 text-violet-600 dark:text-violet-400" />
-                                </div>
-                                <span className="text-sm font-semibold text-gray-800 dark:text-gray-100">Phân quyền nhóm</span>
-                            </div>
-
-                            <div className="px-4 py-3 space-y-3">
-                                {([
-                                    { key: 'sendMedia' as const, emoji: '🖼️', label: 'Gửi ảnh / video / file / sticker', value: settings.permissions.sendMedia },
-                                    { key: 'pinMessage' as const, icon: <Pin className="w-3.5 h-3.5 text-violet-500" />, label: 'Ghim tin nhắn', value: settings.permissions.pinMessage },
-                                    { key: 'sendAnnouncement' as const, icon: <Megaphone className="w-3.5 h-3.5 text-violet-500" />, label: 'Gửi thông báo nhóm', value: settings.permissions.sendAnnouncement },
-                                ] as Array<{ key: 'sendMedia' | 'pinMessage' | 'sendAnnouncement'; emoji?: string; icon?: ReactNode; label: string; value: GroupPermissionScope }>).map(({ key, emoji, icon, label, value }) => (
-                                    <div key={key} className="flex items-center justify-between gap-3">
-                                        <div className="flex items-center gap-2 min-w-0">
-                                            <span className="flex-shrink-0 text-sm">{emoji ?? icon}</span>
-                                            <span className="text-sm text-gray-600 dark:text-gray-300 truncate">{label}</span>
-                                        </div>
-                                        <div className="relative flex-shrink-0">
-                                            <select
-                                                className="appearance-none pl-3 pr-7 py-1.5 text-xs font-medium rounded-lg bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-200 cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary-500/30 transition-colors"
-                                                value={value}
-                                                onChange={(e) => handleUpdatePermission(key, e.target.value as GroupPermissionScope)}
-                                            >
-                                                {permissionOptions.map((option) => (
-                                                    <option key={option.value} value={option.value}>{option.label}</option>
-                                                ))}
-                                            </select>
-                                            <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400 pointer-events-none" />
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    )}
-
-                    {/* ── Join Requests Card ── */}
-                    {canReviewRequests && (
-                        <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 overflow-hidden shadow-sm">
-                            <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                    <div className="w-7 h-7 rounded-lg bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center">
-                                        <ClipboardCheck className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-                                    </div>
-                                    <span className="text-sm font-semibold text-gray-800 dark:text-gray-100">Yêu cầu tham gia</span>
-                                </div>
+                            <button
+                                onClick={() => setActiveTab('invite')}
+                                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+                                    activeTab === 'invite'
+                                        ? 'bg-primary-50 text-primary-600 dark:bg-primary-950/40 dark:text-primary-400'
+                                        : 'text-gray-600 hover:bg-gray-50 dark:text-gray-400 dark:hover:bg-gray-800/50'
+                                }`}
+                            >
+                                <Link2 className="w-4 h-4" />
+                                <span>Mã & Link mời</span>
                                 {settings.pendingJoinRequests.length > 0 && (
-                                    <span className="px-2 py-0.5 text-xs font-bold bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400 rounded-full">
+                                    <span className="ml-auto px-2 py-0.5 text-xs font-bold bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 rounded-full animate-pulse">
                                         {settings.pendingJoinRequests.length}
                                     </span>
                                 )}
-                            </div>
+                            </button>
 
-                            <div className="px-4 py-3">
-                                {settings.pendingJoinRequests.length === 0 ? (
-                                    <div className="flex flex-col items-center py-5 text-gray-400">
-                                        <ClipboardCheck className="w-8 h-8 mb-2 opacity-30" />
-                                        <p className="text-sm">Không có yêu cầu nào chờ duyệt</p>
-                                    </div>
-                                ) : (
-                                    <div className="space-y-2">
-                                        {settings.pendingJoinRequests.map((request) => {
-                                            const name = getRequestName(request.userId)
-                                            return (
-                                                <div
-                                                    key={request.requestId}
-                                                    className="flex items-center justify-between gap-3 p-2.5 rounded-xl bg-gray-50 dark:bg-gray-700/50 border border-gray-100 dark:border-gray-600"
-                                                >
-                                                    <div className="flex items-center gap-2.5 min-w-0">
-                                                        <div className={`w-8 h-8 rounded-full bg-gradient-to-br ${getAvatarColor(name)} flex items-center justify-center flex-shrink-0`}>
-                                                            <span className="text-white text-xs font-bold">{name.charAt(0).toUpperCase()}</span>
-                                                        </div>
-                                                        <div className="min-w-0">
-                                                            <p className="text-sm font-medium text-gray-800 dark:text-white truncate">{name}</p>
-                                                            <p className="text-[11px] text-gray-400">{new Date(request.requestedAt).toLocaleString('vi-VN')}</p>
-                                                        </div>
-                                                    </div>
-                                                    <div className="flex items-center gap-1.5 flex-shrink-0">
-                                                        <button
-                                                            onClick={() => handleReviewRequest(request.requestId, 'reject')}
-                                                            disabled={isLoading}
-                                                            className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg bg-red-50 dark:bg-red-900/20 text-red-500 hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors disabled:opacity-50"
-                                                        >
-                                                            <XCircle className="w-3.5 h-3.5" />
-                                                            Từ chối
-                                                        </button>
-                                                        <button
-                                                            onClick={() => handleReviewRequest(request.requestId, 'approve')}
-                                                            disabled={isLoading}
-                                                            className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-colors disabled:opacity-50"
-                                                        >
-                                                            <CheckCircle2 className="w-3.5 h-3.5" />
-                                                            Chấp nhận
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            )
-                                        })}
-                                    </div>
-                                )}
-                            </div>
+                            {isAdmin && (
+                                <button
+                                    onClick={() => setActiveTab('permissions')}
+                                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+                                        activeTab === 'permissions'
+                                            ? 'bg-primary-50 text-primary-600 dark:bg-primary-950/40 dark:text-primary-400'
+                                            : 'text-gray-600 hover:bg-gray-50 dark:text-gray-400 dark:hover:bg-gray-800/50'
+                                    }`}
+                                >
+                                    <Settings2 className="w-4 h-4" />
+                                    <span>Phân quyền nhóm</span>
+                                </button>
+                            )}
                         </div>
-                    )}
 
-                    {/* ── Members Card ── */}
-                    <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 overflow-hidden shadow-sm">
-                        <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                                <div className="w-7 h-7 rounded-lg bg-emerald-100 dark:bg-emerald-900/40 flex items-center justify-center">
-                                    <Users className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                                </div>
-                                <span className="text-sm font-semibold text-gray-800 dark:text-gray-100">Thành viên</span>
-                                <span className="px-1.5 py-0.5 text-[11px] font-bold bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 rounded-full">
-                                    {group.participants.length}
-                                </span>
-                            </div>
+                        <div className="pt-3 border-t border-gray-100 dark:border-gray-800">
                             <button
-                                onClick={() => setShowAddMember((prev) => !prev)}
-                                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 transition-colors"
+                                onClick={() => setActiveTab('danger')}
+                                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+                                    activeTab === 'danger'
+                                        ? 'bg-red-50 text-red-600 dark:bg-red-950/30 dark:text-red-400'
+                                        : 'text-red-500 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/20'
+                                }`}
                             >
-                                <UserPlus className="w-3.5 h-3.5" />
-                                Thêm
+                                <LogOut className="w-4 h-4" />
+                                <span>Rời / Giải tán nhóm</span>
                             </button>
                         </div>
+                    </div>
 
-                        {/* Add member form */}
-                        {showAddMember && (
-                            <div className="px-4 pt-3 pb-2 border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60">
-                                <div className="relative mb-2">
-                                    <select
-                                        className="w-full appearance-none pl-3 pr-8 py-2 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-xl text-sm text-gray-700 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-primary-500/30 cursor-pointer"
-                                        value={selectedNewMember}
-                                        onChange={(e) => setSelectedNewMember(e.target.value)}
+                    {/* Main Content Area */}
+                    <div className="flex-1 overflow-y-auto p-6 bg-gray-50 dark:bg-gray-950">
+                        {activeTab === 'members' && (
+                            <div className="space-y-6">
+                                {/* Search and Add Actions */}
+                                <div className="flex items-center gap-3">
+                                    <div className="relative flex-1">
+                                        <input
+                                            type="text"
+                                            placeholder="Tìm kiếm thành viên..."
+                                            value={searchMemberQuery}
+                                            onChange={(e) => setSearchMemberQuery(e.target.value)}
+                                            className="w-full pl-9 pr-4 py-2 text-sm bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
+                                        />
+                                        <Users className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                                    </div>
+                                    <button
+                                        onClick={() => setShowAddMember((prev) => !prev)}
+                                        className="flex items-center gap-1.5 px-4 py-2 text-sm font-semibold rounded-xl bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 transition-colors"
                                     >
-                                        <option value="">-- Chọn người để thêm --</option>
-                                        {availableUsersToAdd.map((u) => {
-                                            const id = getUserId(u)
-                                            return (
-                                                <option key={id} value={id}>
-                                                    {u.fullName || u.userName || id}
-                                                </option>
-                                            )
-                                        })}
-                                    </select>
-                                    <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                                        <UserPlus className="w-4 h-4" />
+                                        Thêm thành viên
+                                    </button>
                                 </div>
-                                <button
-                                    onClick={handleAddMember}
-                                    disabled={!selectedNewMember || isLoading}
-                                    className="w-full py-2 bg-gradient-to-r from-primary-500 to-primary-600 text-white rounded-xl text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-40"
-                                >
-                                    {isLoading ? 'Đang thêm...' : 'Xác nhận thêm'}
-                                </button>
+
+                                {/* Add Member Panel */}
+                                {showAddMember && (
+                                    <div className="p-4 bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 space-y-3 shadow-sm">
+                                        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Thêm thành viên mới</p>
+                                        <div className="flex gap-2">
+                                            <div className="relative flex-1">
+                                                <select
+                                                    className="w-full appearance-none pl-3 pr-8 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-sm text-gray-700 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-primary-500/30 cursor-pointer"
+                                                    value={selectedNewMember}
+                                                    onChange={(e) => setSelectedNewMember(e.target.value)}
+                                                >
+                                                    <option value="">-- Chọn người để thêm --</option>
+                                                    {availableUsersToAdd.map((u) => {
+                                                        const id = getUserId(u)
+                                                        return (
+                                                            <option key={id} value={id}>
+                                                                {u.fullName || u.userName || id}
+                                                            </option>
+                                                        )
+                                                    })}
+                                                </select>
+                                                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                                            </div>
+                                            <button
+                                                onClick={handleAddMember}
+                                                disabled={!selectedNewMember || isLoading}
+                                                className="px-5 py-2 bg-gradient-to-r from-primary-500 to-primary-600 text-white rounded-xl text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-40"
+                                            >
+                                                {isLoading ? 'Đang thêm...' : 'Xác nhận'}
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Members List */}
+                                <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm overflow-hidden">
+                                    <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-800">
+                                        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Danh sách thành viên ({filteredParticipants.length})</p>
+                                    </div>
+                                    <div className="divide-y divide-gray-50 dark:divide-gray-800 max-h-[380px] overflow-y-auto">
+                                        {filteredParticipants.length === 0 ? (
+                                            <div className="p-8 text-center text-gray-400">
+                                                Không tìm thấy thành viên nào
+                                            </div>
+                                        ) : (
+                                            filteredParticipants.map((participant) => {
+                                                const isMe = participant.userId === user.id
+                                                const canManage =
+                                                    !isMe &&
+                                                    (isAdmin ||
+                                                        (currentUserParticipant?.role === 'deputy' && participant.role === 'member'))
+                                                const canRemove = canManage
+                                                const name = getParticipantName(participant)
+                                                const avatarUrl = getParticipantAvatar(participant)
+                                                const relationState = getMemberRelationState(String(participant.userId))
+                                                const relationLabel = getMemberRelationLabel(relationState)
+                                                const roleConfig = getRoleConfig(participant.role || 'member')
+                                                const RoleIcon = roleConfig.icon
+
+                                                return (
+                                                    <div
+                                                        key={participant.userId}
+                                                        className="flex items-center justify-between px-4 py-4 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors group"
+                                                    >
+                                                        <div className="flex items-center gap-3 min-w-0 flex-1">
+                                                            {/* Avatar */}
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => navigate(`/profile/${participant.userId}`)}
+                                                                className={`relative w-10 h-10 overflow-hidden rounded-full bg-gradient-to-br ${getAvatarColor(name)} flex items-center justify-center flex-shrink-0 ring-2 ring-white dark:ring-gray-800 shadow-sm`}
+                                                                title={`Xem trang cá nhân của ${name}`}
+                                                            >
+                                                                {avatarUrl ? (
+                                                                    <img src={avatarUrl} alt={name} className="h-full w-full object-cover" />
+                                                                ) : (
+                                                                    <span className="text-white text-sm font-bold">{name.charAt(0).toUpperCase()}</span>
+                                                                )}
+                                                                {participant.role === 'admin' && (
+                                                                    <span className="absolute -bottom-0.5 -right-0.5 w-4.5 h-4.5 bg-amber-400 rounded-full flex items-center justify-center ring-2 ring-white dark:ring-gray-800">
+                                                                        <Crown className="w-2.5 h-2.5 text-white" />
+                                                                    </span>
+                                                                )}
+                                                                {participant.role === 'deputy' && (
+                                                                    <span className="absolute -bottom-0.5 -right-0.5 w-4.5 h-4.5 bg-blue-400 rounded-full flex items-center justify-center ring-2 ring-white dark:ring-gray-800">
+                                                                        <Shield className="w-2.5 h-2.5 text-white" />
+                                                                    </span>
+                                                                )}
+                                                            </button>
+
+                                                            {/* Name & Role Info */}
+                                                            <div className="min-w-0 flex-1">
+                                                                <div className="flex items-center gap-2">
+                                                                    <p className="text-sm font-semibold text-gray-900 dark:text-white truncate">
+                                                                        {name}
+                                                                    </p>
+                                                                    {isMe && <span className="px-1.5 py-0.5 text-[9px] bg-gray-100 dark:bg-gray-800 text-gray-400 rounded-md font-bold uppercase tracking-wider">Bạn</span>}
+                                                                </div>
+
+                                                                {editingNicknameUserId === participant.userId ? (
+                                                                    <div className="flex items-center gap-2 mt-1.5 max-w-xs">
+                                                                        <input
+                                                                            type="text"
+                                                                            autoFocus
+                                                                            placeholder="Nhập biệt danh..."
+                                                                            value={editingNicknameValue}
+                                                                            onChange={(e) => setEditingNicknameValue(e.target.value)}
+                                                                            className="flex-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded px-2 py-1 text-xs text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500/30 focus:outline-none"
+                                                                            onKeyDown={(e) => {
+                                                                                if (e.key === 'Enter') {
+                                                                                    handleSetNickname(participant.userId, editingNicknameValue);
+                                                                                } else if (e.key === 'Escape') {
+                                                                                    setEditingNicknameUserId(null);
+                                                                                }
+                                                                            }}
+                                                                        />
+                                                                        <button
+                                                                            onClick={() => handleSetNickname(participant.userId, editingNicknameValue)}
+                                                                            className="p-1 bg-primary-50 text-primary-600 hover:bg-primary-100 rounded"
+                                                                        >
+                                                                            <Check className="w-3.5 h-3.5" />
+                                                                        </button>
+                                                                        <button
+                                                                            onClick={() => setEditingNicknameUserId(null)}
+                                                                            className="p-1 bg-gray-50 text-gray-400 hover:bg-gray-100 rounded"
+                                                                        >
+                                                                            <X className="w-3.5 h-3.5" />
+                                                                        </button>
+                                                                    </div>
+                                                                ) : (
+                                                                    <div className="flex items-center gap-1.5 mt-1">
+                                                                        <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded text-[10px] font-semibold">
+                                                                            <RoleIcon className={`w-2.5 h-2.5 ${roleConfig.color}`} />
+                                                                            <span className={roleConfig.color}>{roleConfig.label}</span>
+                                                                        </div>
+                                                                        <span className="text-[10px] text-gray-300 dark:text-gray-700">•</span>
+                                                                        <button
+                                                                            onClick={() => {
+                                                                                setEditingNicknameUserId(participant.userId);
+                                                                                setEditingNicknameValue((participant as any).nickname || '');
+                                                                            }}
+                                                                            className="text-[10px] text-gray-500 hover:text-primary-600 dark:hover:text-primary-400 font-semibold flex items-center gap-0.5"
+                                                                        >
+                                                                            <Edit2 className="w-2.5 h-2.5" />
+                                                                            {(participant as any).nickname ? 'Đổi biệt danh' : 'Đặt biệt danh'}
+                                                                        </button>
+                                                                        {(participant as any).nickname && (
+                                                                            <>
+                                                                                <span className="text-[10px] text-gray-300 dark:text-gray-700">•</span>
+                                                                                <button
+                                                                                    onClick={() => handleSetNickname(participant.userId, '')}
+                                                                                    className="text-[10px] text-red-400 hover:text-red-500 font-semibold"
+                                                                                >
+                                                                                    Xóa biệt danh
+                                                                                </button>
+                                                                            </>
+                                                                        )}
+                                                                    </div>
+                                                                )}
+                                                                {!isMe && relationLabel && (
+                                                                    <p className="mt-0.5 text-[10px] text-gray-400 font-medium">{relationLabel}</p>
+                                                                )}
+                                                            </div>
+                                                        </div>
+
+                                                        {/* Right Actions */}
+                                                        <div className="flex items-center gap-2 ml-4 flex-shrink-0">
+                                                            {!isMe && relationState === 'none' && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => handleSendFriendRequest(String(participant.userId))}
+                                                                    disabled={isLoading}
+                                                                    className="flex h-7 px-3 items-center justify-center gap-1 rounded-lg bg-primary-50 text-primary-600 hover:bg-primary-100 dark:bg-primary-900/30 dark:text-primary-400 text-xs font-semibold disabled:opacity-50"
+                                                                    title={`Kết bạn với ${name}`}
+                                                                >
+                                                                    <UserPlus className="h-3.5 w-3.5" />
+                                                                    <span>Kết bạn</span>
+                                                                </button>
+                                                            )}
+                                                            {!isMe && relationState === 'pending_sent' && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => handleCancelFriendRequest(String(participant.userId))}
+                                                                    disabled={isLoading}
+                                                                    className="flex h-7 px-3 items-center justify-center gap-1 rounded-lg bg-red-50 text-red-500 hover:bg-red-100 dark:bg-red-950/30 dark:text-red-400 text-xs font-semibold disabled:opacity-50"
+                                                                    title={`Hủy lời mời kết bạn với ${name}`}
+                                                                >
+                                                                    <X className="h-3.5 w-3.5" />
+                                                                    <span>Hủy lời mời</span>
+                                                                </button>
+                                                            )}
+
+                                                            {canManage && isAdmin && (
+                                                                <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                                    <button
+                                                                        onClick={() => handleToggleDeputy(participant)}
+                                                                        disabled={isLoading}
+                                                                        className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 dark:bg-blue-900/20 dark:text-blue-400 transition-colors disabled:opacity-50"
+                                                                        title="Cấp quyền nhóm phó"
+                                                                        aria-label="Cấp quyền nhóm phó"
+                                                                    >
+                                                                        <Shield className="h-4 w-4" />
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={() => handleTransferAdmin(String(participant.userId))}
+                                                                        disabled={isLoading}
+                                                                        className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-50 text-amber-600 hover:bg-amber-100 dark:bg-amber-900/20 dark:text-amber-400 transition-colors disabled:opacity-50"
+                                                                        title="Chuyển quyền nhóm trưởng"
+                                                                        aria-label="Chuyển quyền nhóm trưởng"
+                                                                    >
+                                                                        <Crown className="h-4 w-4" />
+                                                                    </button>
+                                                                </div>
+                                                            )}
+
+                                                            {/* Remove Member Button */}
+                                                            {canRemove && (
+                                                                <button
+                                                                    onClick={() => handleRemoveMember(participant.userId)}
+                                                                    disabled={isLoading}
+                                                                    className="opacity-0 group-hover:opacity-100 p-1.5 text-red-400 hover:bg-red-50 dark:hover:bg-red-950 hover:text-red-500 rounded-lg transition-all disabled:opacity-50"
+                                                                    title="Xóa khỏi nhóm"
+                                                                >
+                                                                    <UserMinus className="w-4 h-4" />
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                )
+                                            })
+                                        )}
+                                    </div>
+                                </div>
                             </div>
                         )}
 
-                        {/* Members list */}
-                        <div className="px-3 py-2 space-y-0.5">
-                            {group.participants.map((participant) => {
-                                const isMe = participant.userId === user.id
-                                const canManage =
-                                    !isMe &&
-                                    (isAdmin ||
-                                        (currentUserParticipant?.role === 'deputy' && participant.role === 'member'))
-                                const canRemove = canManage
-                                const name = getParticipantName(participant)
-                                const roleConfig = getRoleConfig(participant.role || 'member')
-                                const RoleIcon = roleConfig.icon
-
-                                return (
-                                    <div
-                                        key={participant.userId}
-                                        className="flex items-center justify-between px-2 py-2.5 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors group"
-                                    >
-                                        <div className="flex items-center gap-3 min-w-0">
-                                            {/* Avatar */}
-                                            <div className={`relative w-9 h-9 rounded-full bg-gradient-to-br ${getAvatarColor(name)} flex items-center justify-center flex-shrink-0 ring-2 ring-white dark:ring-gray-800 shadow-sm`}>
-                                                <span className="text-white text-sm font-bold">{name.charAt(0).toUpperCase()}</span>
-                                                {participant.role === 'admin' && (
-                                                    <span className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-amber-400 rounded-full flex items-center justify-center ring-2 ring-white dark:ring-gray-800">
-                                                        <Crown className="w-2 h-2 text-white" />
-                                                    </span>
-                                                )}
-                                                {participant.role === 'deputy' && (
-                                                    <span className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-blue-400 rounded-full flex items-center justify-center ring-2 ring-white dark:ring-gray-800">
-                                                        <Shield className="w-2 h-2 text-white" />
-                                                    </span>
-                                                )}
+                        {activeTab === 'invite' && (
+                            <div className="space-y-5">
+                                {/* Link Mời Card */}
+                                <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-5 space-y-4 shadow-sm">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                            <div className="w-8 h-8 rounded-lg bg-indigo-100 dark:bg-indigo-900/40 flex items-center justify-center">
+                                                <Link2 className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
                                             </div>
-
-                                            {/* Name & role */}
-                                            <div className="min-w-0">
-                                                <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                                                    {name}
-                                                    {isMe && <span className="ml-1.5 text-xs font-normal text-gray-400">(Bạn)</span>}
-                                                </p>
-                                                <div className="flex items-center gap-1 mt-0.5">
-                                                    <RoleIcon className={`w-3 h-3 ${roleConfig.color}`} />
-                                                    <span className={`text-[11px] font-medium ${roleConfig.color}`}>{roleConfig.label}</span>
-                                                </div>
-                                            </div>
+                                            <span className="text-sm font-bold text-gray-800 dark:text-gray-100">Link mời nhóm</span>
                                         </div>
-
-                                        {canManage && isAdmin && (
-                                            <div className="mr-2 flex flex-col items-end gap-1.5">
-                                                <button
-                                                    onClick={() => handleToggleDeputy(participant)}
-                                                    disabled={isLoading}
-                                                    className="px-2.5 py-1 text-[11px] font-semibold rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors disabled:opacity-50"
-                                                >
-                                                    {participant.role === 'deputy' ? 'Thu hồi phó nhóm' : 'Cấp phó nhóm'}
-                                                </button>
-                                                <button
-                                                    onClick={() => handleTransferAdmin(String(participant.userId))}
-                                                    disabled={isLoading}
-                                                    className="px-2.5 py-1 text-[11px] font-semibold rounded-lg bg-amber-50 text-amber-600 hover:bg-amber-100 transition-colors disabled:opacity-50"
-                                                >
-                                                    Chuyển trưởng nhóm
-                                                </button>
-                                            </div>
-                                        )}
-
-                                        {/* Remove button */}
-                                        {canRemove && (
+                                        {(isAdmin || canReviewRequests) && (
                                             <button
-                                                onClick={() => handleRemoveMember(participant.userId)}
+                                                onClick={handleRotateInvite}
                                                 disabled={isLoading}
-                                                className="opacity-0 group-hover:opacity-100 p-1.5 text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-500 rounded-lg transition-all disabled:opacity-50"
-                                                title="Xóa khỏi nhóm"
+                                                className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-lg bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors disabled:opacity-50"
                                             >
-                                                <UserMinus className="w-4 h-4" />
+                                                <RefreshCw className="w-3 h-3" />
+                                                Tạo lại mã
                                             </button>
                                         )}
                                     </div>
-                                )
-                            })}
-                        </div>
-                    </div>
-                </div>
 
-                {/* Footer */}
-                <div className="px-4 py-3 bg-white dark:bg-gray-900 border-t border-gray-100 dark:border-gray-800 flex-shrink-0 space-y-3">
-                    {isAdmin && showAdminLeavePanel && (
-                        <div className="space-y-2">
-                            <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2">
-                                <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">
-                                    Rời nhóm với quyền trưởng nhóm
-                                </p>
-                                <p className="mt-1 text-xs text-amber-700/90">
-                                    Bạn phải chọn một thành viên để chuyển quyền trưởng nhóm trước khi rời nhóm.
-                                </p>
+                                    {/* Code & Link Rows */}
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-4 flex flex-col justify-between border border-gray-100 dark:border-gray-800">
+                                            <div>
+                                                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Mã mời</p>
+                                                <p className="text-lg font-bold text-gray-800 dark:text-gray-100 font-mono tracking-wider">
+                                                    {settings.invite.code || '–––––'}
+                                                </p>
+                                            </div>
+                                            <button
+                                                onClick={() => copyToClipboard(settings.invite.code, 'code')}
+                                                className={`mt-3 flex items-center justify-center gap-1.5 w-full py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                                                    copiedField === 'code'
+                                                        ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400'
+                                                        : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'
+                                                }`}
+                                            >
+                                                {copiedField === 'code' ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                                                {copiedField === 'code' ? 'Đã copy!' : 'Copy mã'}
+                                            </button>
+                                        </div>
+
+                                        <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-4 flex flex-col justify-between border border-gray-100 dark:border-gray-800">
+                                            <div className="min-w-0">
+                                                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Link tham gia</p>
+                                                <p className="text-xs text-gray-600 dark:text-gray-300 truncate">
+                                                    {settings.invite.inviteUrl || '(đang tải...)'}
+                                                </p>
+                                            </div>
+                                            <button
+                                                onClick={() => copyToClipboard(settings.invite.inviteUrl, 'link')}
+                                                className={`mt-3 flex items-center justify-center gap-1.5 w-full py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                                                    copiedField === 'link'
+                                                        ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400'
+                                                        : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'
+                                                }`}
+                                            >
+                                                {copiedField === 'link' ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                                                {copiedField === 'link' ? 'Đã copy!' : 'Copy Link'}
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {/* QR Code and Member Approval Setup */}
+                                    <div className="grid grid-cols-12 gap-4 items-center bg-gray-50 dark:bg-gray-800/40 rounded-2xl p-4 border border-gray-100 dark:border-gray-800">
+                                        {inviteQrSrc && (
+                                            <div className="col-span-4 flex justify-center">
+                                                <div className="w-28 h-28 rounded-lg border border-gray-200 dark:border-gray-700 bg-white p-1.5 flex items-center justify-center shadow-sm">
+                                                    <img
+                                                        src={inviteQrSrc}
+                                                        alt="QR mời tham gia nhóm"
+                                                        className="w-full h-full object-contain"
+                                                    />
+                                                </div>
+                                            </div>
+                                        )}
+                                        <div className="col-span-8 space-y-2">
+                                            <p className="text-sm font-bold text-gray-800 dark:text-gray-100">Mã QR tham gia nhóm</p>
+                                            <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
+                                                Chia sẻ mã QR để thành viên khác trực tiếp quét và xin tham gia vào nhóm trò chuyện.
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    {canReviewRequests && (
+                                        <div className="flex items-center justify-between pt-2 border-t border-gray-100 dark:border-gray-800">
+                                            <div className="space-y-0.5">
+                                                <p className="text-sm font-bold text-gray-800 dark:text-gray-100">Bắt buộc duyệt thành viên mới</p>
+                                                <p className="text-xs text-gray-400 dark:text-gray-500">Thành viên mới thông qua link mời cần được quản trị viên đồng ý.</p>
+                                            </div>
+                                            <button
+                                                onClick={() => handleToggleInviteApproval(!settings.invite.approvalRequired)}
+                                                disabled={isLoading}
+                                                className={`relative inline-flex h-6.5 w-12 items-center rounded-full transition-colors duration-200 focus:outline-none disabled:opacity-50 ${
+                                                    settings.invite.approvalRequired ? 'bg-primary-500' : 'bg-gray-300 dark:bg-gray-700'
+                                                }`}
+                                            >
+                                                <span
+                                                    className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition-transform duration-200 ${
+                                                        settings.invite.approvalRequired ? 'translate-x-6' : 'translate-x-1'
+                                                    }`}
+                                                />
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Join Requests Panel */}
+                                {canReviewRequests && (
+                                    <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-5 space-y-4 shadow-sm">
+                                        <div className="flex items-center gap-2">
+                                            <div className="w-8 h-8 rounded-lg bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center">
+                                                <ClipboardCheck className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                                            </div>
+                                            <span className="text-sm font-bold text-gray-800 dark:text-gray-100">Yêu cầu tham gia nhóm chờ duyệt</span>
+                                        </div>
+
+                                        <div className="divide-y divide-gray-50 dark:divide-gray-800">
+                                            {settings.pendingJoinRequests.length === 0 ? (
+                                                <div className="flex flex-col items-center py-6 text-gray-400">
+                                                    <ClipboardCheck className="w-10 h-10 mb-2 opacity-30 text-amber-500" />
+                                                    <p className="text-xs font-semibold">Không có yêu cầu nào chờ duyệt</p>
+                                                </div>
+                                            ) : (
+                                                settings.pendingJoinRequests.map((request) => {
+                                                    const name = getRequestName(request.userId)
+                                                    return (
+                                                        <div
+                                                            key={request.requestId}
+                                                            className="flex items-center justify-between gap-3 py-3"
+                                                        >
+                                                            <div className="flex items-center gap-3 min-w-0">
+                                                                <div className={`w-9 h-9 rounded-full bg-gradient-to-br ${getAvatarColor(name)} flex items-center justify-center flex-shrink-0 shadow-sm`}>
+                                                                    <span className="text-white text-xs font-bold">{name.charAt(0).toUpperCase()}</span>
+                                                                </div>
+                                                                <div className="min-w-0">
+                                                                    <p className="text-sm font-semibold text-gray-800 dark:text-white truncate">{name}</p>
+                                                                    <p className="text-[10px] text-gray-400 mt-0.5">{new Date(request.requestedAt).toLocaleString('vi-VN')}</p>
+                                                                </div>
+                                                            </div>
+                                                            <div className="flex items-center gap-2 flex-shrink-0">
+                                                                <button
+                                                                    onClick={() => handleReviewRequest(request.requestId, 'reject')}
+                                                                    disabled={isLoading}
+                                                                    className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold rounded-lg bg-red-50 hover:bg-red-100 text-red-500 transition-colors disabled:opacity-50"
+                                                                >
+                                                                    <XCircle className="w-3.5 h-3.5" />
+                                                                    Từ chối
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => handleReviewRequest(request.requestId, 'approve')}
+                                                                    disabled={isLoading}
+                                                                    className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-600 transition-colors disabled:opacity-50"
+                                                                >
+                                                                    <CheckCircle2 className="w-3.5 h-3.5" />
+                                                                    Duyệt
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    )
+                                                })
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
                             </div>
-                            <div className="relative">
-                                <select
-                                    className="w-full appearance-none rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary-500/30"
-                                    value={selectedAdminTransferUserId}
-                                    onChange={(e) => setSelectedAdminTransferUserId(e.target.value)}
-                                >
-                                    <option value="">-- Chọn trưởng nhóm mới --</option>
-                                    {transferCandidates.map((participant) => (
-                                        <option key={participant.userId} value={String(participant.userId)}>
-                                            {getParticipantName(participant)}
-                                        </option>
+                        )}
+
+                        {activeTab === 'permissions' && isAdmin && (
+                            <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-5 space-y-4 shadow-sm">
+                                <div className="flex items-center gap-2">
+                                    <div className="w-8 h-8 rounded-lg bg-violet-100 dark:bg-violet-900/40 flex items-center justify-center">
+                                        <Settings2 className="w-4 h-4 text-violet-600 dark:text-violet-400" />
+                                    </div>
+                                    <span className="text-sm font-bold text-gray-800 dark:text-gray-100">Quyền hạn của thành viên</span>
+                                </div>
+
+                                <div className="divide-y divide-gray-100 dark:divide-gray-800">
+                                    {([
+                                        { key: 'sendMessage' as const, emoji: '💬', label: 'Gửi tin nhắn', value: settings.permissions.sendMessage },
+                                        { key: 'sendMedia' as const, emoji: '🖼️', label: 'Gửi hình ảnh, video và tệp tin', value: settings.permissions.sendMedia },
+                                        { key: 'startCall' as const, emoji: '📞', label: 'Gọi thoại & cuộc gọi nhóm', value: settings.permissions.startCall },
+                                        { key: 'pinMessage' as const, icon: <Pin className="w-4 h-4 text-violet-500" />, label: 'Ghim tin nhắn nhóm', value: settings.permissions.pinMessage },
+                                        { key: 'sendAnnouncement' as const, icon: <Megaphone className="w-4 h-4 text-violet-500" />, label: 'Tạo thông báo quan trọng', value: settings.permissions.sendAnnouncement },
+                                    ] as Array<{ key: 'sendMessage' | 'sendMedia' | 'startCall' | 'pinMessage' | 'sendAnnouncement'; emoji?: string; icon?: ReactNode; label: string; value: GroupPermissionScope }>).map(({ key, emoji, icon, label, value }) => (
+                                        <div key={key} className="flex items-center justify-between gap-4 py-5">
+                                            <div className="flex items-center gap-3 min-w-0">
+                                                <span className="flex-shrink-0 text-base">{emoji ?? icon}</span>
+                                                <span className="text-sm font-medium text-gray-700 dark:text-gray-300 truncate">{label}</span>
+                                            </div>
+                                            <div className="relative flex-shrink-0">
+                                                <select
+                                                    className="appearance-none pl-3 pr-8 py-2 text-xs font-semibold rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200 cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary-500/30 transition-colors"
+                                                    value={value}
+                                                    onChange={(e) => handleUpdatePermission(key, e.target.value as GroupPermissionScope)}
+                                                >
+                                                    {permissionOptions.map((option) => (
+                                                        <option key={option.value} value={option.value}>{option.label}</option>
+                                                    ))}
+                                                </select>
+                                                <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
+                                            </div>
+                                        </div>
                                     ))}
-                                </select>
-                                <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                                </div>
                             </div>
-                            <button
-                                onClick={() => {
-                                    setShowAdminLeavePanel(false)
-                                    setSelectedAdminTransferUserId('')
-                                }}
-                                disabled={isLoading}
-                                className="w-full py-2.5 rounded-xl text-sm font-medium border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-40"
-                            >
-                                Hủy chuyển quyền
-                            </button>
-                            <button
-                                onClick={() => {
-                                    setShowAdminLeavePanel(false)
-                                    setSelectedAdminTransferUserId('')
-                                }}
-                                disabled={isLoading}
-                                className="hidden"
-                            >
-                                Giải tán nhóm
-                            </button>
-                        </div>
-                    )}
-                    {isAdmin && (
-                        <button
-                            onClick={handleDissolveGroup}
-                            disabled={isLoading}
-                            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold text-orange-600 border border-orange-200 bg-orange-50 hover:bg-orange-100 transition-colors disabled:opacity-40"
-                        >
-                            <XCircle className="w-4 h-4" />
-                            Giải tán nhóm
-                        </button>
-                    )}
-                    <button
-                        onClick={handleLeaveGroup}
-                        disabled={isLoading || group.participants.length === 1}
-                        className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold text-red-500 border border-red-200 dark:border-red-800/50 bg-red-50 dark:bg-red-900/10 hover:bg-red-100 dark:hover:bg-red-900/20 transition-colors disabled:opacity-40"
-                    >
-                        <LogOut className="w-4 h-4" />
-                        Rời nhóm
-                    </button>
+                        )}
+
+                        {activeTab === 'danger' && (
+                            <div className="space-y-4">
+                                <div className="bg-red-50/50 dark:bg-red-950/10 rounded-2xl border border-red-100 dark:border-red-900/30 p-5 space-y-4 shadow-sm">
+                                    <div className="flex items-center gap-2">
+                                        <div className="w-8 h-8 rounded-lg bg-red-100 dark:bg-red-900/40 flex items-center justify-center">
+                                            <LogOut className="w-4 h-4 text-red-600 dark:text-red-400" />
+                                        </div>
+                                        <span className="text-sm font-bold text-red-800 dark:text-red-300">Vùng nguy hiểm</span>
+                                    </div>
+                                    <p className="text-xs text-red-700/80 dark:text-red-400/80 leading-relaxed">
+                                        Mọi hành động rời khỏi hoặc giải tán nhóm chat này sẽ có hiệu lực vĩnh viễn. Vui lòng cân nhắc kỹ trước khi thực hiện.
+                                    </p>
+
+                                    {isAdmin && showAdminLeavePanel && (
+                                        <div className="space-y-3 p-4 bg-white dark:bg-gray-900 rounded-xl border border-amber-200 dark:border-amber-900/30">
+                                            <p className="text-xs font-bold uppercase tracking-wider text-amber-700 dark:text-amber-400">
+                                                Ủy quyền Trưởng nhóm mới trước khi rời đi
+                                            </p>
+                                            <p className="text-xs text-amber-600 dark:text-amber-500">
+                                                Bạn phải chọn một thành viên khác để giao lại quyền Trưởng nhóm trước khi rời khỏi nhóm.
+                                            </p>
+                                            <div className="relative">
+                                                <select
+                                                    className="w-full appearance-none rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-primary-500/30"
+                                                    value={selectedAdminTransferUserId}
+                                                    onChange={(e) => setSelectedAdminTransferUserId(e.target.value)}
+                                                >
+                                                    <option value="">-- Chọn trưởng nhóm mới --</option>
+                                                    {transferCandidates.map((participant) => (
+                                                        <option key={participant.userId} value={String(participant.userId)}>
+                                                            {getParticipantName(participant)}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                                <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                                            </div>
+                                            <div className="flex gap-2">
+                                                <button
+                                                    onClick={() => {
+                                                        setShowAdminLeavePanel(false)
+                                                        setSelectedAdminTransferUserId('')
+                                                    }}
+                                                    disabled={isLoading}
+                                                    className="flex-1 py-2 rounded-xl text-xs font-bold border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors disabled:opacity-40"
+                                                >
+                                                    Hủy
+                                                </button>
+                                                <button
+                                                    onClick={handleLeaveGroup}
+                                                    disabled={!selectedAdminTransferUserId || isLoading}
+                                                    className="flex-1 py-2 rounded-xl text-xs font-bold bg-amber-500 text-white hover:opacity-90 transition-opacity disabled:opacity-40"
+                                                >
+                                                    Chuyển quyền & Rời nhóm
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {!showAdminLeavePanel && (
+                                        <div className="space-y-3">
+                                            {isAdmin && (
+                                                <button
+                                                    onClick={handleDissolveGroup}
+                                                    disabled={isLoading}
+                                                    className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold text-orange-600 border border-orange-200 dark:border-orange-900/30 bg-orange-50 dark:bg-orange-950/20 hover:bg-orange-100 dark:hover:bg-orange-900/30 transition-colors disabled:opacity-40"
+                                                >
+                                                    <XCircle className="w-4 h-4" />
+                                                    Giải tán nhóm
+                                                </button>
+                                            )}
+                                            <button
+                                                onClick={handleLeaveGroup}
+                                                disabled={isLoading || group.participants.length === 1}
+                                                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold text-red-500 border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/20 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors disabled:opacity-40"
+                                            >
+                                                <LogOut className="w-4 h-4" />
+                                                Rời nhóm
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                    </div>
                 </div>
             </div>
         </div>

@@ -1,6 +1,17 @@
 import { User, useAuthStore } from '../stores/authStore';
 
-export const baseAPI = import.meta.env.VITE_API_URL || "http://localhost:3000/api";
+const fallbackApiBase =
+    typeof window !== 'undefined' ? `${window.location.origin}/api` : '/api';
+const configuredApiBase = String(import.meta.env.VITE_API_URL || '').trim();
+const isConfiguredLocalApi = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?\/api\/?$/i.test(configuredApiBase);
+const isRunningOnLocalhost =
+    typeof window !== 'undefined'
+    && /^(localhost|127\.0\.0\.1)$/i.test(window.location.hostname);
+
+export const baseAPI =
+    configuredApiBase && !(isConfiguredLocalApi && !isRunningOnLocalhost)
+        ? configuredApiBase
+        : fallbackApiBase;
 
 export const fetchWithAuth = async (endpoint: string, options: RequestInit = {}) => {
     const token = useAuthStore.getState().accessToken;
@@ -63,14 +74,32 @@ export const fetchWithAuth = async (endpoint: string, options: RequestInit = {})
 };
 
 
+const resolvePresenceStatus = (presenceStatus?: string | null, fallbackStatus?: string | null) => {
+    const presence = String(presenceStatus || '').trim().toLowerCase();
+    if (presence === 'online' || presence === 'offline') return presence;
+
+    const fallback = String(fallbackStatus || '').trim().toLowerCase();
+    if (fallback === 'online' || fallback === 'offline') return fallback;
+
+    return 'offline';
+};
+
+const normalizeParticipantPresence = (participant: any) => ({
+    ...participant,
+    status: resolvePresenceStatus(participant?.presenceStatus, participant?.status),
+    lastSeen: participant?.lastActiveAt || participant?.lastSeen || null,
+});
+
 export const mapUser = (u: any): User => ({
     ...u,
     id: u.userId || u.id || u._id,
-    fullName: u.userName || u.fullName || 'User',
+    fullName: u.userName || u.fullName || u.name || 'User',
     avatarUrl: u.avartarUrl || u.avatarUrl || null,
     phoneNumber: u.phone || u.phoneNumber || '',
     birthday: u.birthday || null,
     gender: (u.gender === 'male' || u.gender === 'female' || u.gender === 'other') ? u.gender : 'other',
+    status: resolvePresenceStatus(u.presenceStatus, u.status),
+    lastSeen: u.lastActiveAt || u.lastSeen || null,
 });
 
 type ParsedCallPayload = {
@@ -235,7 +264,13 @@ const normalizeMessage = (msg: any) => ({
 const getConversation = async () => {
     const response = await fetchWithAuth(`/conversations`);
     const data = await response.json();
-    return (data || []).map((conv: any) => ({ ...conv, id: conv._id }));
+    return (data || []).map((conv: any) => ({
+        ...conv,
+        id: conv._id,
+        participants: Array.isArray(conv.participants)
+            ? conv.participants.map(normalizeParticipantPresence)
+            : [],
+    }));
 }
 
 const getMessages = async (conversationId: string) => {
@@ -278,6 +313,13 @@ const removePollOption = async (messageId: string, optionId: string) => {
     });
     const data = await response.json();
     return normalizeMessage(data);
+}
+
+const deleteMessageForMe = async (messageId: string) => {
+    const response = await fetchWithAuth(`/messages/${messageId}/delete-for-me`, {
+        method: "DELETE",
+    });
+    return response.json();
 }
 
 const getUsers = async (): Promise<User[]> => {
@@ -478,7 +520,13 @@ const reviewGroupJoinRequest = async (
 
 const updateGroupPermissions = async (
     groupId: string,
-    data: { sendMedia?: string; pinMessage?: string; sendAnnouncement?: string }
+    data: {
+        sendMessage?: string
+        sendMedia?: string
+        startCall?: string
+        pinMessage?: string
+        sendAnnouncement?: string
+    }
 ) => {
     const response = await fetchWithAuth(`/groups/${groupId}/settings/permissions`, {
         method: "PATCH",
@@ -577,6 +625,12 @@ const getDailyConversationSummary = async (
 
 const getUserByPhone = async (phone: string): Promise<User> => {
     const response = await fetchWithAuth(`/users/phone/${phone}`);
+    const data = await response.json();
+    return mapUser(data);
+}
+
+const getUserById = async (userId: string): Promise<User> => {
+    const response = await fetchWithAuth(`/users/id/${userId}`);
     const data = await response.json();
     return mapUser(data);
 }
@@ -686,6 +740,7 @@ export {
     votePoll,
     addPollOption,
     removePollOption,
+    deleteMessageForMe,
     getUsers,
     deleteChatHistory,
     createGroup,
@@ -717,6 +772,7 @@ export {
     updateLabel,
     deleteLabel,
     getUserByPhone,
+    getUserById,
     getFriends,
     askAssistant,
     getAssistantHistory,

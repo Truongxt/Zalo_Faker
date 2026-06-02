@@ -18,6 +18,8 @@ const normalizePlatform = (platform) => {
 
 const buildSessionKey = (userId, platform = "unknown") =>
   `auth:session:${String(userId)}:${normalizePlatform(platform)}`;
+const buildSessionIdKey = (userId, sessionId) =>
+  `auth:session:${String(userId)}:sid:${String(sessionId)}`;
 
 const buildLegacySessionKey = (userId) => `auth:session:${String(userId)}`;
 
@@ -86,11 +88,16 @@ const authMiddleware = async (req, res, next) => {
     }
 
     const tokenPlatform = normalizePlatform(normalizedUser.platform);
-    const scopedSessionId = await safeGet(
-      buildSessionKey(normalizedUser.userId, tokenPlatform),
-    );
+    const sessionIdKey = buildSessionIdKey(normalizedUser.userId, sessionId);
+    const mappedSessionId = await safeGet(sessionIdKey);
+    let isValidSession = Boolean(mappedSessionId);
 
-    let isValidSession = Boolean(scopedSessionId && scopedSessionId === sessionId);
+    if (!isValidSession) {
+      const scopedSessionId = await safeGet(
+        buildSessionKey(normalizedUser.userId, tokenPlatform),
+      );
+      isValidSession = Boolean(scopedSessionId && scopedSessionId === sessionId);
+    }
 
     if (!isValidSession) {
       const legacySessionId = await safeGet(buildLegacySessionKey(normalizedUser.userId));

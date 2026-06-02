@@ -94,6 +94,25 @@ const refreshTokenRepository = {
         }
       }).promise();
     }
+  },
+
+  findByUserIdAndLoginId: async (userId, loginId) => {
+    const params = {
+      TableName: tableName,
+      FilterExpression: "#userId = :userId AND #loginId = :loginId",
+      ExpressionAttributeNames: {
+        "#userId": "userId",
+        "#loginId": "loginId"
+      },
+      ExpressionAttributeValues: {
+        ":userId": userId,
+        ":loginId": loginId
+      },
+      ProjectionExpression: "refreshToken, sessionId, platform, loginId"
+    };
+
+    const result = await dynamodb.scan(params).promise();
+    return result.Items || [];
   }
 
 };
