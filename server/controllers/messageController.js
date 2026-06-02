@@ -178,7 +178,8 @@ const createMessage = async (req, res) => {
         }
 
         const message = await messageService.createMessage(payload)
-        const normalizedMessage = { ...message, id: message._id }
+        const messageObj = typeof message.toObject === "function" ? message.toObject() : message
+        const normalizedMessage = { ...messageObj, id: messageObj._id || messageObj.id }
 
         await conversationModel.updateConversation(payload.conversationId, {
             lastMessage: {
@@ -252,9 +253,44 @@ const deleteMessage = async (req, res) => {
     }
 }
 
+const deleteMessageForMe = async (req, res) => {
+    try {
+        const userId = req.user?.userId
+        if (!userId) {
+            return res.status(401).json({ message: "Unauthorized" })
+        }
+
+        const message = await messageService.getMessage(req.params.id)
+        if (!message) {
+            return res.status(404).json({ message: "Message not found" })
+        }
+
+        const conversation = await conversationService.getConversation(message.conversationId)
+        if (!conversation) {
+            return res.status(404).json({ message: "Conversation not found" })
+        }
+
+        if (!isConversationMember(conversation, userId)) {
+            return res.status(403).json({ message: "You are not in this conversation" })
+        }
+
+        await messageService.deleteMessageForUser(req.params.id, userId)
+        res.json({
+            message: "Message deleted for current user",
+            messageId: req.params.id,
+            conversationId: message.conversationId,
+        })
+    } catch (error) {
+        res.status(error.statusCode || 500).json({ message: error.message })
+    }
+}
+
 const getMessagesByConversationId = async (req, res) => {
     try {
-        const messages = await messageService.getMessagesByConversationId(req.params.conversationId)
+        const messages = await messageService.getMessagesByConversationIdForUser(
+            req.params.conversationId,
+            req.user?.userId
+        )
         res.json(messages)
     } catch (error) {
         res.status(500).json({ message: error.message })
@@ -421,6 +457,7 @@ module.exports = {
     getMessages,
     updateMessage,
     deleteMessage,
+    deleteMessageForMe,
     getMessagesByConversationId,
     deleteMessagesByRoom,
     getStickers,

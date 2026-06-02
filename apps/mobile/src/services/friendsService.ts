@@ -145,6 +145,10 @@ class FriendsService {
     });
   }
 
+  async cancelFriendRequest(fromUserId: string, toUserId: string): Promise<void> {
+    await this.rejectFriendRequest(fromUserId, toUserId);
+  }
+
   async removeFriend(friendId: string): Promise<void> {
     await apiFetch(`/api/friends/${friendId}`, {
       method: "DELETE",

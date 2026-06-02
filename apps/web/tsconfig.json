@@ -55,7 +55,7 @@
     },
     "include": [
         "src"
-    ],
+, "fix-chatroom-encoding.cjs"    ],
     "references": [{
         "path": "./tsconfig.node.json"
     }]

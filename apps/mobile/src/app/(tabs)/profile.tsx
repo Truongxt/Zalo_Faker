@@ -177,7 +177,18 @@ export default function ProfileScreen() {
       </TouchableOpacity>
 
       {/* Pin Change Modal */}
-      <Modal visible={showPinChange} transparent animationType="fade">
+      <Modal
+        visible={showPinChange}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          setShowPinChange(false);
+          setOldPin("");
+          setNewPin("");
+          setIsResetMode(false);
+          setLoginPassword("");
+        }}
+      >
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
           <View style={{ backgroundColor: 'white', borderRadius: 20, width: '100%', padding: 24, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 4, elevation: 5 }}>
             <Text style={{ fontSize: 20, fontWeight: 'bold', color: '#111827', marginBottom: 8, textAlign: 'center' }}>

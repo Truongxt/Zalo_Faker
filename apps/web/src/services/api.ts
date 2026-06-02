@@ -315,6 +315,13 @@ const removePollOption = async (messageId: string, optionId: string) => {
     return normalizeMessage(data);
 }
 
+const deleteMessageForMe = async (messageId: string) => {
+    const response = await fetchWithAuth(`/messages/${messageId}/delete-for-me`, {
+        method: "DELETE",
+    });
+    return response.json();
+}
+
 const getUsers = async (): Promise<User[]> => {
     const response = await fetchWithAuth(`/users`);
     const data = await response.json();
@@ -688,6 +695,7 @@ export {
     votePoll,
     addPollOption,
     removePollOption,
+    deleteMessageForMe,
     getUsers,
     deleteChatHistory,
     createGroup,
