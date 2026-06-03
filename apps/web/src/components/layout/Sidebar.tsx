@@ -37,6 +37,8 @@ import { getMessagePreviewText } from "@/lib/messagePreview";
 import AddFriendModal from "@/components/friends/AddFriendModal";
 import PromptModal from "@/components/common/PromptModal";
 import { useNotificationStore } from "@/stores/notificationStore";
+import { friendsService } from "@/services/friendsService";
+import { socketService } from "@/lib/socket";
 
 export default function Sidebar() {
   const navigate = useNavigate();
@@ -64,6 +66,7 @@ export default function Sidebar() {
   const [showLabelManager, setShowLabelManager] = useState(false);
   const [showHiddenPin, setShowHiddenPin] = useState(false);
   const [showJoinGroup, setShowJoinGroup] = useState(false);
+  const [pendingFriendRequestCount, setPendingFriendRequestCount] = useState(0);
   const [labelPickerConv, setLabelPickerConv] = useState<Conversation | null>(
     null,
   );
@@ -77,6 +80,53 @@ export default function Sidebar() {
       getLabels().then(setLabels).catch(console.error);
     }
   }, [user, setLabels]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadPendingFriendRequests = async () => {
+      if (!user?.id) {
+        setPendingFriendRequestCount(0);
+        return;
+      }
+
+      try {
+        const pendingRequests = await friendsService.getPendingRequests(String(user.id));
+        if (isMounted) {
+          setPendingFriendRequestCount(pendingRequests.length);
+        }
+      } catch (error) {
+        console.error("Error loading pending friend requests:", error);
+      }
+    };
+
+    void loadPendingFriendRequests();
+
+    if (!user?.id) {
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    if (!socketService.isConnected()) {
+      socketService.connect(String(user.id));
+    }
+
+    const refreshPendingFriendRequests = () => {
+      void loadPendingFriendRequests();
+    };
+
+    socketService.on("friend:request_received", refreshPendingFriendRequests);
+    socketService.on("friend:request_accepted", refreshPendingFriendRequests);
+    socketService.on("friend:request_rejected", refreshPendingFriendRequests);
+
+    return () => {
+      isMounted = false;
+      socketService.off("friend:request_received", refreshPendingFriendRequests);
+      socketService.off("friend:request_accepted", refreshPendingFriendRequests);
+      socketService.off("friend:request_rejected", refreshPendingFriendRequests);
+    };
+  }, [user?.id]);
 
   const hasLockedHiddenChats = conversations.some((conv) => {
     const currentP = (conv.participants || []).find(
@@ -306,6 +356,9 @@ export default function Sidebar() {
     return new Date(timeB).getTime() - new Date(timeA).getTime();
   });
 
+  const pendingFriendRequestLabel =
+    pendingFriendRequestCount > 99 ? "99+" : String(pendingFriendRequestCount);
+
   return (
     <div className="sidebar flex flex-col h-full bg-white dark:bg-dark-100 border-r border-gray-200 dark:border-gray-800">
       {/* Header */}
@@ -462,12 +515,32 @@ export default function Sidebar() {
           <div className="space-y-1">
             <Link
               to="/chat/contacts?tab=requests"
-              className={`flex items-center gap-3 p-3 rounded-lg transition-colors ${isContactsView && contactsTab === "requests" ? "bg-primary-50 dark:bg-primary-900/20 text-primary-600" : "hover:bg-gray-50 dark:hover:bg-dark-200 text-gray-700 dark:text-gray-300"}`}
+              className={`flex items-center gap-3 p-3 rounded-lg transition-colors ${
+                isContactsView && contactsTab === "requests"
+                  ? "bg-primary-50 dark:bg-primary-900/20 text-primary-600"
+                  : pendingFriendRequestCount > 0
+                    ? "bg-orange-50 text-orange-700 ring-1 ring-orange-100 hover:bg-orange-100/80 dark:bg-orange-950/20 dark:text-orange-300 dark:ring-orange-900/40 dark:hover:bg-orange-950/30"
+                    : "hover:bg-gray-50 dark:hover:bg-dark-200 text-gray-700 dark:text-gray-300"
+              }`}
             >
-              <div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center text-orange-600">
+              <div
+                className={`relative w-10 h-10 rounded-full flex items-center justify-center ${
+                  pendingFriendRequestCount > 0
+                    ? "bg-orange-500 text-white shadow-sm shadow-orange-200 dark:shadow-none"
+                    : "bg-orange-100 text-orange-600"
+                }`}
+              >
                 <UserPlus className="w-5 h-5" />
+                {pendingFriendRequestCount > 0 && (
+                  <span className="absolute -right-0.5 -top-0.5 h-3 w-3 rounded-full bg-red-500 ring-2 ring-white dark:ring-dark-100 animate-pulse" />
+                )}
               </div>
-              <span className="font-medium">Lời mời kết bạn</span>
+              <span className="flex-1 min-w-0 font-medium">Lời mời kết bạn</span>
+              {pendingFriendRequestCount > 0 && (
+                <span className="inline-flex min-w-[24px] items-center justify-center rounded-full bg-red-500 px-1.5 py-0.5 text-xs font-bold text-white shadow-sm">
+                  {pendingFriendRequestLabel}
+                </span>
+              )}
             </Link>
             <Link
               to="/chat/contacts?tab=groups"
@@ -696,7 +769,14 @@ export default function Sidebar() {
             to="/chat/contacts"
             className={`flex flex-col items-center gap-1 p-2 transition-colors ${isContactsView ? "text-primary-500" : "text-gray-500 dark:text-gray-400 hover:text-primary-500"}`}
           >
-            <Users className="w-5 h-5" />
+            <span className="relative">
+              <Users className="w-5 h-5" />
+              {pendingFriendRequestCount > 0 && (
+                <span className="absolute -right-1.5 -top-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold leading-none text-white ring-2 ring-white dark:ring-dark-100">
+                  {pendingFriendRequestCount > 9 ? "9+" : pendingFriendRequestCount}
+                </span>
+              )}
+            </span>
             <span className="text-xs">Danh bạ</span>
           </Link>
           <Link
