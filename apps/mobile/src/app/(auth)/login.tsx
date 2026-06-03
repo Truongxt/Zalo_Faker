@@ -48,7 +48,9 @@ export default function LoginScreen() {
         error?.response?.data?.message ||
         error?.message ||
         "Đăng nhập thất bại";
-      if (/locked/i.test(message)) {
+      const isDeletedAccount = /deleted|không tồn tại|khong ton tai/i.test(message);
+      const displayMessage = isDeletedAccount ? "Tài khoản không tồn tại" : message;
+      if (!isDeletedAccount && /locked/i.test(message)) {
         Alert.alert(
           "Tài khoản bị khóa",
           "Bạn có muốn mở khóa tài khoản ngay không?",
@@ -61,7 +63,7 @@ export default function LoginScreen() {
           ],
         );
       } else {
-        Alert.alert("Đăng nhập thất bại", message);
+        Alert.alert("Đăng nhập thất bại", displayMessage);
       }
     } finally {
       setIsLoading(false);
