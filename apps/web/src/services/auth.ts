@@ -93,7 +93,7 @@ export const authService = {
 
         if (!response.ok) {
             const error = await response.json();
-            throw new Error(error.message || 'Dang nhap that bai. Sai email hoac password.');
+            throw new Error(error.message || 'Đăng nhập thất bại. Sai email hoặc mật khẩu.');
         }
 
         const data = await response.json();
@@ -108,7 +108,7 @@ export const authService = {
     },
 
     async loginWithGoogle(): Promise<void> {
-        throw new Error('Dang nhap Google chua duoc ho tro tai Backend.');
+        throw new Error('Đăng nhập Google chưa được hỗ trợ tại Backend.');
     },
 
     async createQrLoginSession(): Promise<QrLoginSession> {
@@ -119,7 +119,7 @@ export const authService = {
 
         if (!response.ok) {
             const error = await response.json();
-            throw new Error(error.message || 'Khong tao duoc phien dang nhap QR');
+            throw new Error(error.message || 'Không tạo được phiên đăng nhập QR');
         }
 
         return response.json();
@@ -133,7 +133,7 @@ export const authService = {
 
         if (!response.ok) {
             const error = await response.json();
-            throw new Error(error.message || 'Khong kiem tra duoc trang thai QR login');
+            throw new Error(error.message || 'Không kiểm tra được trạng thái đăng nhập QR');
         }
 
         const payload = await response.json();
@@ -213,7 +213,7 @@ export const authService = {
         });
         if (!response.ok) {
             const error = await response.json();
-            throw new Error(error.message || 'Khong the gui OTP');
+            throw new Error(error.message || 'Không thể gửi OTP');
         }
         return response.json();
     },
@@ -239,7 +239,7 @@ export const authService = {
         });
         if (!response.ok) {
             const error = await response.json();
-            throw new Error(error.message || 'Khong the dat lai mat khau');
+            throw new Error(error.message || 'Không thể đặt lại mật khẩu');
         }
         return response.json();
     },
@@ -252,7 +252,7 @@ export const authService = {
         });
         if (!response.ok) {
             const error = await response.json();
-            throw new Error(error.message || 'Khong the gui OTP');
+            throw new Error(error.message || 'Không thể gửi OTP');
         }
         return response.json();
     },
@@ -330,7 +330,7 @@ export const authService = {
         })
         if (!response.ok) {
             const error = await response.json()
-            throw new Error(error.message || 'Mo khoa tai khoan that bai')
+            throw new Error(error.message || 'Mở khóa tài khoản thất bại')
         }
         return response.json()
     },
