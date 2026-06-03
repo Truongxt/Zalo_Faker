@@ -1321,7 +1321,6 @@ export default function ChatRoomScreen() {
   const [isSearching, setIsSearching] = useState(false);
   const [searchMessageQuery, setSearchMessageQuery] = useState("");
   const [showStickerPicker, setShowStickerPicker] = useState(false);
-  const [showReactions, setShowReactions] = useState(false);
   const [selectedMsg, setSelectedMsg] = useState<Message | null>(null);
   const [messageActions, setMessageActions] = useState<MessageActionItem[]>([]);
   const [showMessageActions, setShowMessageActions] = useState(false);
@@ -2818,13 +2817,7 @@ export default function ChatRoomScreen() {
       pinnedMessage && String(pinnedMessage.messageId) === String(msg.id),
     );
 
-    const options: MessageActionItem[] = [
-        {
-          key: "react",
-          text: "Thả cảm xúc",
-          onPress: () => setShowReactions(true),
-        },
-      ];
+    const options: MessageActionItem[] = [];
 
     if (isMe && !msg.isDeleted) {
       options.push({
@@ -2914,7 +2907,7 @@ export default function ChatRoomScreen() {
   };
 
   const handleReact = async (emoji: string) => {
-    setShowReactions(false);
+    setShowMessageActions(false);
     if (!selectedMsg) return;
     await chatService.addReaction(convId, selectedMsg.id, emoji);
   };
@@ -3466,40 +3459,6 @@ export default function ChatRoomScreen() {
         )}
       </View>
 
-      {/* Reaction picker */}
-      {showReactions && (
-        <View
-          style={{
-            flexDirection: "row",
-            backgroundColor: "#fff",
-            borderRadius: 24,
-            marginHorizontal: 16,
-            marginBottom: 8,
-            padding: 8,
-            gap: 8,
-            shadowColor: "#000",
-            shadowOpacity: 0.1,
-            shadowRadius: 10,
-            elevation: 4,
-          }}
-        >
-          {REACTIONS.map((emoji) => (
-            <TouchableOpacity
-              key={emoji}
-              onPress={() => handleReact(emoji)}
-              style={{ padding: 4 }}
-            >
-              <Text style={{ fontSize: 24 }}>{emoji}</Text>
-            </TouchableOpacity>
-          ))}
-          <TouchableOpacity
-            onPress={() => setShowReactions(false)}
-            style={{ padding: 4 }}
-          >
-            <Ionicons name="close-circle-outline" size={24} color="#6B7280" />
-          </TouchableOpacity>
-        </View>
-      )}
       <ForwardMessageModal
         visible={!!forwardMessage}
         onClose={() => setForwardMessage(null)}
@@ -3508,6 +3467,8 @@ export default function ChatRoomScreen() {
       <MessageActionModal
         visible={showMessageActions}
         options={messageActions}
+        reactionOptions={selectedMsg?.isDeleted ? undefined : REACTIONS}
+        onSelectReaction={(emoji) => void handleReact(emoji)}
         onClose={() => setShowMessageActions(false)}
       />
       <MessageActionModal

@@ -1,0 +1,1665 @@
+BÁO CÁO LUỒNG LOGIC HỆ THỐNG ZALO_FAKER
+========================================
+
+Mục tiêu của file này:
+- Giải thích luồng chạy bên dưới code theo cách dễ hiểu.
+- Giúp bạn trình bày báo cáo môn học mà không cần đọc từng file code.
+- Gồm cả phần công nghệ sử dụng, vì sao dùng, và nó nằm ở đâu trong hệ thống.
+
+Lưu ý bảo mật:
+- Không đưa nội dung file `.env` lên slide, GitHub, video demo hay nhóm chat.
+- Trong `.env` có AWS key, Gemini key, JWT secret, email app password. Nếu đã lộ ra ngoài, nên đổi hoặc regenerate key.
+- Khi báo cáo chỉ nói: "Hệ thống dùng biến môi trường để lưu key cấu hình", không show giá trị thật.
+
+
+1. TỔNG QUAN HỆ THỐNG
+=====================
+
+Zalo_Faker là ứng dụng nhắn tin có các chức năng gần giống Zalo:
+- Đăng ký, đăng nhập, OTP email, đổi mật khẩu, khóa/mở khóa tài khoản.
+- Kết bạn, chấp nhận/từ chối lời mời, chặn/bỏ chặn.
+- Chat cá nhân và chat nhóm realtime.
+- Gửi text, ảnh, video, file, sticker, voice message.
+- Reaction, đã đọc, đang nhập, thu hồi tin nhắn.
+- Tạo nhóm, quản lý thành viên, vai trò, quyền nhóm, mã mời vào nhóm.
+- Gọi audio/video cá nhân và gọi nhóm.
+- Moments: đăng bài, reaction, bình luận, chia sẻ.
+- Thông báo realtime.
+- AI Assistant: hỏi đáp, lịch sử hỏi đáp, tóm tắt hội thoại.
+- Transcript tin nhắn thoại bằng AI.
+
+Kiến trúc tổng quát:
+
+Người dùng
+  -> Web app hoặc Mobile app
+  -> Gọi REST API hoặc gửi Socket event
+  -> Backend Express
+  -> Controller
+  -> Service
+  -> Repository/Model
+  -> DynamoDB / S3 / Redis / Gemini / Email
+  -> Trả kết quả về client
+
+Nói đơn giản:
+- REST API dùng cho việc lấy/lưu dữ liệu rõ ràng: đăng nhập, lấy danh sách bạn bè, lấy lịch sử tin nhắn, tạo moment.
+- Socket.IO dùng cho việc cần thấy ngay lập tức: tin nhắn mới, typing, đã đọc, online/offline, thông báo, cuộc gọi.
+- DynamoDB dùng để lưu dữ liệu chính.
+- S3 dùng để lưu file/media.
+- Redis dùng để lưu session, OTP, trạng thái online tạm thời.
+- Gemini dùng cho AI Assistant, tóm tắt chat, transcript voice.
+
+
+2. CẤU TRÚC THƯ MỤC CHÍNH
+=========================
+
+server/
+  index.js
+    Điểm khởi động backend. Tạo app Express, gắn route, tạo HTTP server, cấu hình Socket.IO, kết nối Redis.
+
+  routes/
+    Khai báo các đường API. Ví dụ `/api/users`, `/api/messages`, `/api/groups`.
+
+  controllers/
+    Nhận request từ route, lấy tham số từ `req.body`, `req.params`, `req.user`, gọi service, trả response.
+
+  services/
+    Xử lý logic nghiệp vụ chính. Ví dụ đăng nhập, tạo tin nhắn, tạo nhóm, tạo moment, hỏi AI.
+
+  repository/ và models/
+    Làm việc với DynamoDB. Đây là lớp đọc/ghi dữ liệu.
+
+  middlewares/
+    authMiddleware.js: kiểm tra token JWT và session.
+    upload.js: xử lý upload file bằng Multer.
+
+  config/socket.js
+    Xử lý tất cả realtime event: chat, typing, read, reaction, call, presence.
+
+  utils/
+    jwt.js: tạo và verify token.
+    redisClient.js: kết nối Redis, có fallback memory.
+    aws-helper.js: cấu hình AWS S3 và DynamoDB.
+    sendEmail.js: gửi email OTP.
+
+apps/web/
+  React + Vite + TypeScript.
+  Dùng cho giao diện web.
+
+apps/mobile/
+  React Native + Expo.
+  Dùng cho ứng dụng mobile.
+
+
+3. CÁC CÔNG NGHỆ SỬ DỤNG VÀ VAI TRÒ
+===================================
+
+Frontend Web:
+- React: xây UI theo component.
+- Vite: chạy dev/build nhanh.
+- TypeScript: giúp code có kiểu dữ liệu rõ hơn.
+- Tailwind CSS: viết giao diện nhanh bằng utility class.
+- Zustand: quản lý state như user đăng nhập, danh sách chat, thông báo.
+- React Router: điều hướng trang web.
+- Socket.IO Client: kết nối realtime với backend.
+- PeerJS/WebRTC: hỗ trợ gọi audio/video trên web.
+
+Frontend Mobile:
+- React Native: viết app mobile bằng React.
+- Expo: hỗ trợ build/chạy app nhanh, quản lý camera, file, image picker, notification.
+- Expo Router: điều hướng màn hình theo cấu trúc file.
+- NativeWind: Tailwind style cho React Native.
+- AsyncStorage/SecureStore: lưu token và dữ liệu cục bộ.
+- Socket.IO Client: realtime chat/call/notification.
+- React Native WebRTC: gọi audio/video trên mobile.
+
+Backend:
+- Node.js: môi trường chạy JavaScript phía server.
+- Express: tạo REST API.
+- Socket.IO: realtime hai chiều giữa client và server.
+- JWT: xác thực bằng access token và refresh token.
+- bcryptjs: hash mật khẩu.
+- Multer: nhận file upload từ client.
+- Nodemailer: gửi OTP qua Gmail.
+- AWS SDK: làm việc với S3 và DynamoDB.
+- Redis: lưu session, OTP, presence online/offline.
+- LangChain + Google Gemini: AI Assistant, embedding, tóm tắt hội thoại.
+- Swagger: tài liệu API.
+
+Database/Storage:
+- DynamoDB: lưu User, Conversation, Message, Friends, Moment, Notification, AI history...
+- S3: lưu ảnh, video, file, avatar, media moment.
+- CloudFront nếu cấu hình: tạo URL phân phối file nhanh hơn.
+
+
+4. LUỒNG KHỞI ĐỘNG BACKEND
+==========================
+
+File chính: `server/index.js`
+
+Luồng chạy:
+1. Đọc biến môi trường từ `.env` bằng dotenv.
+2. Tạo app Express.
+3. Bật middleware:
+   - `cors()`: cho frontend gọi API.
+   - `express.json()`: đọc body JSON.
+4. Gắn các route:
+   - `/api/users`
+   - `/api/conversations`
+   - `/api/messages`
+   - `/api/friends`
+   - `/api/groups`
+   - `/api/moments`
+   - `/api/notifications`
+   - `/api/ai`
+   - `/api/upload`
+   - `/api/labels`
+5. Tạo HTTP server từ Express app.
+6. Gắn Socket.IO vào HTTP server.
+7. Start reminder scheduler.
+8. Kết nối Redis.
+9. Lắng nghe cổng PORT, mặc định 3000.
+
+Có thể nói khi báo cáo:
+"Backend được chia thành REST API và Socket.IO. REST API xử lý các request thông thường, còn Socket.IO được gắn trên cùng HTTP server để xử lý realtime."
+
+
+5. LUỒNG XÁC THỰC TOKEN
+=======================
+
+File liên quan:
+- `server/middlewares/authMiddleware.js`
+- `server/utils/jwt.js`
+- `server/utils/redisClient.js`
+- `server/services/userService.js`
+
+Ý tưởng:
+Backend không chỉ kiểm tra JWT có hợp lệ hay không, mà còn kiểm tra session trong Redis. Nhờ vậy nếu user logout, bị khóa tài khoản, hoặc đăng nhập thiết bị khác, server có thể từ chối request ngay.
+
+Luồng API cần đăng nhập:
+1. Frontend gửi request kèm header:
+   `Authorization: Bearer <accessToken>`
+2. authMiddleware lấy token từ header.
+3. `verifyAccessToken` kiểm tra token có đúng secret và còn hạn không.
+4. Lấy `userId` trong token.
+5. Đọc user mới nhất từ DynamoDB.
+6. Nếu `accountStatus` là locked/deleted thì từ chối.
+7. Lấy `sessionId` trong token.
+8. Kiểm tra `sessionId` có tồn tại trong Redis không.
+9. Nếu hợp lệ thì gắn `req.user = thông tin user đã xác thực`.
+10. Controller mới được xử lý tiếp.
+
+Ví dụ dễ hiểu:
+"JWT giống như vé vào cổng, còn Redis session giống như danh sách vé còn hiệu lực. Có vé nhưng vé đã bị hủy thì vẫn không vào được."
+
+
+6. LUỒNG ĐĂNG KÝ TÀI KHOẢN
+==========================
+
+Route liên quan:
+- POST `/api/users/register/request-otp`
+- POST `/api/users/register/verify-otp`
+- POST `/api/users/register/complete`
+
+File liên quan:
+- `server/routes/userRoutes.js`
+- `server/controllers/userController.js`
+- `server/services/userService.js`
+- `server/utils/sendEmail.js`
+- `server/repository/userRepository.js`
+
+Luồng:
+1. User nhập email trên màn hình đăng ký.
+2. Frontend gọi API request OTP.
+3. Backend kiểm tra email hợp lệ và chưa tồn tại.
+4. Backend tạo OTP 6 số.
+5. OTP được lưu tạm vào Redis, có thời hạn.
+6. Backend gửi OTP qua Gmail bằng Nodemailer.
+7. User nhập OTP.
+8. Backend so sánh OTP user nhập với OTP trong Redis.
+9. Nếu đúng, backend đánh dấu email đã verify tạm thời.
+10. User gửi thông tin hoàn tất đăng ký: email, mật khẩu, tên, số điện thoại...
+11. Backend hash mật khẩu bằng bcrypt.
+12. Backend tạo user mới trong DynamoDB.
+13. Trả về kết quả đăng ký thành công.
+
+Điểm hay để trình bày:
+- OTP không lưu vĩnh viễn, chỉ lưu tạm bằng Redis.
+- Mật khẩu không lưu dạng plain text, mà lưu bản hash.
+- Đăng ký tách thành nhiều bước để tránh tạo tài khoản khi email chưa được xác thực.
+
+
+7. LUỒNG ĐĂNG NHẬP
+==================
+
+Route:
+- POST `/api/users/login`
+
+Luồng:
+1. User nhập email/số điện thoại và mật khẩu.
+2. Frontend gọi API login.
+3. Backend tìm user theo email hoặc số điện thoại.
+4. Nếu không có user thì báo lỗi.
+5. Nếu user bị khóa/xóa thì không cho đăng nhập.
+6. Backend dùng `bcrypt.compare` để so sánh mật khẩu.
+7. Nếu đúng, backend tạo `sessionId`.
+8. Backend tạo access token và refresh token bằng JWT.
+9. Backend lưu `sessionId` vào Redis theo user + platform.
+10. Backend lưu refresh token vào DynamoDB.
+11. Backend lưu login history.
+12. Trả user + token về frontend.
+13. Frontend lưu token vào store/local storage.
+14. Frontend kết nối Socket.IO bằng access token.
+
+Access token:
+- Hạn ngắn, dùng để gọi API.
+
+Refresh token:
+- Hạn dài hơn, dùng để xin access token mới.
+
+Session Redis:
+- Dùng để ép logout, quản lý đăng nhập theo web/mobile, tránh token cũ vẫn dùng mãi.
+
+
+8. LUỒNG REFRESH TOKEN
+======================
+
+Route:
+- POST `/api/users/refresh-token`
+
+Luồng:
+1. Frontend gọi API bình thường.
+2. Nếu backend trả 401 vì access token hết hạn, frontend dùng refresh token để xin token mới.
+3. Backend kiểm tra refresh token có tồn tại trong DB không.
+4. Backend verify refresh token.
+5. Nếu hợp lệ, tạo access token mới.
+6. Frontend lưu access token mới.
+7. Frontend gọi lại request ban đầu.
+
+Web app dùng `fetchWithAuth` để tự động refresh.
+Mobile app dùng axios interceptor để tự động refresh.
+
+Giải thích dễ hiểu:
+"Access token là thẻ ra vào ngắn hạn. Khi hết hạn, refresh token giống như giấy gia hạn để xin thẻ mới mà không bắt user đăng nhập lại."
+
+
+9. LUỒNG ĐĂNG XUẤT VÀ ÉP ĐĂNG XUẤT
+==================================
+
+Đăng xuất:
+1. User bấm logout.
+2. Frontend gọi API logout kèm refresh token.
+3. Backend xóa refresh token khỏi DB.
+4. Backend xóa session trong Redis nếu có.
+5. Frontend xóa token local và disconnect socket.
+
+Ép đăng xuất:
+1. Khi user đăng nhập cùng nền tảng, ví dụ 2 web session khác nhau.
+2. Socket server phát hiện session mới.
+3. Server emit event `session:force_logout` đến socket cũ.
+4. Client cũ hiện thông báo và logout.
+
+Điểm để nói:
+"Hệ thống không chỉ login/logout trên client, mà server cũng quản lý session nên có thể vô hiệu hóa phiên đăng nhập cũ."
+
+
+10. LUỒNG QUÊN MẬT KHẨU
+=======================
+
+Route:
+- POST `/api/users/forgot-password/request-otp`
+- POST `/api/users/forgot-password/verify-otp`
+- POST `/api/users/forgot-password/reset`
+
+Luồng:
+1. User nhập email.
+2. Backend tạo OTP và gửi email.
+3. User nhập OTP.
+4. Backend verify OTP.
+5. Nếu đúng, backend đánh dấu email đã verify trong Redis.
+6. User nhập mật khẩu mới.
+7. Backend kiểm tra trạng thái verified.
+8. Backend hash mật khẩu mới.
+9. Backend cập nhật user trong DynamoDB.
+
+
+11. LUỒNG KHÓA/MỞ KHÓA TÀI KHOẢN
+================================
+
+Chức năng:
+- Khóa tài khoản tạm thời.
+- Khóa vĩnh viễn cần OTP.
+- Mở khóa tài khoản.
+
+Luồng khóa tạm thời:
+1. User đăng nhập vào cài đặt bảo mật.
+2. Nhập mật khẩu hiện tại.
+3. Backend so sánh mật khẩu.
+4. Nếu đúng, cập nhật `accountStatus = locked`.
+5. Các request mới sẽ bị authMiddleware chặn.
+
+Luồng khóa vĩnh viễn:
+1. User yêu cầu OTP khóa vĩnh viễn.
+2. Backend gửi OTP qua email.
+3. User nhập mật khẩu + OTP + xác nhận.
+4. Backend verify mật khẩu và OTP.
+5. Cập nhật tài khoản sang trạng thái deleted/locked theo logic.
+6. Xóa refresh token để phiên cũ không dùng được nữa.
+
+Luồng mở khóa:
+1. User vào màn hình unlock.
+2. Nhập email và mật khẩu.
+3. Backend kiểm tra user và mật khẩu.
+4. Nếu hợp lệ, cập nhật lại `accountStatus = active`.
+
+
+12. LUỒNG QR LOGIN
+==================
+
+Route:
+- POST `/api/users/qr-login/session`
+- GET `/api/users/qr-login/session/:sessionId/status`
+- POST `/api/users/qr-login/confirm`
+
+Ý tưởng:
+Web tạo QR. Mobile đã đăng nhập quét QR và xác nhận. Sau đó web nhận token đăng nhập.
+
+Luồng:
+1. Web gọi API tạo QR session.
+2. Backend tạo `sessionId`, `confirmCode`, `pollToken` và lưu Redis khoảng 120 giây.
+3. Web hiện QR có chứa `sessionId` và `confirmCode`.
+4. Mobile đã đăng nhập quét QR.
+5. Mobile gọi API confirm kèm token của user mobile.
+6. Backend kiểm tra QR session còn hạn và `confirmCode` đúng.
+7. Backend tạo login session mới cho nền tảng web.
+8. Web liên tục poll status bằng `sessionId + pollToken`.
+9. Khi status confirmed, web nhận auth token và đăng nhập.
+
+Nói đơn giản:
+"QR login dùng Redis để lưu phiên tạm thời. Mobile xác nhận xong thì web lấy token từ phiên QR đó."
+
+
+13. LUỒNG LẤY DANH SÁCH HỘI THOẠI
+=================================
+
+Route:
+- GET `/api/conversations`
+
+Luồng:
+1. User đã đăng nhập vào màn hình chat.
+2. Frontend gọi `/api/conversations`.
+3. authMiddleware xác thực token.
+4. conversationController lấy `userId` từ `req.user`.
+5. conversationService gọi model lấy các conversation mà user là participant.
+6. Backend enrich thông tin participant nếu cần.
+7. Trả danh sách về frontend.
+8. Frontend hiện sidebar/danh sách chat.
+9. Socket client join các room hội thoại để nhận realtime.
+
+
+14. LUỒNG TẠO HỘI THOẠI CÁ NHÂN
+===============================
+
+Route:
+- POST `/api/conversations`
+
+Luồng:
+1. User chọn một bạn để chat.
+2. Frontend gửi danh sách thành viên.
+3. Backend kiểm tra user đăng nhập.
+4. Backend tạo conversation type private.
+5. Conversation có participants gồm 2 user.
+6. Lưu vào DynamoDB.
+7. Trả conversation mới về client.
+8. Client mở phòng chat và join socket room.
+
+Lưu ý:
+- Nếu đã có conversation private giữa 2 người, hệ thống có thể tái sử dụng conversation cũ tùy logic trong service/model.
+
+
+15. LUỒNG GỬI TIN NHẮN REALTIME
+===============================
+
+File quan trọng:
+- `apps/web/src/lib/socket.ts`
+- `apps/mobile/src/lib/socket.ts`
+- `server/config/socket.js`
+- `server/services/messageService.js`
+- `server/models/message.js`
+- `server/models/conversation.js`
+
+Socket event:
+- `chat:send`
+- `chat:message`
+- `chat:conversation_updated`
+
+Luồng chi tiết:
+1. User gõ nội dung và bấm gửi.
+2. Frontend tạo payload:
+   - `conversationId`
+   - `type`: text/image/video/file/voice/sticker/poll/call
+   - `content`
+   - `attachments`
+   - `replyTo`
+   - `metadata`
+3. Frontend emit socket event `chat:send`.
+4. Socket server lấy `userId` từ socket đã xác thực.
+5. Server kiểm tra `conversationId` có tồn tại.
+6. Server kiểm tra user có là thành viên conversation không.
+7. Nếu là chat nhóm:
+   - Kiểm tra quyền gửi tin/gửi media/gửi announcement.
+8. Nếu là chat cá nhân:
+   - Kiểm tra quan hệ chặn/bỏ chặn.
+9. Nếu là poll:
+   - Chuẩn hóa nội dung poll.
+   - Chỉ cho poll trong group.
+10. Server gọi `messageService.createMessage`.
+11. messageService lưu message vào DynamoDB.
+12. Nếu message type voice, đánh dấu `transcriptStatus = processing`.
+13. Nếu là voice, chạy transcript nền bằng Gemini.
+14. Server cập nhật `lastMessage` của conversation.
+15. Server emit `chat:message` đến các user khác trong room.
+16. Server trả ACK về user gửi với message đã lưu thật.
+17. Client thay temp message bằng message thật nếu có `clientTempId`.
+18. UI cập nhật tin nhắn và last message.
+
+Giải thích cực ngắn:
+"Khi gửi tin nhắn, client không gửi cho từng người riêng lẻ. Client gửi lên server, server lưu database, rồi phát lại cho các thành viên trong room."
+
+
+16. LUỒNG LẤY LỊCH SỬ TIN NHẮN
+==============================
+
+Route:
+- GET `/api/messages/conversation/:conversationId`
+
+Luồng:
+1. User mở conversation.
+2. Frontend gọi API lấy messages theo `conversationId`.
+3. Backend xác thực user.
+4. Backend kiểm tra user có trong conversation không.
+5. messageService lấy messages từ DynamoDB.
+6. Service bỏ các tin đã "delete for me" với user hiện tại.
+7. Service bổ sung tên/avatar sender.
+8. Service bổ sung tên người reaction nếu thiếu.
+9. Nếu có voice message chưa transcript, service có thể backfill transcript gần nhất.
+10. Trả danh sách tin nhắn về UI.
+
+
+17. LUỒNG TYPING, ĐÃ ĐỌC, REACTION
+==================================
+
+Typing:
+1. User đang gõ chữ.
+2. Client emit `chat:typing`.
+3. Server kiểm tra user có trong conversation.
+4. Server emit `chat:typing` cho các user khác trong room.
+5. UI hiện "Đang nhập...".
+
+Stop typing:
+1. User ngừng gõ.
+2. Client emit `chat:stop_typing`.
+3. Server phát event cho các user khác.
+
+Đã đọc:
+1. User xem đến một tin nhắn.
+2. Client emit `chat:read` với `messageId`.
+3. Server kiểm tra message thuộc conversation.
+4. Server thêm `userId` vào `readBy`.
+5. Server emit `chat:read` cho room.
+6. UI cập nhật dấu đã đọc.
+
+Reaction:
+1. User chọn emoji cho tin nhắn.
+2. Client emit `chat:reaction`.
+3. Server cập nhật reactions trong message.
+4. Server emit message đã update cho room.
+5. UI hiện emoji reaction.
+
+
+18. LUỒNG THU HỒI VÀ XÓA TIN NHẮN
+=================================
+
+Thu hồi tin nhắn:
+1. User chọn thu hồi.
+2. Client emit `chat:recall`.
+3. Server kiểm tra quyền, thường chỉ sender mới được thu hồi.
+4. Server đánh dấu message `isDeleted` hoặc cập nhật content thành trạng thái đã thu hồi.
+5. Server emit update đến room.
+6. Tất cả thành viên thấy tin nhắn đã bị thu hồi.
+
+Xóa cho riêng mình:
+1. User chọn xóa cho tôi.
+2. Client gọi API `delete-for-me`.
+3. Server thêm `userId` vào `deletedForUserIds`.
+4. Khi user đó lấy lại lịch sử, message này bị lọc ra.
+5. Người khác vẫn thấy message.
+
+Xóa cả lịch sử phòng:
+1. Gọi API `/api/messages/room/:roomId`.
+2. Server xóa messages theo `conversationId`.
+3. Thường dùng cho cleanup/test hoặc tính năng xóa lịch sử.
+
+
+19. LUỒNG GỬI FILE/ẢNH/VIDEO
+============================
+
+Route:
+- POST `/api/upload`
+
+File liên quan:
+- `server/middlewares/upload.js`
+- `server/services/file.service.js`
+- `server/utils/aws-helper.js`
+
+Luồng:
+1. User chọn file trong chat/moment/profile.
+2. Frontend tạo FormData và gửi lên `/api/upload`.
+3. authMiddleware kiểm tra token.
+4. upload middleware dùng Multer đọc file vào memory.
+5. Multer kiểm tra:
+   - Định dạng file có được hỗ trợ không.
+   - Kích thước tối đa 50MB.
+   - Số lượng tối đa 10 file/lần.
+6. file.service kiểm tra MIME type lần nữa.
+7. Nếu file HEIC/HEIF, convert sang JPEG.
+8. Tạo object key riêng cho S3.
+9. Upload buffer lên S3.
+10. Nếu có CloudFront URL thì trả CloudFront URL.
+11. Nếu không, trả S3 Location.
+12. Frontend dùng URL đó gắn vào message/moment/avatar.
+
+Nói đơn giản:
+"Tin nhắn media không lưu file trực tiếp trong database. Database chỉ lưu URL, còn file thật nằm trên S3."
+
+
+20. LUỒNG VOICE MESSAGE VÀ TRANSCRIPT
+=====================================
+
+File:
+- `server/services/messageService.js`
+- `server/services/voiceTranscriptService.js`
+
+Luồng:
+1. User ghi âm và gửi voice message.
+2. File audio được upload lên S3.
+3. Message được tạo với `type = voice`.
+4. Backend lưu message với metadata `transcriptStatus = processing`.
+5. Backend trả message về UI trước, không đợi AI xử lý xong.
+6. Trong nền, voiceTranscriptService lấy audio URL.
+7. Gọi Gemini model để chuyển audio thành text.
+8. Nếu thành công, cập nhật transcript vào content/metadata của message.
+9. Nếu lỗi tạm thời, có retry theo cấu hình.
+
+Điểm hay:
+- Transcript chạy background nên user không bị đợi lâu khi gửi voice.
+- Có timeout, retry, và có trạng thái failed/processing.
+
+
+21. LUỒNG POLL TRONG NHÓM
+=========================
+
+Route:
+- POST `/api/messages/:id/poll/vote`
+- POST `/api/messages/:id/poll/options`
+- DELETE `/api/messages/:id/poll/options/:optionId`
+
+File:
+- `server/services/pollService.js`
+
+Luồng tạo poll:
+1. User trong group tạo poll.
+2. Client gửi message type poll.
+3. Server chỉ cho poll trong group.
+4. pollService chuẩn hóa câu hỏi, options, setting.
+5. Message poll được lưu như một message đặc biệt.
+6. UI render bằng PollMessageCard.
+
+Luồng vote:
+1. User chọn option.
+2. Client gọi API vote.
+3. Server lấy message poll.
+4. pollService kiểm tra poll hết hạn chưa, cho vote nhiều option không.
+5. Cập nhật votes.
+6. Server trả message mới.
+7. UI cập nhật kết quả.
+
+
+22. LUỒNG TẠO NHÓM
+==================
+
+Route:
+- POST `/api/groups`
+
+File:
+- `server/controllers/groupController.js`
+- `server/services/groupService.js`
+- `server/repository/groupRepository.js`
+- `server/models/participant.js`
+
+Luồng:
+1. User bấm tạo nhóm.
+2. Nhập tên nhóm, chọn thành viên, có thể chọn avatar.
+3. Frontend gửi request lên `/api/groups`.
+4. Backend xác thực user.
+5. Nếu có avatar, upload middleware xử lý file.
+6. groupService kiểm tra tên nhóm không rỗng.
+7. Tạo participants:
+   - Người tạo là admin.
+   - Các thành viên được mời là member.
+8. Tạo `groupSettings` mặc định:
+   - invite code.
+   - `approvalRequired`.
+   - permissions.
+   - `pinnedMessage`.
+9. Lưu conversation type group vào DynamoDB.
+10. Trả group về frontend.
+
+Nói đơn giản:
+"Nhóm chat là một conversation có type group, bên trong có danh sách participants và role của từng người."
+
+
+23. LUỒNG QUẢN LÝ QUYỀN NHÓM
+============================
+
+Vai trò:
+- admin: quyền cao nhất.
+- deputy: phó nhóm.
+- member: thành viên thường.
+
+Quyền có thể cấu hình:
+- `sendMessage`: ai được gửi tin text.
+- `sendMedia`: ai được gửi ảnh/video/file/voice/sticker.
+- `startCall`: ai được bắt đầu cuộc gọi.
+- `pinMessage`: ai được ghim tin.
+- `sendAnnouncement`: ai được gửi thông báo nhóm.
+
+Phạm vi quyền:
+- all: tất cả thành viên.
+- admin_deputy: admin và deputy.
+- admin: chỉ admin.
+
+Luồng kiểm tra quyền khi gửi tin:
+1. User emit `chat:send`.
+2. Server lấy conversation.
+3. Nếu conversation type group, gọi `GroupService.ensureCanSendMessage`.
+4. Service tìm participant của user.
+5. Lấy `settings.permissions`.
+6. Nếu message là media thì kiểm tra `sendMedia`.
+7. Nếu là announcement thì kiểm tra `sendAnnouncement`.
+8. Nếu là text/poll thì kiểm tra `sendMessage`.
+9. Nếu role không đủ cấp, server trả lỗi 403.
+10. Nếu đủ quyền, message được lưu và phát realtime.
+
+
+24. LUỒNG THÊM/XÓA THÀNH VIÊN NHÓM
+==================================
+
+Thêm thành viên:
+1. User trong nhóm chọn thêm thành viên.
+2. Client gọi `/api/groups/:id/add-member`.
+3. Backend kiểm tra group tồn tại.
+4. Kiểm tra người thêm có trong nhóm.
+5. Kiểm tra user mới chưa có trong nhóm.
+6. Tạo participant role member.
+7. Cập nhật participants trong group.
+8. Tạo system message nếu controller có gọi.
+9. Emit update đến các thành viên.
+
+Xóa thành viên:
+1. Admin/deputy chọn xóa thành viên.
+2. Backend kiểm tra role người thực hiện.
+3. Deputy chỉ được xóa member, không được xóa admin/deputy.
+4. Không cho user xóa chính mình bằng remove-member.
+5. Cập nhật participants.
+6. Emit update.
+
+
+25. LUỒNG CHUYỂN TRƯỞNG NHÓM, PHÓ NHÓM, RỜI NHÓM
+================================================
+
+Chuyển trưởng nhóm:
+1. Admin chọn thành viên mới.
+2. Backend kiểm tra người gọi có role admin.
+3. Kiểm tra target user có trong nhóm.
+4. Admin cũ bị hạ xuống member.
+5. Target user được gán role admin.
+6. Lưu participants mới.
+
+Bổ nhiệm phó nhóm:
+1. Admin chọn member.
+2. Backend kiểm tra admin.
+3. Target user từ member thành deputy.
+
+Gỡ phó nhóm:
+1. Admin chọn deputy.
+2. Backend chuyển deputy về member.
+
+Rời nhóm:
+1. User bấm rời nhóm.
+2. Nếu user là member/deputy, xóa user khỏi participants.
+3. Nếu user là admin, phải chọn admin mới trước khi rời.
+4. Nếu nhóm chỉ còn 1 người, không cho rời nhóm theo logic hiện tại.
+
+Giải tán nhóm:
+1. Chỉ admin được giải tán.
+2. Backend xóa messages của conversation.
+3. Backend xóa group/conversation.
+
+
+26. LUỒNG MÃ MỜI VÀ DUYỆT VÀO NHÓM
+==================================
+
+Route:
+- GET `/api/groups/:id/settings`
+- POST `/api/groups/:id/invite/rotate`
+- PATCH `/api/groups/:id/settings/invite`
+- POST `/api/groups/join-by-invite`
+- GET `/api/groups/:id/join-requests`
+- POST `/api/groups/:id/join-requests/:requestId/review`
+
+Luồng lấy mã mời:
+1. Thành viên vào cài đặt nhóm.
+2. Backend trả invite code và invite URL.
+
+Luồng đổi mã mời:
+1. Admin/deputy bấm đổi mã.
+2. Backend tạo invite code mới.
+3. Mã cũ hết hiệu lực.
+
+Luồng xin vào nhóm:
+1. User có invite code.
+2. Client gọi `join-by-invite`.
+3. Backend tìm group theo invite code.
+4. Nếu `approvalRequired = false`, thêm user vào group ngay.
+5. Nếu `approvalRequired = true`, tạo joinRequest status pending.
+
+Luồng duyệt:
+1. Admin/deputy xem danh sách join requests.
+2. Chọn approve/reject.
+3. Nếu approve, backend thêm user vào participants.
+4. Nếu reject, chỉ cập nhật status rejected.
+
+
+27. LUỒNG BẠN BÈ
+================
+
+Route:
+- GET `/api/users/phone/:phone`
+- POST `/api/friends/requests`
+- POST `/api/friends/requests/accept`
+- POST `/api/friends/requests/reject`
+- GET `/api/friends/requests/pending/:userId`
+- GET `/api/friends/:userId`
+- DELETE `/api/friends/:friendId`
+- POST `/api/friends/block/:targetUserId`
+- DELETE `/api/friends/block/:targetUserId`
+
+Tìm người dùng:
+1. User nhập số điện thoại.
+2. Frontend gọi `/api/users/phone/:phone`.
+3. Backend tìm user trong DynamoDB.
+4. Trả thông tin user nếu có.
+
+Gửi lời mời kết bạn:
+1. User bấm kết bạn.
+2. Backend kiểm tra không gửi cho chính mình.
+3. Kiểm tra đã là bạn/chưa.
+4. Tạo record friendship/request trong DynamoDB.
+5. Có thể tạo thông báo cho người nhận.
+
+Chấp nhận kết bạn:
+1. Người nhận bấm chấp nhận.
+2. Backend cập nhật trạng thái accepted.
+3. Hai bên xuất hiện trong danh sách bạn bè.
+
+Từ chối:
+1. Cập nhật request thành rejected hoặc xóa request.
+
+Xóa bạn:
+1. User chọn xóa bạn.
+2. Backend xóa/cập nhật quan hệ bạn bè.
+3. Hai bên không còn là bạn.
+
+Chặn user:
+1. User chọn chặn.
+2. Backend tạo/cập nhật trạng thái block.
+3. Khi gửi tin nhắn cá nhân, `friendService.ensureCanMessageBetweenUsers` sẽ chặn nếu có block.
+
+
+28. LUỒNG LABEL/PHÂN LOẠI HỘI THOẠI
+===================================
+
+Route:
+- POST `/api/labels`
+- GET `/api/labels`
+- PUT `/api/labels/:id`
+- DELETE `/api/labels/:id`
+
+Ý tưởng:
+Label dùng để phân loại hội thoại, ví dụ công việc, gia đình, bạn bè.
+
+Luồng:
+1. User vào quản lý label.
+2. Gọi GET `/api/labels` để lấy danh sách.
+3. Nếu chưa có, service có thể tạo default labels.
+4. User tạo label mới với name + color.
+5. Backend lưu label theo `userId`.
+6. User có thể sửa tên/màu hoặc xóa.
+
+
+29. LUỒNG MOMENTS
+=================
+
+Route:
+- POST `/api/moments`
+- PUT `/api/moments/:momentId`
+- GET `/api/moments/friends`
+- GET `/api/moments/me`
+- GET `/api/moments/user/:userId`
+- PUT `/api/moments/:momentId/reaction`
+- POST `/api/moments/:momentId/comments`
+- GET `/api/moments/:momentId/comments`
+- DELETE `/api/moments/:momentId/comments/:commentId`
+- PUT `/api/moments/:momentId/comments/:commentId/reaction`
+- POST `/api/moments/:momentId/share`
+- DELETE `/api/moments/:momentId`
+
+Tạo moment:
+1. User nhập nội dung, chọn ảnh/video nếu có.
+2. Frontend upload media hoặc gửi file kèm request.
+3. Backend upload file lên S3 nếu có.
+4. momentService kiểm tra nội dung hợp lệ.
+5. Lưu moment vào DynamoDB với `userId`, `content`, `mediaUrls`.
+6. Trả moment về frontend.
+
+Lấy feed bạn bè:
+1. User vào tab Moments.
+2. Frontend gọi `/api/moments/friends`.
+3. Backend lấy danh sách bạn bè của user.
+4. Lấy moments của user và bạn bè.
+5. Enrich thông tin user, số reaction, số comment, viewer đã reaction chưa.
+6. Sắp xếp mới nhất trước.
+7. Trả feed về UI.
+
+Reaction moment:
+1. User bấm emoji/like.
+2. Backend kiểm tra moment tồn tại và user có quyền xem.
+3. Cập nhật reaction.
+4. Cập nhật `reactionCount`.
+5. Nếu actor không phải chủ moment, tạo notification.
+6. Emit `notification:new` đến chủ moment.
+
+Bình luận:
+1. User nhập comment.
+2. Backend kiểm tra moment visible.
+3. Tạo comment trong DynamoDB.
+4. Tăng `commentCount`.
+5. Nếu comment vào bài người khác, tạo notification.
+6. Nếu reply comment, có thể thông báo cho người được reply.
+
+Xóa moment:
+1. User chọn xóa bài.
+2. Backend kiểm tra user là chủ moment.
+3. Xóa moment.
+4. Có thể xóa media liên quan trên S3.
+5. Xóa/cập nhật comment/reaction liên quan tùy logic repository.
+
+
+30. LUỒNG THÔNG BÁO REALTIME
+============================
+
+Route:
+- GET `/api/notifications`
+- PATCH `/api/notifications/:notificationId/read`
+- PATCH `/api/notifications/read-all`
+
+File:
+- `server/services/notificationService.js`
+- `server/utils/socketEmitter.js`
+- `apps/web/src/stores/notificationStore.ts`
+- `apps/mobile/src/stores/notificationStore.ts`
+
+Luồng tạo thông báo:
+1. Một hành động xảy ra, ví dụ comment vào moment của người khác.
+2. Service gọi `NotificationService.createNotification`.
+3. Notification được lưu vào DynamoDB.
+4. NotificationService emit event `notification:new` tới user nhận.
+5. Web/mobile đang online nhận event.
+6. Store thêm notification mới vào đầu danh sách.
+7. UI tăng unread count và có thể hiện local notification.
+
+Luồng đánh dấu đã đọc:
+1. User mở notification.
+2. Client gọi mark read.
+3. Backend kiểm tra notification có thuộc user không.
+4. Cập nhật `isRead = true`, `readAt = now`.
+5. Trả về notification mới.
+
+
+31. LUỒNG ONLINE/OFFLINE PRESENCE
+=================================
+
+File:
+- `server/config/socket.js`
+- `server/utils/redisClient.js`
+- `server/repository/userRepository.js`
+
+Luồng khi user online:
+1. Client connect Socket.IO kèm access token.
+2. Socket middleware verify token và session.
+3. Server gắn `socket.userId`.
+4. Socket join room riêng: `user:<userId>`.
+5. Server lưu presence key vào Redis:
+   `presence:<userId>:<platform>`
+6. Key có TTL khoảng 90 giây.
+7. Server cập nhật user `presenceStatus = online` trong DB.
+8. Server broadcast `presence:online`.
+9. Định kỳ heartbeat refresh TTL.
+
+Luồng khi disconnect:
+1. Socket disconnect.
+2. Server xóa presence key nếu socketId trùng.
+3. Kiểm tra user còn socket nào online không.
+4. Nếu không, cập nhật `presenceStatus = offline` và `lastActiveAt`.
+5. Broadcast `presence:offline`.
+
+Nói đơn giản:
+"Online/offline không chỉ dựa vào database, mà dùng Redis TTL để tránh trường hợp app tắt đột ngột mà trạng thái bị treo online mãi."
+
+
+32. LUỒNG GỌI AUDIO/VIDEO CÁ NHÂN
+=================================
+
+Công nghệ:
+- WebRTC truyền audio/video.
+- Socket.IO làm kênh signaling.
+
+Socket event:
+- `video:call-user`
+- `video:answer-call`
+- `video:reject-call`
+- `video:end-call`
+- `video:signal`
+- `webrtc:offer`
+- `webrtc:answer`
+- `webrtc:ice-candidate`
+
+Luồng đơn giản:
+1. User A bấm gọi user B.
+2. Client A emit `video:call-user`.
+3. Server gửi event incoming call đến room `user:B`.
+4. Client B hiện modal cuộc gọi đến.
+5. B chấp nhận thì emit `video:answer-call`.
+6. Hai client trao đổi WebRTC offer/answer/ICE qua Socket.IO.
+7. Khi WebRTC kết nối, audio/video truyền trực tiếp giữa client.
+8. Khi kết thúc, client emit `video:end-call`.
+9. Server có thể lưu message type call vào conversation để hiện lịch sử cuộc gọi.
+
+Giải thích dễ hiểu:
+"Socket.IO không phải là nơi truyền video chính. Nó chủ yếu dùng để hai máy tìm thấy nhau và trao đổi thông tin kết nối. Khi kết nối WebRTC xong, audio/video chạy qua WebRTC."
+
+
+33. LUỒNG GỌI NHÓM
+==================
+
+File:
+- `server/config/socket.js`
+- `server/services/groupCallManager.js`
+
+Socket event:
+- `group:create`
+- `group:invite`
+- `group:incoming`
+- `group:join`
+- `group:leave`
+- `group:kick`
+- `group:media-toggle`
+- `group:check-active`
+- `group:user-joined`
+- `group:user-left`
+- `group:room-ended`
+
+Luồng:
+1. User trong group bấm tạo cuộc gọi.
+2. Client emit `group:create` với `conversationId`.
+3. Server kiểm tra user là thành viên group.
+4. Server kiểm tra quyền `startCall` trong group settings.
+5. groupCallManager tạo room call trong memory.
+6. User tạo call được gán host.
+7. Nếu autoInvite, server gửi `group:incoming` đến các thành viên online.
+8. Người khác bấm tham gia, emit `group:join`.
+9. Server thêm participant vào room.
+10. Server gửi danh sách người đang trong room cho user mới.
+11. Các client trao đổi WebRTC offer/answer/ICE để tạo mesh call.
+12. Khi user mute/camera off, emit `group:media-toggle`.
+13. Khi user rời call, emit `group:leave`.
+14. Nếu room hết người, server destroy room và emit `group:room-ended`.
+
+Điểm cần nhớ:
+- Room call nhóm được quản lý trong memory, không phải DynamoDB.
+- DynamoDB có thể chỉ lưu lịch sử call nếu có message call.
+
+
+34. LUỒNG AI ASSISTANT
+======================
+
+Route:
+- POST `/api/ai/chat`
+- GET `/api/ai/history`
+- DELETE `/api/ai/history/:conversationId`
+- GET `/api/ai/summarize/:conversationId`
+- GET `/api/conversations/:id/daily-summary`
+
+File:
+- `server/services/aiService.js`
+- `server/controllers/aiController.js`
+- `server/repository/aiChatHistoryRepository.js`
+- `server/repository/aiChatMessageRepository.js`
+- `docs/HUONG_DAN_CHUC_NANG_HE_THONG.md`
+
+Công nghệ:
+- Google Gemini chat model.
+- Google Generative AI Embeddings.
+- LangChain message/tool abstraction.
+
+Luồng hỏi AI:
+1. User vào tab AI/Discover.
+2. Nhập câu hỏi.
+3. Frontend gọi `/api/ai/chat`.
+4. Backend xác thực user.
+5. aiService lấy thông tin user hiện tại.
+6. Nếu câu hỏi liên quan "tôi tên gì", service có thể trả lời trực tiếp từ currentUser.
+7. Nếu có `conversationId`:
+   - Lấy messages trong conversation.
+   - Biến messages thành documents.
+   - Tạo embedding cho documents và câu hỏi.
+   - Tính cosine similarity để chọn đoạn liên quan nhất.
+8. Đọc tài liệu hướng dẫn hệ thống từ `docs/HUONG_DAN_CHUC_NANG_HE_THONG.md`.
+9. Tạo prompt gồm:
+   - System rules.
+   - Current user.
+   - Context hội thoại liên quan.
+   - Tài liệu hướng dẫn hệ thống.
+   - Câu hỏi user.
+10. Gọi Gemini.
+11. Nếu model yêu cầu tool, backend chạy tool nội bộ:
+   - `get_user_info`.
+   - `get_user_friends`.
+   - `summarize_today_chats`.
+12. Đưa kết quả tool quay lại model.
+13. Lấy câu trả lời cuối cùng.
+14. Lưu question/answer vào AI chat message history.
+15. Cập nhật metadata conversation AI.
+16. Trả reply về frontend.
+
+Giải thích dễ hiểu:
+"AI không chỉ trả lời bằng trí nhớ mô hình. Nó được cấp ngữ cảnh từ tin nhắn, thông tin user và tài liệu hướng dẫn hệ thống, nên trả lời sát ứng dụng hơn."
+
+Lưu ý khi trình bày:
+- Nên nói AI có giới hạn quyền: nó chỉ dùng dữ liệu mà backend đưa vào prompt/tool.
+- Nếu không có context, AI hỏi lại hoặc trả lời theo hướng dẫn chung.
+
+
+35. LUỒNG TÓM TẮT HỘI THOẠI TRONG NGÀY
+======================================
+
+Route:
+- GET `/api/conversations/:id/daily-summary`
+- GET `/api/ai/summarize/:conversationId`
+
+Luồng:
+1. User bấm tóm tắt trong một conversation.
+2. Frontend gửi `conversationId`, `date`, timezone offset nếu có.
+3. Backend kiểm tra user có trong conversation.
+4. Lấy tất cả messages của conversation.
+5. Lọc messages trong ngày cần tóm tắt.
+6. Bỏ message đã xóa.
+7. Lấy tên người gửi để format chat log.
+8. Tạo prompt yêu cầu Gemini tóm tắt 3-6 câu.
+9. Gemini trả summary.
+10. Backend trả:
+   - `conversationId`
+   - `conversationName`
+   - `summary`
+   - `messageCount`
+   - `date`
+   - `tzOffsetMinutes`
+
+Điểm hay:
+- Có xử lý timezone để "trong ngày" đúng với giờ người dùng.
+- Giờ Việt Nam/Asia Ho Chi Minh được dùng khi format giờ trong chat log.
+
+
+36. LUỒNG LỊCH SỬ AI
+====================
+
+Route:
+- GET `/api/ai/history`
+- DELETE `/api/ai/history/:conversationId`
+
+Luồng lấy history:
+1. User mở lịch sử AI.
+2. Frontend gọi API kèm limit/conversationId nếu có.
+3. Backend lấy `userId` từ token.
+4. Repository lấy AI chat messages trong DynamoDB.
+5. Trả danh sách question/answer.
+
+Luồng xóa thread:
+1. User chọn xóa một thread AI.
+2. Frontend gọi DELETE với `conversationId`.
+3. Backend xóa tất cả messages AI của user trong `conversationId` đó.
+4. Xóa metadata thread.
+5. Trả `deletedCount`.
+
+
+37. LUỒNG FRONTEND WEB
+======================
+
+File:
+- `apps/web/src/App.tsx`
+- `apps/web/src/services/api.ts`
+- `apps/web/src/lib/socket.ts`
+- `apps/web/src/stores/*.ts`
+
+Khi app web mở:
+1. React render App.
+2. authStore kiểm tra user/token đã lưu.
+3. Nếu chưa đăng nhập, public route đưa về login/register.
+4. Nếu đã đăng nhập, private route cho vào `/chat`.
+5. App gọi `initializeCacheForUser` để chuẩn bị cache chat.
+6. SocketService connect bằng access token.
+7. App load notifications ban đầu.
+8. App lắng nghe:
+   - `session:force_logout`
+   - `connect_error`
+   - `notification:new`
+9. Khi có notification realtime, store prepend notification và hiện thông báo.
+
+fetchWithAuth:
+1. Mỗi request thêm Authorization header.
+2. Nếu là POST/PUT/PATCH và body không phải FormData, thêm Content-Type JSON.
+3. Nếu response 401, tự động gọi refresh-token.
+4. Nếu refresh thành công, retry request ban đầu.
+5. Nếu refresh thất bại, logout và chuyển về login.
+
+SocketService web:
+1. Tạo socket với token và `platform = web`.
+2. Tự động reconnect.
+3. Khi reconnect, join lại các room đã join.
+4. Cung cấp hàm:
+   - `joinRoom`
+   - `leaveRoom`
+   - `sendMessage`
+   - `sendTyping`
+   - `stopTyping`
+   - `markAsRead`
+   - `reactToMessage`
+   - `recallMessage`
+
+
+38. LUỒNG FRONTEND MOBILE
+=========================
+
+File:
+- `apps/mobile/src/app/_layout.tsx`
+- `apps/mobile/src/services/apiClient.ts`
+- `apps/mobile/src/lib/socket.ts`
+
+Khi app mobile mở:
+1. Expo Router load RootLayout.
+2. authStore initialize token/user từ storage.
+3. Nếu chưa đăng nhập, vào group screen auth.
+4. Nếu đã đăng nhập, vào tabs.
+5. Chat service init.
+6. Socket connect bằng access token, `platform = mobile`.
+7. Đăng ký push/local notification.
+8. Load notifications ban đầu.
+9. Prewarm gợi ý liên hệ.
+10. Lắng nghe force logout, connect error, `notification:new`.
+
+apiClient mobile:
+1. Dùng axios.
+2. Request interceptor lấy token từ Zustand, AsyncStorage, persisted auth.
+3. Gắn Authorization header.
+4. Nếu request là FormData thì không set Content-Type thủ công.
+5. Response interceptor gặp 401 thì refresh token.
+6. Nếu refresh fail, force logout.
+
+SocketService mobile:
+1. Tạo socket với token và `platform = mobile`.
+2. Có reconnection attempts.
+3. Khi connect lại, join lại room đã join.
+4. Có hàm emit/on/off/joinRoom/leaveRoom.
+
+
+39. CÁC BẢNG/ĐỐI TƯỢNG DỮ LIỆU CHÍNH
+====================================
+
+User:
+- `userId`
+- `email`
+- `phone`
+- `userName/fullName`
+- password hash
+- avatar
+- `accountStatus`
+- `presenceStatus`
+- `lastActiveAt`
+
+RefreshToken:
+- `refreshToken`
+- `userId`
+- `sessionId`
+- `platform`
+- `loginId`
+- `expiredAt`
+
+LoginHistory:
+- `loginId`
+- `userId`
+- `platform`
+- `deviceInfo`
+- `ipAddress`
+- `sessionId`
+- `loginAt`
+- `logoutAt`
+
+Conversation:
+- `_id`
+- `type`: private/group
+- `name`
+- `avatar`
+- `participants`
+- `lastMessage`
+- `groupSettings`
+- `background`
+- `pinnedMessage`
+
+Participant:
+- `userId`
+- `role`
+- `joinedAt`
+- settings riêng của user trong conversation
+
+Message:
+- `_id`
+- `conversationId`
+- `senderId`
+- `type`
+- `content`
+- `attachments`
+- `metadata`
+- `replyTo`
+- `reactions`
+- `readBy`
+- `isDeleted`
+- `deletedForUserIds`
+- `createdAt`
+- `updatedAt`
+
+Friends:
+- `fromUserId/toUserId` hoặc `userId/friendId` tùy repository
+- `status`: pending/accepted/rejected/blocked
+- `message`
+- `createdAt`
+
+Moment:
+- `momentId`
+- `userId`
+- `content`
+- `mediaUrls`
+- `reactionCount`
+- `commentCount`
+- `shareCount`
+- `createdAt`
+
+MomentComment:
+- `commentId`
+- `momentId`
+- `userId`
+- `content`
+- `replyToCommentId`
+- `reactions`
+- `createdAt`
+
+MomentReaction:
+- `momentId`
+- `userId`
+- `emoji`
+- `createdAt`
+
+Notification:
+- `notificationId`
+- `recipientId`
+- `actorId`
+- `title`
+- `body`
+- `momentId`
+- `commentId`
+- `reactionEmoji`
+- `isRead`
+- `createdAt`
+
+AIChatMessage:
+- `userId`
+- `conversationId`
+- `chatId`
+- `question`
+- `answer`
+- `askedAt`
+
+AIChatHistory:
+- `userId`
+- `conversationId`
+- `title`
+- `askedAt`
+
+Label:
+- `id`
+- `userId`
+- `name`
+- `color`
+
+
+40. MỘT SỐ API CHÍNH ĐỂ NHỚ KHI BÁO CÁO
+=======================================
+
+Tài khoản:
+- POST `/api/users/register/request-otp`
+- POST `/api/users/register/verify-otp`
+- POST `/api/users/register/complete`
+- POST `/api/users/login`
+- POST `/api/users/logout`
+- POST `/api/users/refresh-token`
+- POST `/api/users/forgot-password/request-otp`
+- POST `/api/users/forgot-password/verify-otp`
+- POST `/api/users/forgot-password/reset`
+
+Chat:
+- GET `/api/conversations`
+- POST `/api/conversations`
+- GET `/api/messages/conversation/:conversationId`
+- POST `/api/messages`
+- DELETE `/api/messages/:id`
+- POST `/api/messages/:id/delete-for-me`
+
+Group:
+- POST `/api/groups`
+- GET `/api/groups/:id/settings`
+- PATCH `/api/groups/:id/settings/permissions`
+- PUT `/api/groups/:id/add-member`
+- PUT `/api/groups/:id/remove-member`
+- PUT `/api/groups/:id/transfer-admin`
+- PUT `/api/groups/:id/appoint-deputy`
+- PUT `/api/groups/:id/revoke-deputy`
+- PUT `/api/groups/:id/leave`
+- DELETE `/api/groups/:id`
+
+Moment:
+- POST `/api/moments`
+- GET `/api/moments/friends`
+- PUT `/api/moments/:momentId/reaction`
+- POST `/api/moments/:momentId/comments`
+
+Notification:
+- GET `/api/notifications`
+- PATCH `/api/notifications/:notificationId/read`
+- PATCH `/api/notifications/read-all`
+
+AI:
+- POST `/api/ai/chat`
+- GET `/api/ai/history`
+- DELETE `/api/ai/history/:conversationId`
+- GET `/api/ai/summarize/:conversationId`
+
+Upload:
+- POST `/api/upload`
+
+
+41. MỘT SỐ SOCKET EVENT CHÍNH ĐỂ NHỚ
+====================================
+
+Chat:
+- `room:join`
+- `room:leave`
+- `chat:send`
+- `chat:message`
+- `chat:typing`
+- `chat:stop_typing`
+- `chat:read`
+- `chat:reaction`
+- `chat:recall`
+- `chat:conversation_updated`
+
+Presence:
+- `presence:online`
+- `presence:offline`
+- `presence:get_online_users`
+
+Notification:
+- `notification:new`
+
+Session:
+- `session:force_logout`
+
+Call cá nhân:
+- `video:call-user`
+- `video:answer-call`
+- `video:reject-call`
+- `video:end-call`
+- `video:signal`
+
+WebRTC:
+- `webrtc:offer`
+- `webrtc:answer`
+- `webrtc:ice-candidate`
+
+Group call:
+- `group:create`
+- `group:invite`
+- `group:incoming`
+- `group:join`
+- `group:leave`
+- `group:kick`
+- `group:media-toggle`
+- `group:check-active`
+- `group:user-joined`
+- `group:user-left`
+- `group:room-ended`
+
+
+42. CÁC LUỒNG DEMO NÊN CHUẨN BỊ
+===============================
+
+Demo 1: Đăng ký/đăng nhập
+1. Mở trang đăng ký.
+2. Nhập email.
+3. Nhận OTP.
+4. Nhập OTP và hoàn tất đăng ký.
+5. Đăng nhập.
+6. Giải thích token và session Redis.
+
+Demo 2: Chat realtime
+1. Mở 2 tài khoản trên 2 trình duyệt/thiết bị.
+2. Tài khoản A gửi tin.
+3. Tài khoản B thấy tin ngay.
+4. A typing, B thấy đang nhập.
+5. B đọc tin, A thấy đã đọc.
+6. Giải thích Socket.IO room.
+
+Demo 3: Gửi ảnh/file
+1. Chọn ảnh.
+2. Upload lên S3.
+3. Gửi tin nhắn với URL.
+4. Giải thích database chỉ lưu URL, file nằm trên S3.
+
+Demo 4: Group
+1. Tạo nhóm.
+2. Thêm thành viên.
+3. Đổi quyền chỉ admin được ghim/gửi announcement.
+4. Thử gửi bằng member để thấy bị chặn.
+5. Giải thích role và permissions.
+
+Demo 5: Moment và notification
+1. User A đăng moment.
+2. User B comment/reaction.
+3. User A nhận notification realtime.
+4. Giải thích NotificationService + Socket emit.
+
+Demo 6: AI
+1. Hỏi AI một câu về cách dùng app.
+2. Hỏi tóm tắt hội thoại.
+3. Giải thích Gemini + context + history.
+
+
+43. CÂU NÓI NGẮN GỌN KHI BỊ HỎI VỀ KIẾN TRÚC
+============================================
+
+Câu 1:
+"Hệ thống được chia thành frontend web, frontend mobile và backend. Backend dùng Express cho REST API và Socket.IO cho realtime."
+
+Câu 2:
+"REST API xử lý các thao tác như đăng nhập, lấy danh sách bạn bè, lấy lịch sử chat. Socket.IO xử lý tin nhắn realtime, typing, đã đọc, online/offline, thông báo và cuộc gọi."
+
+Câu 3:
+"Dữ liệu chính được lưu trong DynamoDB. File như ảnh, video, voice, avatar được lưu trên S3. Database chỉ lưu URL file."
+
+Câu 4:
+"Redis được dùng để lưu session, OTP và presence online/offline. Nhờ đó server có thể kiểm tra phiên đăng nhập còn hiệu lực hay không."
+
+Câu 5:
+"AI Assistant dùng Gemini. Backend đưa vào prompt thông tin user, context hội thoại và tài liệu hướng dẫn hệ thống để AI trả lời sát với ứng dụng."
+
+Câu 6:
+"Cuộc gọi dùng WebRTC để truyền audio/video, còn Socket.IO chỉ dùng để signaling, mời gọi, chấp nhận, từ chối, kết thúc và trao đổi ICE/offer/answer."
+
+
+44. CÁC CÂU HỎI THƯỜNG GẶP VÀ CÁCH TRẢ LỜI
+==========================================
+
+Hỏi: Tại sao không dùng REST API để gửi tin nhắn?
+Trả lời:
+"REST API vẫn gửi được, nhưng người nhận sẽ không thấy ngay nếu không polling liên tục. Socket.IO giúp server đẩy tin mới đến client ngay khi tin được lưu."
+
+Hỏi: Tin nhắn có được lưu trữ không?
+Trả lời:
+"Có. Socket chỉ dùng để realtime. Sau khi gửi, server lưu message vào DynamoDB, cập nhật lastMessage, rồi mới emit cho các client."
+
+Hỏi: Nếu user mất kết nối thì sao?
+Trả lời:
+"Socket client có reconnect. Khi reconnect, client join lại các room đã tham gia. Presence online/offline được quản lý bằng Redis TTL để tránh bị treo trạng thái."
+
+Hỏi: Token hết hạn thì sao?
+Trả lời:
+"Frontend có logic refresh token. Nếu access token hết hạn, client dùng refresh token để xin access token mới và retry request."
+
+Hỏi: Logout rồi token cũ có dùng được không?
+Trả lời:
+"Không nên dùng được nữa, vì backend không chỉ verify JWT mà còn kiểm tra sessionId trong Redis. Nếu session bị xóa thì request bị từ chối."
+
+Hỏi: File upload lưu ở đâu?
+Trả lời:
+"File lưu trên AWS S3. Backend trả về URL, message/moment/avatar chỉ lưu URL đó trong database."
+
+Hỏi: AI có đọc toàn bộ database không?
+Trả lời:
+"Không. Backend chỉ đưa vào AI những dữ liệu cần thiết như thông tin user hiện tại, context hội thoại liên quan, và tài liệu hướng dẫn. AI không tự truy cập database trực tiếp."
+
+Hỏi: Gọi video có qua server không?
+Trả lời:
+"Server dùng Socket.IO để signaling. Audio/video chính dùng WebRTC giữa các client. Với group call, server quản lý phòng và danh sách thành viên."
+
+Hỏi: Nhóm có phân quyền không?
+Trả lời:
+"Có. Mỗi participant có role admin, deputy, member. Group settings quy định ai được gửi tin, gửi media, bắt đầu call, ghim tin và gửi announcement."
+
+
+45. TÓM TẮT 1 PHÚT ĐỂ NÓI TRƯỚC LỚP
+===================================
+
+"Zalo_Faker là ứng dụng nhắn tin full-stack gồm web, mobile và backend. Web được viết bằng React/Vite, mobile bằng React Native/Expo, backend bằng Node.js Express. Hệ thống dùng REST API cho các thao tác lấy và lưu dữ liệu, và Socket.IO cho realtime như gửi tin nhắn, typing, đã đọc, online/offline, thông báo và cuộc gọi. Dữ liệu chính được lưu trong DynamoDB, file media lưu trên S3, session và OTP lưu tạm trong Redis. Phần bảo mật dùng JWT access token, refresh token và bcrypt để hash mật khẩu. Ngoài chat cá nhân và nhóm, hệ thống có quản lý bạn bè, moments, notification, gọi audio/video bằng WebRTC, và AI Assistant dùng Google Gemini để hỏi đáp, tóm tắt hội thoại và transcript tin nhắn thoại."
+
+
+46. TÓM TẮT LUỒNG "GỬI TIN NHẮN" ĐỂ VẼ SƠ ĐỒ
+============================================
+
+User A bấm Gửi
+  -> Web/Mobile emit `chat:send`
+  -> Socket.IO server nhận event
+  -> Verify user đã đăng nhập từ socket
+  -> Kiểm tra conversation tồn tại
+  -> Kiểm tra user là thành viên
+  -> Kiểm tra block/quyền nhóm
+  -> Lưu message vào DynamoDB
+  -> Cập nhật `lastMessage` của conversation
+  -> Emit `chat:message` đến room conversation
+  -> User B nhận event và hiện tin mới
+  -> Server ACK về User A để đồng bộ messageId thật
+
+
+47. TÓM TẮT LUỒNG "ĐĂNG NHẬP" ĐỂ VẼ SƠ ĐỒ
+=========================================
+
+User nhập email/password
+  -> Frontend gọi POST `/api/users/login`
+  -> Controller nhận request
+  -> UserService tìm user
+  -> bcrypt so sánh password
+  -> Tạo `sessionId`
+  -> Tạo access token + refresh token
+  -> Lưu session Redis
+  -> Lưu refresh token DynamoDB
+  -> Lưu login history
+  -> Trả user + tokens
+  -> Frontend lưu token
+  -> Frontend connect Socket.IO bằng access token
+
+
+48. TÓM TẮT LUỒNG "MOMENT COMMENT NOTIFICATION"
+===============================================
+
+User B comment bài của User A
+  -> Frontend gọi POST `/api/moments/:momentId/comments`
+  -> Backend xác thực User B
+  -> MomentService kiểm tra moment visible
+  -> Lưu comment DynamoDB
+  -> Tăng `commentCount`
+  -> Tạo notification cho User A
+  -> Lưu notification DynamoDB
+  -> Emit `notification:new` đến `user:A`
+  -> User A đang online thấy thông báo ngay
+
+
+49. TÓM TẮT LUỒNG "AI TÓM TẮT HỘI THOẠI"
+========================================
+
+User bấm Tóm tắt
+  -> Frontend gọi daily-summary API
+  -> Backend xác thực user
+  -> Kiểm tra user thuộc conversation
+  -> Lấy messages trong conversation
+  -> Lọc messages theo ngày
+  -> Format thành chat log
+  -> Gửi prompt cho Gemini
+  -> Gemini trả về summary
+  -> Backend trả summary về frontend
+  -> UI hiện bản tóm tắt
+
+
+50. KẾT LUẬN
+============
+
+Điểm mạnh của hệ thống:
+- Có kiến trúc phân lớp rõ: route -> controller -> service -> repository/model.
+- Có realtime thật bằng Socket.IO.
+- Có bảo mật session kết hợp JWT và Redis.
+- Có lưu trữ file riêng trên S3.
+- Có AI tích hợp vào nghiệp vụ chat.
+- Có cả web và mobile dùng chung backend.
+
+Khi báo cáo, nên nhấn mạnh:
+1. Luồng realtime của chat.
+2. Bảo mật đăng nhập/session.
+3. Quản lý nhóm có role/permission.
+4. Upload media qua S3.
+5. AI Assistant dùng context thật từ hệ thống.
