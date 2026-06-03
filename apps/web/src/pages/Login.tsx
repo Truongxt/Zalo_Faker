@@ -137,9 +137,12 @@ export default function Login() {
       applyLoginResult(data);
     } catch (err: any) {
       const message = err.message || "Đăng nhập thất bại. Vui lòng thử lại.";
-      const locked = /locked|khoa|khóa/i.test(message);
+      const deleted = /deleted|không tồn tại|khong ton tai/i.test(message);
+      const locked = !deleted && /locked|khoa|khóa/i.test(message);
       setIsLockedError(locked);
-      const displayMessage = locked
+      const displayMessage = deleted
+        ? "Tài khoản không tồn tại"
+        : locked
         ? "Tài khoản đang bị khóa. Vui lòng mở khóa để tiếp tục."
         : message;
       setLocalError(displayMessage);
