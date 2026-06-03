@@ -9,6 +9,7 @@ export default function DeleteAccount() {
     const navigate = useNavigate()
     const { user, logout } = useAuthStore()
     const { addToast } = useToast()
+    const accountEmail = user?.email || 'email tài khoản của bạn'
 
     const [password, setPassword] = useState('')
     const [otp, setOtp] = useState('')
@@ -94,30 +95,47 @@ export default function DeleteAccount() {
                 </div>
             </div>
 
-            <form onSubmit={handleDelete} className="max-w-lg mx-auto p-4">
+            <form onSubmit={handleDelete} className="max-w-lg mx-auto p-4" autoComplete="off">
                 <div className="card p-4 space-y-4">
                     <p className="text-sm text-red-500">
                         Cảnh báo: thao tác này là vĩnh viễn và không thể khôi phục.
                     </p>
 
-                    <label className="block">
-                        <span className="text-sm text-gray-600 dark:text-gray-300">OTP xác nhận</span>
-                        <div className="mt-1 flex gap-2">
-                            <input
-                                type="text"
-                                value={otp}
-                                onChange={(e) => setOtp(e.target.value)}
-                                className="flex-1 px-3 py-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-dark-300 text-gray-900 dark:text-white"
-                            />
+                    <div className="space-y-2">
+                        <span className="text-sm text-gray-600 dark:text-gray-300">Nhận mã OTP</span>
+                        <div className="flex gap-2">
+                            <div className="flex-1 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5 dark:border-gray-700 dark:bg-dark-300">
+                                <p className="text-xs text-gray-500 dark:text-gray-400">Gửi tới email</p>
+                                <p className="break-all text-sm font-medium text-gray-900 dark:text-white">
+                                    {accountEmail}
+                                </p>
+                            </div>
                             <button
                                 type="button"
                                 onClick={handleRequestOtp}
                                 disabled={isSendingOtp || otpCountdown > 0}
-                                className="px-3 py-2 rounded-lg bg-primary-500 hover:bg-primary-600 text-white text-sm disabled:opacity-70"
+                                className="shrink-0 px-3 py-2 rounded-lg bg-primary-500 hover:bg-primary-600 text-white text-sm disabled:opacity-70"
                             >
                                 {isSendingOtp ? 'Đang gửi...' : otpCountdown > 0 ? `Gửi lại (${otpCountdown}s)` : 'Gửi OTP'}
                             </button>
                         </div>
+                    </div>
+
+                    <label className="block">
+                        <span className="text-sm text-gray-600 dark:text-gray-300">Mã OTP xác nhận</span>
+                        <input
+                            type="text"
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                            maxLength={6}
+                            name="delete-account-otp"
+                            autoComplete="one-time-code"
+                            spellCheck={false}
+                            value={otp}
+                            onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                            placeholder="Nhập 6 số OTP"
+                            className="mt-1 w-full px-3 py-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-dark-300 text-gray-900 dark:text-white"
+                        />
                     </label>
 
                     <label className="block">
@@ -126,6 +144,7 @@ export default function DeleteAccount() {
                             type="password"
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
+                            autoComplete="current-password"
                             className="mt-1 w-full px-3 py-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-dark-300 text-gray-900 dark:text-white"
                         />
                     </label>
