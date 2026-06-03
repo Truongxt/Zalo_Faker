@@ -84,9 +84,19 @@ export default function Contacts() {
     setSearchParams(nextParams, { replace: true });
   };
 
-  const loadData = async () => {
-    if (!user?.id) return;
-    setIsLoading(true);
+  const loadData = useCallback(async (showLoading = true) => {
+    if (!user?.id) {
+      setFriends([]);
+      setRequests([]);
+      setBlockedUsers([]);
+      setIsLoading(false);
+      return;
+    }
+
+    if (showLoading) {
+      setIsLoading(true);
+    }
+
     try {
       const [friendsData, requestsData, blockedData] = await Promise.all([
         getFriends(user.id),
@@ -102,13 +112,15 @@ export default function Contacts() {
     } catch (error) {
       console.error('Error loading contacts data:', error);
     } finally {
-      setIsLoading(false);
+      if (showLoading) {
+        setIsLoading(false);
+      }
     }
-  };
+  }, [user?.id]);
 
   useEffect(() => {
-    loadData();
-  }, [user?.id]);
+    void loadData();
+  }, [loadData]);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -123,11 +135,11 @@ export default function Contacts() {
 
     const handleFriendBlocked = ({ targetUserId }: { targetUserId: string }) => {
       setFriends((prev) => prev.filter((f) => String(f.userId) !== String(targetUserId)));
-      loadData();
+      void loadData(false);
     };
 
     const handleFriendUnblocked = () => {
-      loadData();
+      void loadData(false);
     };
 
     const handleBlockedBy = ({ blockedByUserId }: { blockedByUserId: string }) => {
@@ -148,10 +160,27 @@ export default function Contacts() {
       updateFriendPresence(String(offlineUserId), 'offline', lastActiveAt || null);
     };
 
+    const handleFriendRequestReceived = ({
+      toUserId,
+    }: {
+      toUserId?: string;
+    } = {}) => {
+      if (toUserId && String(toUserId) !== String(user.id)) return;
+      void loadData(false);
+      addToast('Bạn có lời mời kết bạn mới', 'info', 3000);
+    };
+
+    const handleFriendRequestChanged = () => {
+      void loadData(false);
+    };
+
     socketService.on('friend:removed', handleFriendRemoved);
     socketService.on('friend:blocked', handleFriendBlocked);
     socketService.on('friend:unblocked', handleFriendUnblocked);
     socketService.on('friend:blocked_by', handleBlockedBy);
+    socketService.on('friend:request_received', handleFriendRequestReceived);
+    socketService.on('friend:request_accepted', handleFriendRequestChanged);
+    socketService.on('friend:request_rejected', handleFriendRequestChanged);
     socketService.on('presence:online', handlePresenceOnline);
     socketService.on('presence:offline', handlePresenceOffline);
 
@@ -160,10 +189,13 @@ export default function Contacts() {
       socketService.off('friend:blocked', handleFriendBlocked);
       socketService.off('friend:unblocked', handleFriendUnblocked);
       socketService.off('friend:blocked_by', handleBlockedBy);
+      socketService.off('friend:request_received', handleFriendRequestReceived);
+      socketService.off('friend:request_accepted', handleFriendRequestChanged);
+      socketService.off('friend:request_rejected', handleFriendRequestChanged);
       socketService.off('presence:online', handlePresenceOnline);
       socketService.off('presence:offline', handlePresenceOffline);
     };
-  }, [user?.id, updateFriendPresence]);
+  }, [user?.id, updateFriendPresence, loadData, addToast]);
 
   useEffect(() => {
     if (!user?.id || friends.length === 0) return;
@@ -218,7 +250,7 @@ export default function Contacts() {
     try {
       await friendsService.acceptFriendRequest(req.fromUserId, req.toUserId);
       addToast('Đã chấp nhận lời mời kết bạn', 'success');
-      loadData();
+      void loadData(false);
     } catch (error) {
       addToast('Không thể chấp nhận lời mời', 'error');
     }
@@ -228,7 +260,7 @@ export default function Contacts() {
     try {
       await friendsService.rejectFriendRequest(req.fromUserId, req.toUserId);
       addToast('Đã từ chối lời mời kết bạn', 'success');
-      loadData();
+      void loadData(false);
     } catch (error) {
       addToast('Không thể từ chối lời mời', 'error');
     }
@@ -331,13 +363,23 @@ export default function Contacts() {
     return name.toLowerCase().includes(searchQuery.toLowerCase());
   });
 
+  const hasPendingFriendRequests = requests.length > 0;
+  const pendingFriendRequestLabel = requests.length > 99 ? '99+' : String(requests.length);
+
   return (
     <div className="flex-1 min-w-0 flex flex-col bg-white dark:bg-dark-100 overflow-hidden">
       <div className="h-16 border-b border-gray-200 dark:border-gray-800 flex items-center px-6 justify-between flex-shrink-0">
         <div className="flex items-center gap-3">
           {activeTab === 'friends' && <UserIcon className="w-6 h-6 text-primary-500" />}
           {activeTab === 'groups' && <Users className="w-6 h-6 text-primary-500" />}
-          {activeTab === 'requests' && <UserPlus className="w-6 h-6 text-primary-500" />}
+          {activeTab === 'requests' && (
+            <div className="relative">
+              <UserPlus className="w-6 h-6 text-primary-500" />
+              {hasPendingFriendRequests && (
+                <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-red-500 ring-2 ring-white dark:ring-dark-100" />
+              )}
+            </div>
+          )}
           {activeTab === 'blocked' && <ShieldBan className="w-6 h-6 text-primary-500" />}
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
             {activeTab === 'friends'
@@ -388,10 +430,19 @@ export default function Contacts() {
               </button>
               <button
                 onClick={() => setActiveTab('requests')}
-                className={`pb-2 px-1 font-medium transition-colors relative ${activeTab === 'requests' ? 'text-primary-500' : 'text-gray-500'
+                className={`pb-2 px-1 font-medium transition-colors relative ${activeTab === 'requests' ? 'text-primary-500' : hasPendingFriendRequests ? 'text-orange-600' : 'text-gray-500'
                   }`}
               >
-                Lời mời ({requests.length})
+                <span className="inline-flex items-center gap-2">
+                  Lời mời
+                  {hasPendingFriendRequests ? (
+                    <span className="inline-flex min-w-[24px] items-center justify-center rounded-full bg-red-500 px-1.5 py-0.5 text-xs font-bold text-white shadow-sm">
+                      {pendingFriendRequestLabel}
+                    </span>
+                  ) : (
+                    <span>(0)</span>
+                  )}
+                </span>
                 {activeTab === 'requests' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary-500" />}
               </button>
               <button
@@ -403,6 +454,30 @@ export default function Contacts() {
                 {activeTab === 'blocked' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary-500" />}
               </button>
             </div>
+
+            {activeTab !== 'requests' && hasPendingFriendRequests && (
+              <div className="mb-6 flex items-center gap-3 rounded-lg border border-orange-200 bg-orange-50 px-4 py-3 text-orange-900 shadow-sm dark:border-orange-900/50 dark:bg-orange-950/20 dark:text-orange-200">
+                <div className="relative flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-orange-500 text-white">
+                  <UserPlus className="h-5 w-5" />
+                  <span className="absolute -right-0.5 -top-0.5 h-3 w-3 rounded-full bg-red-500 ring-2 ring-orange-50 dark:ring-orange-950 animate-pulse" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold">
+                    Bạn có {pendingFriendRequestLabel} lời mời kết bạn mới
+                  </p>
+                  <p className="text-sm text-orange-700 dark:text-orange-300">
+                    Mở mục lời mời để chấp nhận hoặc từ chối.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('requests')}
+                  className="flex-shrink-0 rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-orange-600"
+                >
+                  Xem lời mời
+                </button>
+              </div>
+            )}
 
             {activeTab === 'friends' && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
