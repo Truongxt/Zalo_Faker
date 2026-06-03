@@ -198,6 +198,7 @@ export function Message({
       if (action === 'remove_member') return 'person-remove';
       if (action === 'update_permissions') return 'lock-closed';
       if (action === 'update_settings') return 'settings';
+      if (action === 'set_nickname') return 'person';
       return 'information-circle';
     };
 

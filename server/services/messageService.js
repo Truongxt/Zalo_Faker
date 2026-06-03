@@ -219,6 +219,19 @@ const getMessagesByConversationId = async (conversationId) => {
     return await populateSenderInfo(populatedReactions)
 }
 
+const getMessagesByConversationIdForUser = async (conversationId, userId) => {
+    const userKey = String(userId || "")
+    const messages = await getMessagesByConversationId(conversationId)
+    if (!userKey) return messages
+
+    return messages.filter((message) => {
+        const deletedForUserIds = Array.isArray(message.deletedForUserIds)
+            ? message.deletedForUserIds.map(String)
+            : []
+        return !deletedForUserIds.includes(userKey)
+    })
+}
+
 const getMessages = async () => {
     const messages = await messageModel.getMessages()
     const enriched = await backfillVoiceTranscripts(messages)
@@ -232,6 +245,10 @@ const updateMessage = async (id, message) => {
 
 const deleteMessage = async (id) => {
     return await messageModel.deleteMessage(id)
+}
+
+const deleteMessageForUser = async (id, userId) => {
+    return await messageModel.deleteMessageForUser(id, userId)
 }
 
 const deleteMessagesByConversationId = async (conversationId) => {
@@ -265,7 +282,9 @@ module.exports = {
     getMessages,
     updateMessage,
     deleteMessage,
+    deleteMessageForUser,
     getMessagesByConversationId,
+    getMessagesByConversationIdForUser,
     deleteMessagesByConversationId,
     getStickers
 }

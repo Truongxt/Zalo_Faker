@@ -78,6 +78,10 @@ export const friendsService = {
         return response.json();
     },
 
+    async cancelFriendRequest(fromUserId: string, toUserId: string): Promise<any> {
+        return this.rejectFriendRequest(fromUserId, toUserId);
+    },
+
     async sendFriendRequest(fromUserId: string, toUserId: string, message: string): Promise<any> {
         const response = await fetchWithAuth(`/friends/requests`, {
             method: 'POST',

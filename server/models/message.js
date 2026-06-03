@@ -21,6 +21,7 @@ const MessageModel = {
         reactions: messageData.reactions || [], // Array of Reaction
         readBy: messageData.readBy || [], // Array of ReadReceipt
         isDeleted: messageData.isDeleted || false,
+        deletedForUserIds: messageData.deletedForUserIds || [],
         createdAt
       }
     };
@@ -58,7 +59,7 @@ const MessageModel = {
     const updateFields = [];
     const ExpressionAttributeNames = {};
     const ExpressionAttributeValues = {};
-    const allowedFields = ["conversationId", "senderId", "type", "content", "attachments", "metadata", "replyTo", "reactions", "readBy", "isDeleted"];
+    const allowedFields = ["conversationId", "senderId", "type", "content", "attachments", "metadata", "replyTo", "reactions", "readBy", "isDeleted", "deletedForUserIds"];
     allowedFields.forEach(field => {
       if (messageData[field] !== undefined) {
         updateFields.push(`#${field} = :${field}`);
@@ -95,6 +96,18 @@ const MessageModel = {
       console.error("Error deleting message:", error);
       throw error;
     }
+  },
+
+  deleteMessageForUser: async (messageId, userId) => {
+    const message = await MessageModel.getOneMessage(messageId);
+    if (!message) return null;
+
+    const deletedForUserIds = Array.from(new Set([
+      ...(Array.isArray(message.deletedForUserIds) ? message.deletedForUserIds.map(String) : []),
+      String(userId),
+    ]));
+
+    return await MessageModel.updateMessage(messageId, { deletedForUserIds });
   },
 
   // getOneMessage: async messageId => {

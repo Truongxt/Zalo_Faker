@@ -21,6 +21,8 @@ interface MessageActionModalProps {
   visible: boolean;
   title?: string;
   options: MessageActionItem[];
+  reactionOptions?: string[];
+  onSelectReaction?: (emoji: string) => void;
   onClose: () => void;
 }
 
@@ -28,9 +30,12 @@ export function MessageActionModal({
   visible,
   title = "Tùy chọn",
   options,
+  reactionOptions = [],
+  onSelectReaction,
   onClose,
 }: MessageActionModalProps) {
   const insets = useSafeAreaInsets();
+  const showReactionBar = reactionOptions.length > 0 && Boolean(onSelectReaction);
 
   return (
     <Modal
@@ -40,48 +45,70 @@ export function MessageActionModal({
       onRequestClose={onClose}
     >
       <Pressable style={styles.overlay} onPress={onClose}>
-        <Pressable
-          style={[styles.card, { paddingBottom: Math.max(insets.bottom, 12) }]}
-          onPress={(event) => event.stopPropagation()}
-        >
-          <Text style={styles.title}>{title}</Text>
-          <ScrollView
-            style={styles.list}
-            contentContainerStyle={styles.listContent}
-            showsVerticalScrollIndicator={false}
-          >
-            {options.map((option, index) => {
-              const isDestructive = option.style === "destructive";
-              const isCancel = option.style === "cancel";
-
-              return (
+        <View style={styles.sheetWrap}>
+          {showReactionBar && (
+            <Pressable
+              style={styles.reactionBar}
+              onPress={(event) => event.stopPropagation()}
+            >
+              {reactionOptions.map((emoji) => (
                 <TouchableOpacity
-                  key={option.key}
+                  key={emoji}
                   onPress={() => {
                     onClose();
-                    setTimeout(() => option.onPress?.(), 80);
+                    setTimeout(() => onSelectReaction?.(emoji), 80);
                   }}
-                  style={[
-                    styles.optionButton,
-                    index === 0 && styles.optionButtonFirst,
-                    index === options.length - 1 && styles.optionButtonLast,
-                  ]}
-                  activeOpacity={0.8}
+                  style={styles.reactionButton}
+                  activeOpacity={0.75}
                 >
-                  <Text
-                    style={[
-                      styles.optionText,
-                      isDestructive && styles.optionTextDestructive,
-                      isCancel && styles.optionTextCancel,
-                    ]}
-                  >
-                    {option.text}
-                  </Text>
+                  <Text style={styles.reactionText}>{emoji}</Text>
                 </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
-        </Pressable>
+              ))}
+            </Pressable>
+          )}
+          <Pressable
+            style={[styles.card, { paddingBottom: Math.max(insets.bottom, 12) }]}
+            onPress={(event) => event.stopPropagation()}
+          >
+            <Text style={styles.title}>{title}</Text>
+            <ScrollView
+              style={styles.list}
+              contentContainerStyle={styles.listContent}
+              showsVerticalScrollIndicator={false}
+            >
+              {options.map((option, index) => {
+                const isDestructive = option.style === "destructive";
+                const isCancel = option.style === "cancel";
+
+                return (
+                  <TouchableOpacity
+                    key={option.key}
+                    onPress={() => {
+                      onClose();
+                      setTimeout(() => option.onPress?.(), 80);
+                    }}
+                    style={[
+                      styles.optionButton,
+                      index === 0 && styles.optionButtonFirst,
+                      index === options.length - 1 && styles.optionButtonLast,
+                    ]}
+                    activeOpacity={0.8}
+                  >
+                    <Text
+                      style={[
+                        styles.optionText,
+                        isDestructive && styles.optionTextDestructive,
+                        isCancel && styles.optionTextCancel,
+                      ]}
+                    >
+                      {option.text}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </Pressable>
+        </View>
       </Pressable>
     </Modal>
   );
@@ -93,9 +120,41 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.35)",
     justifyContent: "flex-end",
   },
+  sheetWrap: {
+    width: "100%",
+  },
+  reactionBar: {
+    alignSelf: "center",
+    width: "92%",
+    minHeight: 64,
+    marginBottom: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 18,
+    backgroundColor: "#FFFFFF",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.16,
+    shadowRadius: 18,
+    elevation: 8,
+  },
+  reactionButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  reactionText: {
+    fontSize: 28,
+    lineHeight: 34,
+  },
   card: {
     width: "100%",
-    maxHeight: "78%",
+    maxHeight: "72%",
     backgroundColor: "#FFFFFF",
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,

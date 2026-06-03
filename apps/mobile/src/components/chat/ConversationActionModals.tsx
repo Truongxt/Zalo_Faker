@@ -915,7 +915,15 @@ export function ConversationMenuModal({
       </View>
 
       {/* Pin Setup Modal */}
-      <Modal visible={showPinSetup} transparent animationType="fade">
+      <Modal
+        visible={showPinSetup}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          setShowPinSetup(false);
+          setSetupPinCode("");
+        }}
+      >
         <View style={styles.overlay}>
           <View style={styles.pinModal}>
             <Text style={styles.pinTitle}>Cài đặt mã PIN</Text>
@@ -953,7 +961,18 @@ export function ConversationMenuModal({
       </Modal>
 
       {/* Pin Change Modal */}
-      <Modal visible={showPinChange} transparent animationType="fade">
+      <Modal
+        visible={showPinChange}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          setShowPinChange(false);
+          setOldPin("");
+          setNewPin("");
+          setIsResetMode(false);
+          setLoginPassword("");
+        }}
+      >
         <View style={styles.overlay}>
           <View style={styles.pinModal}>
             <Text style={styles.pinTitle}>

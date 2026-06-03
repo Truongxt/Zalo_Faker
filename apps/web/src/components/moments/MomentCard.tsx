@@ -17,6 +17,7 @@ import {
 import { Moment } from "@/types/moment";
 import MomentComments from "./MomentComments";
 import MomentReactionPicker from "./MomentReactionPicker";
+import MomentReactionListModal from "./MomentReactionListModal";
 import { isVideoUrl, REACTION_OPTIONS } from "./momentHelpers";
 
 interface MomentCardProps {
@@ -142,6 +143,7 @@ export default function MomentCard({
   const [showMenu, setShowMenu] = useState(false);
   const [showReactions, setShowReactions] = useState(false);
   const [showReactionPicker, setShowReactionPicker] = useState(false);
+  const [showReactionList, setShowReactionList] = useState(false);
   const [isReacting, setIsReacting] = useState(false);
   const [showActions, setShowActions] = useState(false);
 
@@ -323,14 +325,17 @@ export default function MomentCard({
         <div className="flex items-center justify-between px-4 py-2 text-[13px] text-gray-500 dark:text-gray-400">
           <div className="flex items-center gap-1.5">
             {moment.reactionCount > 0 && (
-              <div className="flex items-center">
+              <button 
+                onClick={() => setShowReactionList(true)}
+                className="flex items-center hover:underline focus:outline-none"
+              >
                 <div className="flex -space-x-1">
                   <span className="flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] text-white shadow-sm ring-1 ring-white dark:ring-dark-200">
                     ❤️
                   </span>
                 </div>
                 <span className="ml-1.5 font-medium">{moment.reactionCount}</span>
-              </div>
+              </button>
             )}
           </div>
           <div className="flex gap-3 font-medium">
@@ -352,20 +357,22 @@ export default function MomentCard({
               onMouseLeave={() => setShowReactions(false)}
             >
               {showReactions && (
-                <div className="absolute bottom-full left-0 z-10 mb-2 flex gap-1.5 rounded-full border border-gray-100 bg-white p-2 shadow-xl animate-in fade-in slide-in-from-bottom-2 dark:border-gray-700 dark:bg-dark-300">
-                  {REACTION_OPTIONS.map((reaction) => (
-                    <button
-                      key={reaction.key}
-                      onClick={() => {
-                        setShowReactions(false);
-                        onReact(moment.momentId, reaction.key);
-                      }}
-                      className="text-2xl transition-transform hover:scale-125 active:scale-110"
-                      title={reaction.label}
-                    >
-                      {reaction.icon}
-                    </button>
-                  ))}
+                <div className="absolute bottom-full left-0 z-10 pb-2">
+                  <div className="flex gap-1.5 rounded-full border border-gray-100 bg-white p-2 shadow-xl animate-in fade-in slide-in-from-bottom-2 dark:border-gray-700 dark:bg-dark-300">
+                    {REACTION_OPTIONS.map((reaction) => (
+                      <button
+                        key={reaction.key}
+                        onClick={() => {
+                          setShowReactions(false);
+                          onReact(moment.momentId, reaction.key);
+                        }}
+                        className="text-2xl transition-transform hover:scale-125 active:scale-110"
+                        title={reaction.label}
+                      >
+                        {reaction.icon}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               )}
               <button
@@ -547,6 +554,14 @@ export default function MomentCard({
               : undefined
           }
         />
+        
+        {showReactionList && (
+          <MomentReactionListModal
+            momentId={moment.momentId}
+            isOpen={showReactionList}
+            onClose={() => setShowReactionList(false)}
+          />
+        )}
       </div>
     </>
   );

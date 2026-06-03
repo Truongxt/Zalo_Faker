@@ -151,16 +151,12 @@ export default function Sidebar() {
 
   const getConversationName = (conv: Conversation) => {
     const participants = conv.participants || [];
-    const currentP = participants.find(
-      (p) => String(p.userId) === String(user?.id),
-    );
-    if (currentP?.nickname) return currentP.nickname;
 
     if (conv.type === "group") return conv.name || "Nhóm chat";
     const other = participants.find(
       (p) => String(p.userId) !== String(user?.id),
     );
-    return other?.fullName || "Người dùng";
+    return other?.nickname || other?.fullName || "Người dùng";
   };
 
   const getConversationAvatar = (conv: Conversation) => {

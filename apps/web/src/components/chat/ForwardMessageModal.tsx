@@ -24,12 +24,9 @@ export default function ForwardMessageModal({ isOpen, onClose, message, onForwar
     }, [isOpen])
 
     const getConversationName = (conv: Conversation) => {
-        const currentP = conv.participants.find(p => p.userId === user?.id)
-        if (currentP?.nickname) return currentP.nickname
-
         if (conv.type === 'group') return conv.name || 'Nhóm chat'
         const other = conv.participants.find(p => p.userId !== user?.id)
-        return other?.fullName || 'Người dùng'
+        return other?.nickname || other?.fullName || 'Người dùng'
     }
 
     const getConversationAvatar = (conv: Conversation) => {

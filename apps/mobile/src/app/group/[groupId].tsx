@@ -222,7 +222,6 @@ export default function GroupChatScreen() {
   const [isSending, setIsSending] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [showStickerPicker, setShowStickerPicker] = useState(false);
-  const [showReactions, setShowReactions] = useState(false);
   const [selectedMsg, setSelectedMsg] = useState<Message | null>(null);
   const [messageActions, setMessageActions] = useState<MessageActionItem[]>([]);
   const [showMessageActions, setShowMessageActions] = useState(false);
@@ -918,9 +917,7 @@ export default function GroupChatScreen() {
     );
     setSelectedMsg(msg);
 
-    const opts: MessageActionItem[] = [
-      { key: "react", text: "Thả cảm xúc", onPress: () => setShowReactions(true) },
-    ];
+    const opts: MessageActionItem[] = [];
 
     if (isMe && !msg.isDeleted) {
       opts.push({
@@ -954,6 +951,32 @@ export default function GroupChatScreen() {
 
     if (!msg.isDeleted) {
       opts.push({
+        key: "delete-for-me",
+        text: "Xóa tin nhắn cho riêng bạn",
+        style: "destructive",
+        onPress: () => {
+          Alert.alert(
+            "Xóa cho riêng bạn?",
+            "Tin nhắn sẽ chỉ biến mất khỏi màn hình của bạn. Những người khác vẫn thấy tin nhắn này.",
+            [
+              { text: "Hủy", style: "cancel" },
+              {
+                text: "Xóa",
+                style: "destructive",
+                onPress: async () => {
+                  try {
+                    await chatService.deleteMessageForMe(convId, String((msg as any)._id || msg.id), msg.id);
+                    GrayToast("Đã xóa tin nhắn cho riêng bạn");
+                  } catch (error: any) {
+                    GrayToast(error?.message || "Không thể xóa tin nhắn cho riêng bạn");
+                  }
+                },
+              },
+            ],
+          );
+        },
+      });
+      opts.push({
         key: "reply",
         text: "Trả lời",
         onPress: () => setReplyToMessageId(msg.id),
@@ -971,16 +994,69 @@ export default function GroupChatScreen() {
   };
 
   const handleReact = async (emoji: string) => {
-    setShowReactions(false);
+    setShowMessageActions(false);
     if (!selectedMsg) return;
     await chatService.addReaction(convId, selectedMsg.id, emoji);
   };
 
   const renderItem = ({ item }: { item: Message }) => {
-
-
     const isMe = item.senderId === user?.id;
     const isAnnouncement = Boolean(item.metadata?.isAnnouncement);
+
+    if (item.type === 'system' || isAnnouncement) {
+      const action = (item.metadata as any)?.action;
+      const isPinAction = action === 'pin' || action === 'unpin';
+      
+      const getIconName = () => {
+        if (action === 'pin' || action === 'unpin') return 'pricetag';
+        if (action === 'rename_group') return 'create';
+        if (action === 'update_avatar') return 'image';
+        if (action === 'add_member') return 'person-add';
+        if (action === 'remove_member') return 'person-remove';
+        if (action === 'update_permissions') return 'lock-closed';
+        if (action === 'update_settings') return 'settings';
+        if (action === 'set_nickname') return 'person';
+        if (action === 'reminder' || action === 'reminder_due') return 'time';
+        return 'information-circle';
+      };
+
+      return (
+        <View style={{ flexDirection: 'row', justifyContent: 'center', marginVertical: 10, width: '100%' }}>
+          <View style={{ 
+            flexDirection: 'row', 
+            alignItems: 'center', 
+            gap: 8, 
+            paddingHorizontal: 12, 
+            paddingVertical: 6, 
+            borderRadius: 20, 
+            borderWidth: 1, 
+            borderColor: '#E2E8F0', 
+            backgroundColor: '#FFFFFF',
+            shadowColor: "#000",
+            shadowOffset: { width: 0, height: 1 },
+            shadowOpacity: 0.05,
+            shadowRadius: 2,
+            elevation: 1,
+            maxWidth: '92%'
+          }}>
+            <View style={{ 
+              width: 24, 
+              height: 24, 
+              borderRadius: 12, 
+              alignItems: 'center', 
+              justifyContent: 'center', 
+              backgroundColor: isPinAction ? '#FFF7ED' : '#EFF6FF' 
+            }}>
+              <Ionicons name={getIconName() as any} size={12} color={isPinAction ? '#F97316' : '#3B82F6'} />
+            </View>
+            <Text style={{ fontSize: 13, color: '#64748B', fontWeight: '500' }}>
+               {typeof item.content === 'object' ? (item.content as any)?.text || '' : String(item.content || '')}
+            </Text>
+          </View>
+        </View>
+      );
+    }
+
     const replyPreview = resolveReplyPreview(
       (item as any).replyTo,
       convMessages,
@@ -1442,38 +1518,6 @@ export default function GroupChatScreen() {
         )}
       </View>
 
-      {/* Reaction picker */}
-      {showReactions && (
-        <View
-          style={{
-            flexDirection: "row",
-            backgroundColor: "#fff",
-            borderRadius: 24,
-            marginHorizontal: 16,
-            marginBottom: 8,
-            padding: 8,
-            gap: 8,
-            elevation: 4,
-          }}
-        >
-          {REACTIONS.map((emoji) => (
-            <TouchableOpacity
-              key={emoji}
-              onPress={() => handleReact(emoji)}
-              style={{ padding: 4 }}
-            >
-              <Text style={{ fontSize: 24 }}>{emoji}</Text>
-            </TouchableOpacity>
-          ))}
-          <TouchableOpacity
-            onPress={() => setShowReactions(false)}
-            style={{ padding: 4 }}
-          >
-            <Ionicons name="close-circle-outline" size={24} color="#6B7280" />
-          </TouchableOpacity>
-        </View>
-      )}
-
       <ForwardMessageModal
         visible={Boolean(forwardMessage)}
         onClose={() => setForwardMessage(null)}
@@ -1482,6 +1526,8 @@ export default function GroupChatScreen() {
       <MessageActionModal
         visible={showMessageActions}
         options={messageActions}
+        reactionOptions={selectedMsg?.isDeleted ? undefined : REACTIONS}
+        onSelectReaction={(emoji) => void handleReact(emoji)}
         onClose={() => setShowMessageActions(false)}
       />
       <TextPromptModal
