@@ -6,6 +6,8 @@ const fallbackOrigin = typeof window !== 'undefined' ? window.location.origin : 
 const configuredSocketUrl = String(import.meta.env.VITE_SOCKET_URL || '').trim()
 const configuredApiBase = String(import.meta.env.VITE_API_URL || '').trim()
 const apiOriginFromEnv = configuredApiBase.replace(/\/api\/?$/i, '')
+const isLocalOrigin = (value: string) =>
+    /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?\/?$/i.test(value)
 const isRunningOnLocalhost =
     typeof window !== 'undefined'
     && /^(localhost|127\.0\.0\.1)$/i.test(window.location.hostname)
@@ -14,9 +16,11 @@ const fallbackSocketUrl = isRunningOnLocalhost
     : (fallbackOrigin || LOCAL_BACKEND_ORIGIN)
 
 const SOCKET_URL =
-    configuredSocketUrl
-    || apiOriginFromEnv
-    || fallbackSocketUrl
+    configuredSocketUrl && !(isLocalOrigin(configuredSocketUrl) && !isRunningOnLocalhost)
+        ? configuredSocketUrl
+        : apiOriginFromEnv && !(isLocalOrigin(apiOriginFromEnv) && !isRunningOnLocalhost)
+            ? apiOriginFromEnv
+            : fallbackSocketUrl
 
 class SocketService {
     private socket: Socket | null = null

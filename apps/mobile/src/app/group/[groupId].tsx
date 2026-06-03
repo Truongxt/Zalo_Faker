@@ -222,7 +222,6 @@ export default function GroupChatScreen() {
   const [isSending, setIsSending] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [showStickerPicker, setShowStickerPicker] = useState(false);
-  const [showReactions, setShowReactions] = useState(false);
   const [selectedMsg, setSelectedMsg] = useState<Message | null>(null);
   const [messageActions, setMessageActions] = useState<MessageActionItem[]>([]);
   const [showMessageActions, setShowMessageActions] = useState(false);
@@ -918,9 +917,7 @@ export default function GroupChatScreen() {
     );
     setSelectedMsg(msg);
 
-    const opts: MessageActionItem[] = [
-      { key: "react", text: "Thả cảm xúc", onPress: () => setShowReactions(true) },
-    ];
+    const opts: MessageActionItem[] = [];
 
     if (isMe && !msg.isDeleted) {
       opts.push({
@@ -997,7 +994,7 @@ export default function GroupChatScreen() {
   };
 
   const handleReact = async (emoji: string) => {
-    setShowReactions(false);
+    setShowMessageActions(false);
     if (!selectedMsg) return;
     await chatService.addReaction(convId, selectedMsg.id, emoji);
   };
@@ -1521,38 +1518,6 @@ export default function GroupChatScreen() {
         )}
       </View>
 
-      {/* Reaction picker */}
-      {showReactions && (
-        <View
-          style={{
-            flexDirection: "row",
-            backgroundColor: "#fff",
-            borderRadius: 24,
-            marginHorizontal: 16,
-            marginBottom: 8,
-            padding: 8,
-            gap: 8,
-            elevation: 4,
-          }}
-        >
-          {REACTIONS.map((emoji) => (
-            <TouchableOpacity
-              key={emoji}
-              onPress={() => handleReact(emoji)}
-              style={{ padding: 4 }}
-            >
-              <Text style={{ fontSize: 24 }}>{emoji}</Text>
-            </TouchableOpacity>
-          ))}
-          <TouchableOpacity
-            onPress={() => setShowReactions(false)}
-            style={{ padding: 4 }}
-          >
-            <Ionicons name="close-circle-outline" size={24} color="#6B7280" />
-          </TouchableOpacity>
-        </View>
-      )}
-
       <ForwardMessageModal
         visible={Boolean(forwardMessage)}
         onClose={() => setForwardMessage(null)}
@@ -1561,6 +1526,8 @@ export default function GroupChatScreen() {
       <MessageActionModal
         visible={showMessageActions}
         options={messageActions}
+        reactionOptions={selectedMsg?.isDeleted ? undefined : REACTIONS}
+        onSelectReaction={(emoji) => void handleReact(emoji)}
         onClose={() => setShowMessageActions(false)}
       />
       <TextPromptModal
