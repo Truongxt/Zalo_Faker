@@ -7,6 +7,7 @@ import {
   Bell,
   Moon,
   Lock,
+  LockKeyhole,
   Globe,
   HelpCircle,
   Info,
@@ -14,6 +15,7 @@ import {
   Shield,
   ClipboardList,
   LogOut,
+  Trash2,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -111,16 +113,37 @@ export default function Settings() {
           path: "/settings/login-history",
         },
         {
-          icon: LogOut,
-          label: "Đăng xuất",
-          description: "Đăng xuất khỏi tài khoản hiện tại",
-          action: "logout",
-        },
-        {
           icon: Shield,
           label: "Xác thực hai yếu tố",
           description: "Đang cập nhật",
           action: "navigate",
+        },
+      ],
+    },
+    {
+      title: "Tài khoản",
+      items: [
+        {
+          icon: LockKeyhole,
+          label: "Khóa tài khoản",
+          description: "Tạm khóa tài khoản, có thể mở lại bằng email và mật khẩu",
+          action: "navigate",
+          path: "/settings/lock-account",
+          danger: true,
+        },
+        {
+          icon: Trash2,
+          label: "Xóa tài khoản",
+          description: "Xóa vĩnh viễn sau khi xác nhận OTP",
+          action: "navigate",
+          path: "/settings/delete-account",
+          danger: true,
+        },
+        {
+          icon: LogOut,
+          label: "Đăng xuất",
+          description: "Đăng xuất khỏi tài khoản hiện tại",
+          action: "logout",
         },
       ],
     },
@@ -138,14 +161,6 @@ export default function Settings() {
           description: "Phiên bản 1.0.0",
           action: "navigate",
         },
-        // {
-        //     icon: Trash2,
-        //     label: 'Xóa tài khoản',
-        //     description: 'Xóa vĩnh viễn tài khoản của bạn',
-        //     action: 'navigate',
-        //     path: '/settings/delete-account',
-        //     danger: true,
-        // },
       ],
     },
   ];

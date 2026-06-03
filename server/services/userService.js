@@ -22,6 +22,7 @@ const FORGOT_VERIFY_TTL_SECONDS = 600;
 const FORGOT_RESEND_LIMIT_SECONDS = 60;
 const PERMANENT_LOCK_OTP_TTL_SECONDS = 300;
 const PERMANENT_LOCK_RESEND_LIMIT_SECONDS = 60;
+const ACCOUNT_NOT_FOUND_MESSAGE = "Tài khoản không tồn tại";
 
 const normalizeEmail = (email) => String(email || "").trim().toLowerCase();
 const normalizePhone = (phone) => String(phone || "").trim().replace(/[\s().-]/g, "");
@@ -329,14 +330,14 @@ const UserService = {
       const phoneMatched = normalizePhone(u.phone) === normalizedIdentifierPhone;
       return emailMatched || phoneMatched;
     });
-    if (!user) throw new Error("User not found");
+    if (!user) throw new Error(ACCOUNT_NOT_FOUND_MESSAGE);
 
     const accountStatus = user.accountStatus || user.status || "active";
     if (accountStatus === "locked") {
       throw new Error("Account is locked");
     }
     if (accountStatus === "deleted") {
-      throw new Error("Account is deleted");
+      throw new Error(ACCOUNT_NOT_FOUND_MESSAGE);
     }
 
     const isMatch = await bcrypt.compare(normalizedPassword + "nhan123@@", user.password);
@@ -352,7 +353,7 @@ const UserService = {
 
     const user = await userRepository.getById(normalizedUserId);
     if (!user) {
-      throw new Error("User not found");
+      throw new Error(ACCOUNT_NOT_FOUND_MESSAGE);
     }
 
     const accountStatus = user.accountStatus || user.status || "active";
@@ -360,7 +361,7 @@ const UserService = {
       throw new Error("Account is locked");
     }
     if (accountStatus === "deleted") {
-      throw new Error("Account is deleted");
+      throw new Error(ACCOUNT_NOT_FOUND_MESSAGE);
     }
 
     return await createAuthenticatedSession(user, loginMeta);
@@ -488,7 +489,7 @@ const UserService = {
 
     const accountStatus = user.accountStatus || user.status || "active";
     if (accountStatus === "locked") throw new Error("Account is locked");
-    if (accountStatus === "deleted") throw new Error("Account is deleted");
+    if (accountStatus === "deleted") throw new Error(ACCOUNT_NOT_FOUND_MESSAGE);
 
     // 3. Create new access token.
     const sessionId = decoded.sessionId;
