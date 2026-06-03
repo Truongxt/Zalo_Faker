@@ -20,7 +20,13 @@ if [ ! -d node_modules ]; then
   npm ci
 fi
 
-npm run build
+if ! npm run build; then
+  echo "" >&2
+  echo "Web build failed before dist was created." >&2
+  echo "If the VPS output says 'Killed', the build was likely stopped by low RAM." >&2
+  echo "Add swap on the VPS, then run this script again." >&2
+  exit 1
+fi
 
 if [ ! -f "$DIST_DIR/index.html" ]; then
   echo "Build output not found: $DIST_DIR/index.html" >&2
